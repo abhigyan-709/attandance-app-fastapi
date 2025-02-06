@@ -1,7 +1,7 @@
 ﻿# Use an official Python runtime as a parent image
 FROM python:3.10-slim
 
-# Set the working directory inside the container
+# Set the working directory inside the container.....
 WORKDIR /app
 
 # Copy the requirements file to the container
