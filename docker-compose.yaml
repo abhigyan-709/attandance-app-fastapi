@@ -5,13 +5,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: my-fastapi-app
+    container_name: attendance-app
     ports:
       - "8000:8000"
     depends_on:
       - mongodb
     environment:
-      MONGODB_URI: "mongodb://mongodb:27017/mydatabase"  # MongoDB URI for FastAPI
+       - .env # MongoDB URI for the FastAPI app
     networks:
       - app-network
 
