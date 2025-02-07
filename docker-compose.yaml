@@ -10,8 +10,10 @@ services:
       - "8000:8000"
     depends_on:
       - mongodb
-    environment:
-       - .env # MongoDB URI for the FastAPI app
+    # environment:
+    #    - .env # MongoDB URI for the FastAPI app
+    env_file:
+      - .env
     networks:
       - app-network
 
