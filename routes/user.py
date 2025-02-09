@@ -166,7 +166,7 @@ async def read_user_by_id(
 
 #     raise HTTPException(status_code=404, detail="User not found")
 
-@route2.get("/users/{username}", response_model=User, tags=["Read User & Current User"])
+@route2.get("/users/{username}", response_model=User, tags=["Read User"])
 async def read_user_by_username(
     username: str, 
     db_client: MongoClient = Depends(db.get_client)
@@ -179,3 +179,4 @@ async def read_user_by_username(
         return User(**user_from_db)
 
     raise HTTPException(status_code=404, detail="User not found")
+
