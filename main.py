@@ -5,7 +5,7 @@ from routes.user import route2
 from routes.message import route3
 from routes.visitors import router4 as visitor_router
 from routes.meet import router6 as meet_router  # Import the dependency
-from routes.meet import router7 as attendance_router
+from routes.attendance import router7 as attendance_router
 
 from fastapi.middleware.cors import CORSMiddleware
 
