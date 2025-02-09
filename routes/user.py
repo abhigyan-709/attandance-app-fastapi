@@ -6,7 +6,7 @@ from passlib.context import CryptContext
 from database.db import db
 from models.user import User
 from models.token import Token
-from typing import Union
+from typing import Union, List
 from pymongo import MongoClient
 import secrets
 from bson import ObjectId
@@ -130,3 +130,22 @@ async def read_current_user(current_user: User = Depends(get_current_user), db_c
 
 
 
+@route2.get("/users", response_model=List[User], tags=["User Management"])
+async def get_all_users(current_user: User = Depends(get_current_user), db_client: MongoClient = Depends(db.get_client)):
+    # Check if the current user is an admin
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to access this resource"
+        )
+
+    # Fetch all users from the database
+    users_from_db = db_client[db.db_name]["user"].find()
+
+    # Convert users from the database into a list
+    users_list = []
+    for user_data in users_from_db:
+        user_data["_id"] = str(user_data["_id"])  # Convert ObjectId to string
+        users_list.append(user_data)
+
+    return users_list
