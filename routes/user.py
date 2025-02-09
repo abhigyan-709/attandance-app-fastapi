@@ -11,6 +11,11 @@ from pymongo import MongoClient
 import secrets
 from bson import ObjectId
 from fastapi.responses import JSONResponse
+from fastapi import HTTPException, APIRouter, Depends
+from pymongo import MongoClient
+from models.user import User
+from database.db import db
+
 
 route2 = APIRouter()
 SECRET_KEY = secrets.token_urlsafe(32)
@@ -149,3 +154,45 @@ async def get_all_users(current_user: User = Depends(get_current_user), db_clien
         users_list.append(user_data)
 
     return users_list
+
+
+@route2.patch("/users/activate/{username}", response_model=User, tags=["User Management"])
+async def activate_user(
+    username: str,  # Get the username as a URL parameter
+    current_user: User = Depends(get_current_user),  # Ensure the current user is authenticated
+    db_client: MongoClient = Depends(db.get_client)  # Access the database client
+):
+    # Check if the current user is an admin
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to perform this action"
+        )
+
+    # Find the user by username
+    user_from_db = db_client[db.db_name]["user"].find_one({"username": username})
+
+    if user_from_db is None:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    # Update the is_active field to True
+    update_result = db_client[db.db_name]["user"].update_one(
+        {"username": username},  # Match the user by username
+        {"$set": {"is_active": True}}  # Set the is_active field to True
+    )
+
+    if update_result.matched_count == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to update user status"
+        )
+
+    # Fetch the updated user data
+    updated_user = db_client[db.db_name]["user"].find_one({"username": username})
+
+    # Return the updated user details
+    updated_user["_id"] = str(updated_user["_id"])  # Convert ObjectId to string for response
+    return updated_user
