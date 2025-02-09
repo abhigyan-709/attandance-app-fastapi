@@ -1,8 +1,12 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from models.attendance import Attendance
 from database.db import db
 from datetime import datetime
 from fastapi.responses import JSONResponse
+from routes.user import get_current_user
+from models.user import User
+from pymongo import MongoClient
+from datetime import datetime
 
 router7 = APIRouter()
 
@@ -63,3 +67,31 @@ async def check_attendance(username: str):
         return JSONResponse(content={"marked": True, "message": "Attendance already marked"})
     
     return JSONResponse(content={"marked": False, "message": "Attendance not marked yet"})
+
+@router7.get("/attendance")
+async def get_all_attendance(current_user: User = Depends(get_current_user), db_client: MongoClient = Depends(db.get_client)):
+    # Check if the current user is an admin
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to access this resource"
+        )
+
+    # Fetch all attendance records from the database
+    attendance_from_db = db_client[db.db_name]["attendance"].find()
+
+    # Convert attendance records from the database into a list and handle datetime serialization
+    attendance_list = []
+    for attendance_data in attendance_from_db:
+        attendance_data["_id"] = str(attendance_data["_id"])  # Convert ObjectId to string
+        # Convert datetime fields to string (ISO format)
+        if "timestamp" in attendance_data:
+            attendance_data["timestamp"] = attendance_data["timestamp"].isoformat()  # or str(attendance_data["timestamp"])
+        attendance_list.append(attendance_data)
+
+    return JSONResponse(content=attendance_list, status_code=200)
+
+
+
+
+
