@@ -3,6 +3,7 @@ from fastapi import FastAPI, Depends
 from database.db import db
 from routes.user import route2
 from routes.message import route3
+from routes.visitors import router4 as visitor_router
 from routes.user import route2, get_current_user  # Import the dependency
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -36,6 +37,7 @@ app.add_middleware(
 
 app.include_router(route2)
 app.include_router(route3)
+app.include_router(visitor_router, prefix="/api", tags=["Visitors"])
 
 if __name__ == "__main__":
     import uvicorn

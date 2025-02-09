@@ -1,7 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-import jwt
-from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from database.db import db
 from models.user import User
