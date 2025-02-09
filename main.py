@@ -14,7 +14,7 @@ app = FastAPI(title="OpenSource Enterprise API",
     docs_url="/docs",
     contact={
         "name": "Project DevOps",
-        "url": "api.projectdevops.in/docs",
+        "url": "https://api.projectdevops.in/docs",
         "email": "connect@projectdevops.in",
 
     },
