@@ -147,16 +147,30 @@ async def read_user_by_id(
     raise HTTPException(status_code=404, detail="User not found")
 
 
+# @route2.get("/users/{username}", response_model=User, tags=["Read User & Current User"])
+# async def read_user_by_username(
+#     username: str, 
+#     current_user: User = Depends(get_current_user),
+#     db_client: MongoClient = Depends(db.get_client)
+# ):
+#     # Ensure the logged-in user can only access their own profile data
+#     if username != current_user.username:
+#         raise HTTPException(status_code=403, detail="Forbidden: You can only access your own user details")
+
+#     # Fetch the user from the database using the username
+#     user_from_db = db_client[db.db_name]["user"].find_one({"username": username})
+    
+#     if user_from_db:
+#         # Convert the result to the User Pydantic model and return it
+#         return User(**user_from_db)
+
+#     raise HTTPException(status_code=404, detail="User not found")
+
 @route2.get("/users/{username}", response_model=User, tags=["Read User & Current User"])
 async def read_user_by_username(
     username: str, 
-    current_user: User = Depends(get_current_user),
     db_client: MongoClient = Depends(db.get_client)
 ):
-    # Ensure the logged-in user can only access their own profile data
-    if username != current_user.username:
-        raise HTTPException(status_code=403, detail="Forbidden: You can only access your own user details")
-
     # Fetch the user from the database using the username
     user_from_db = db_client[db.db_name]["user"].find_one({"username": username})
     
