@@ -7,18 +7,14 @@ from routes.user import route2, get_current_user  # Import the dependency
 
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="OpenSource Enterprise Authentication API",
-              description="All in ONE advanced Authentication API with User Management.",
+app = FastAPI(title="OpenSource Enterprise API",
+              description="All in ONE API for basic authentication, user registration, attendance mapping and message sending",
               version="1.1.0",
-    #           servers=[
-    #     {"url": "https://auth.globaltamasha.in", "description": "Staging environment"},
-    #     {"url": "https://auth.globaltamasha.com", "description": "Production environment"},
-    # ],
     docs_url="/docs",
     contact={
-        "name": "Abhigyan Kumar",
-        "url": "https://globaltamasha.in/docs",
-        "email": "info@globaltamasha.com",
+        "name": "Project DevOps",
+        "url": "api.projectdevops.in/docs",
+        "email": "connect@projectdevops.in",
 
     },
     swagger_ui_parameters={"syntaxHighlight.theme": "obsidian"})
