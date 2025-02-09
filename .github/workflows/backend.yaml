@@ -83,7 +83,7 @@ jobs:
           # Ensure .env file exists
           if [ ! -f "/home/$USER/.env" ]; then
             echo "Creating .env file..."
-            echo "MONGO_URI=mongodb://mongodb:27017/testdb" > /home/$USER/.env
+            echo "MONGO_URI=mongodb://admin:Gyanu1234@13.126.160.142:27017/testdb" > /home/$USER/.env
           fi
 
           # Run the new container
