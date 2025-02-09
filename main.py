@@ -2,7 +2,7 @@ from fastapi import FastAPI, Depends
 # from routes.item import route as item_router  # Correct import
 from database.db import db
 from routes.user import route2
-# from routes.user_response import user_response_route 
+from routes.message import route3
 from routes.user import route2, get_current_user  # Import the dependency
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,6 +39,7 @@ app.add_middleware(
 
 
 app.include_router(route2)
+app.include_router(route3)
 
 if __name__ == "__main__":
     import uvicorn
