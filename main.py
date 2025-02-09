@@ -4,8 +4,7 @@ from database.db import db
 from routes.user import route2
 from routes.message import route3
 from routes.visitors import router4 as visitor_router
-from routes.meet import router5 as meet_router
-from routes.user import route2, get_current_user  # Import the dependency
+from routes.meet import router6 as meet_router  # Import the dependency
 
 from fastapi.middleware.cors import CORSMiddleware
 
