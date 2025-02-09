@@ -3,6 +3,7 @@ from models.meet import MeetLink
 from database.db import db
 from datetime import datetime
 from fastapi.responses import JSONResponse
+from bson import ObjectId
 router6 = APIRouter()
 
 
@@ -19,6 +20,11 @@ async def add_meet_link(meet_link: MeetLink):
 async def get_meet_link():
     db_client = db.get_client()
     meet_link = db_client[db.db_name]["meet"].find_one(sort=[("created_at", -1)])
-    if meet_link:
-        return meet_link
-    raise HTTPException(status_code=404, detail="No Google Meet link found")
+
+    if not meet_link:
+        raise HTTPException(status_code=404, detail="No Google Meet link found")
+
+    # Convert ObjectId to string
+    meet_link["_id"] = str(meet_link["_id"])  
+
+    return meet_link
