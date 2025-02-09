@@ -30,7 +30,6 @@ jobs:
       run: |
         aws ecr describe-repositories --repository-names ${{ secrets.ECR_REPOSITORY }} || \
         aws ecr create-repository --repository-name ${{ secrets.ECR_REPOSITORY }}
-      
 
     - name: Build and tag Docker image
       run: |
@@ -51,14 +50,28 @@ jobs:
         chmod 600 private_key.pem
 
         ssh -o StrictHostKeyChecking=no -i private_key.pem $USER@$HOST << 'EOF'
+          # Ensure AWS CLI is installed
+          if ! command -v aws &> /dev/null; then
+            sudo apt update && sudo apt install -y awscli
+          fi
+
+          # Login to Amazon ECR
           aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
           docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
           
+          # Pull latest image
           docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
           
+          # Stop and remove old container if exists
           docker stop attendance-app || true
           docker rm attendance-app || true
 
+          # Ensure .env file exists
+          if [ ! -f "/home/$USER/.env" ]; then
+            echo "MONGO_URI=mongodb://mongodb:27017/testdb" > /home/$USER/.env
+          fi
+
+          # Run the new container
           docker run -d --name attendance-app -p 8000:8000 \
             --env-file /home/$USER/.env \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
