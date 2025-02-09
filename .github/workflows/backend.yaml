@@ -50,9 +50,23 @@ jobs:
         chmod 600 private_key.pem
 
         ssh -o StrictHostKeyChecking=no -i private_key.pem $USER@$HOST << 'EOF'
-          # Ensure AWS CLI is installed
+          # Ensure AWS CLI v2 is installed
           if ! command -v aws &> /dev/null; then
-            sudo apt update && sudo apt install -y awscli
+            echo "Installing AWS CLI..."
+            sudo apt update
+            sudo apt install -y curl unzip
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip awscliv2.zip
+            sudo ./aws/install
+          fi
+
+          # Ensure Docker is installed
+          if ! command -v docker &> /dev/null; then
+            echo "Installing Docker..."
+            sudo apt update
+            sudo apt install -y docker.io
+            sudo systemctl start docker
+            sudo systemctl enable docker
           fi
 
           # Login to Amazon ECR
@@ -68,6 +82,7 @@ jobs:
 
           # Ensure .env file exists
           if [ ! -f "/home/$USER/.env" ]; then
+            echo "Creating .env file..."
             echo "MONGO_URI=mongodb://mongodb:27017/testdb" > /home/$USER/.env
           fi
 
