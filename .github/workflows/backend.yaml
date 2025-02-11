@@ -80,13 +80,23 @@ jobs:
           docker stop attendance-app || true
           docker rm attendance-app || true
 
-          # Ensure .env file exists
-          if [ ! -f "/home/$USER/.env" ]; then
+          # # Ensure .env file exists
+          # if [ ! -f "/home/$USER/.env" ]; then
+          #   echo "Creating .env file..."
+          #   echo "MONGO_URI=${{ secrets.MONGO_URI }}" > /home/$USER/.env
+          #   echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> /home/$USER/.env
+          #   echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> /home/$USER/.env
+          #   echo "AWS_REGION=${{ secrets.AWS_REGION }}" >> /home/$USER/.env
+          # fi
+
+          ENV_FILE=/home/$USER/.env
+
+          if [ ! -f "$ENV_FILE" ]; then
             echo "Creating .env file..."
-            echo "MONGO_URI=${{ secrets.MONGO_URI }}" > /home/$USER/.env
-            echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> /home/$USER/.env
-            echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> /home/$USER/.env
-            echo "AWS_REGION=${{ secrets.AWS_REGION }}" >> /home/$USER/.env
+            echo "MONGO_URI=${{ secrets.MONGO_URI }}" > $ENV_FILE
+            echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> $ENV_FILE
+            echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> $ENV_FILE
+            echo "AWS_REGION=${{ secrets.AWS_REGION }}" >> $ENV_FILE
           fi
 
           # Run the new container
