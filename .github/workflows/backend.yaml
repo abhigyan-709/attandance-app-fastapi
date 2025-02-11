@@ -178,16 +178,18 @@ jobs:
           docker rm attendance-app || true
 
           # Ensure .env file exists
-          if [ ! -f "/home/$USER/.env" ]; then
-            echo "Creating .env file..."
-            cat <<EOT >> /home/$USER/.env
-                  MONGO_URI=${{ secrets.MONGO_URI }}
-                  AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
-                  AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
-                  AWS_REGION=${{ secrets.AWS_REGION }}
-                  AWS_BUCKET_NAME=${{ secrets.AWS_BUCKET_NAME }}
-                  EOT
-          fi
+          # Ensure .env file exists
+              if [ ! -f "/home/$USER/.env" ]; then
+                echo "Creating .env file..."
+                cat <<EOT > /home/$USER/.env
+              MONGO_URI=${{ secrets.MONGO_URI }}
+              AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+              AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+              AWS_REGION=${{ secrets.AWS_REGION }}
+              AWS_BUCKET_NAME=${{ secrets.AWS_BUCKET_NAME }}
+              EOT
+              fi
+
 
           # Run the new container
           docker run -d --name attendance-app -p 8000:8000 \
