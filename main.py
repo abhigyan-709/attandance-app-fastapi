@@ -29,7 +29,7 @@ app.openapi_version = "3.0.2"
 # Allow all origins for CORS (update this to a specific origin in production)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://www.projectdevops.in"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
