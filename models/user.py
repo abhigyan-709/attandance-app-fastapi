@@ -9,6 +9,7 @@ class User(BaseModel):
     username: str
     email: EmailStr
     password: str
+    education: str
     role : str = "user" # default user is set to the user role
     is_active : bool = False
 
