@@ -80,32 +80,12 @@ jobs:
           docker stop attendance-app || true
           docker rm attendance-app || true
 
-          # # Ensure .env file exists
-          # if [ ! -f "/home/$USER/.env" ]; then
-          #   echo "Creating .env file..."
-          #   # echo "MONGO_URI=mongodb://admin:Gyanu1234@13.126.160.142:27017/testdb" > /home/$USER/.env
-          #   echo "MONGO_URI=${{ secrets.MONGO_URI }}" > /home/$USER/.env
-          # fi
-
-          # Ensure .env file exists and write each line separately
-
-          echo "Setting up .env file..."
-          ENV_FILE="/home/$USER/.env"
-
-          if [ ! -f "$ENV_FILE" ]; then
-            touch $ENV_FILE
-          else
-            rm $ENV_FILE
-            touch $ENV_FILE
+          # Ensure .env file exists
+          if [ ! -f "/home/$USER/.env" ]; then
+            echo "Creating .env file..."
+            # echo "MONGO_URI=mongodb://admin:Gyanu1234@13.126.160.142:27017/testdb" > /home/$USER/.env
+            echo "MONGO_URI=${{ secrets.MONGO_URI }}" > /home/$USER/.env
           fi
-
-          echo "MONGO_URI=$MONGO_URI" >> $ENV_FILE
-          echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" >> $ENV_FILE
-          echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" >> $ENV_FILE
-          echo "AWS_REGION=$AWS_REGION" >> $ENV_FILE
-          echo "AWS_BUCKET_NAME=$AWS_BUCKET_NAME" >> $ENV_FILE
-
-          echo ".env file created successfully."
 
           # Run the new container
           docker run -d --name attendance-app -p 8000:8000 \
