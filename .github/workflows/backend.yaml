@@ -75,26 +75,17 @@ jobs:
 
 
 
-          # Ensure .env file exists
-          # if [ ! -f "/home/$USER/.env" ]; then
-          #   echo "Creating .env file..."
-          #   # echo "MONGO_URI=mongodb://admin:Gyanu1234@13.126.160.142:27017/testdb" > /home/$USER/.env
-          #   echo "MONGO_URI=${{ secrets.MONGO_URI }}" > /home/$USER/.env
-          # fi
+          Ensure .env file exists
+          if [ ! -f "/home/$USER/.env" ]; then
+            echo "Creating .env file..."
+            # echo "MONGO_URI=mongodb://admin:Gyanu1234@13.126.160.142:27017/testdb" > /home/$USER/.env
+            echo "MONGO_URI=${{ secrets.MONGO_URI }}" > /home/$USER/.env
+            echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> /home/$USER/.env
+            
+          fi
 
 
-          # Force overwriting .env
-          echo "Writing environment variables to .env file..."
-          cat > /home/$USER/.env <<EOF
-          MONGO_URI=${{ secrets.MONGO_URI }}
-          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION=${{ secrets.AWS_REGION }}
-          AWS_BUCKET_NAME=${{ secrets.AWS_BUCKET_NAME }}
-          EOF
-
-          # Verify .env contents
-          cat /home/$USER/.env
+    
 
           # Run the new container
           docker run -d --name attendance-app -p 8000:8000 \
