@@ -190,7 +190,7 @@ async def activate_user(
             detail="Failed to update user status"
         )
 
-    # Fetch the updated user data
+    # Fetch the updated user data from database
     updated_user = db_client[db.db_name]["user"].find_one({"username": username})
 
     # Return the updated user details
