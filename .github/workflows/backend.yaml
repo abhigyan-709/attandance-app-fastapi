@@ -92,10 +92,6 @@ jobs:
           AWS_BUCKET_NAME=${{ secrets.AWS_BUCKET_NAME }}
           EOF
 
-          cat /home/$USER/.env
-
-
-
           # Run the new container
           docker run -d --name attendance-app -p 8000:8000 \
             --env-file /home/$USER/.env \
