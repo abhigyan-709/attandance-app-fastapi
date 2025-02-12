@@ -15,6 +15,7 @@ from fastapi import HTTPException, APIRouter, Depends
 from pymongo import MongoClient
 from models.user import User
 from database.db import db
+from models.user_details import UserDetails
 
 
 route2 = APIRouter()
@@ -196,3 +197,62 @@ async def activate_user(
     # Return the updated user details
     updated_user["_id"] = str(updated_user["_id"])  # Convert ObjectId to string for response
     return updated_user
+
+
+@route2.post("/users/details", response_model=UserDetails, tags=["User Details"])
+async def add_user_details(user_details: UserDetails, current_user: User = Depends(get_current_user), db_client: MongoClient = Depends(db.get_client)):
+    # Check if the user details already exist
+    existing_user_details = db_client[db.db_name]["user_details"].find_one({"username": current_user.username})
+    if existing_user_details:
+        raise HTTPException(status_code=400, detail="User details already exist")
+    
+    # Insert the user details into the database
+    user_details_dict = user_details.dict()
+    user_details_dict["username"] = current_user.username
+    user_details_dict["first_name"] = current_user.first_name
+    user_details_dict["last_name"] = current_user.last_name
+    user_details_dict["email"] = current_user.email
+    user_details_dict["role"] = current_user.role
+    user_details_dict["city"] = current_user.city
+    result = db_client[db.db_name]["user_details"].insert_one(user_details_dict)
+
+    # Convert ObjectId to string
+    user_details_dict["_id"] = str(result.inserted_id)
+
+    # Return response with the user details
+    return JSONResponse(content=user_details_dict, status_code=201)
+
+@route2.get("/users/details", response_model=UserDetails, tags=["User Details"])
+async def get_user_details(
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    if current_user is None:
+        raise HTTPException(status_code=401, detail="User is not logged in")
+    
+    # Fetch user details from the database
+    user_details = db_client[db.db_name]["user_details"].find_one({"username": current_user.username})
+
+    if not user_details:
+        raise HTTPException(status_code=404, detail="User details not found")
+
+    # Convert MongoDB ObjectId to string if needed
+    user_details["_id"] = str(user_details["_id"]) if "_id" in user_details else None
+
+    # Ensure all required fields are present
+    required_fields = [
+        "username", "father_name", "mother_name", "mobile_number", "college_name",
+        "course", "branch", "year_of_passing", "date_of_birth", "first_name",
+        "last_name", "email", "role", "city"
+    ]
+    
+    # Fill missing fields with None (or default values)
+    for field in required_fields:
+        if field not in user_details:
+            user_details[field] = None  
+
+    return user_details
+
+    
+
+    
