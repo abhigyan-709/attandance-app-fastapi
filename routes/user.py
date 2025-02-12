@@ -199,28 +199,39 @@ async def activate_user(
     return updated_user
 
 
-@route2.post("/users/details", response_model=UserDetails, tags=["User Details"])
-async def add_user_details(user_details: UserDetails, current_user: User = Depends(get_current_user), db_client: MongoClient = Depends(db.get_client)):
-    # Check if the user details already exist
-    existing_user_details = db_client[db.db_name]["user_details"].find_one({"username": current_user.username})
-    if existing_user_details:
-        raise HTTPException(status_code=400, detail="User details already exist")
-    
-    # Insert the user details into the database
+@route2.put("/users/details", response_model=UserDetails, tags=["User Details"])
+async def add_or_update_user_details(
+    user_details: UserDetails, 
+    current_user: User = Depends(get_current_user), 
+    db_client: MongoClient = Depends(db.get_client)
+):
+    # Reference to the collection
+    user_details_collection = db_client[db.db_name]["user_details"]
+
+    # Convert user details to dictionary
     user_details_dict = user_details.dict()
+
+    # Ensure username and other fixed fields remain unchanged
     user_details_dict["username"] = current_user.username
     user_details_dict["first_name"] = current_user.first_name
     user_details_dict["last_name"] = current_user.last_name
     user_details_dict["email"] = current_user.email
     user_details_dict["role"] = current_user.role
     user_details_dict["city"] = current_user.city
-    result = db_client[db.db_name]["user_details"].insert_one(user_details_dict)
 
-    # Convert ObjectId to string
-    user_details_dict["_id"] = str(result.inserted_id)
+    # Update existing document if found, otherwise insert a new one
+    result = user_details_collection.update_one(
+        {"username": current_user.username},  # Filter criteria
+        {"$set": user_details_dict},  # Data to update
+        upsert=True  # Create new if not exists
+    )
 
-    # Return response with the user details
-    return JSONResponse(content=user_details_dict, status_code=201)
+    # Retrieve the updated/inserted document
+    updated_user_details = user_details_collection.find_one({"username": current_user.username})
+    updated_user_details["_id"] = str(updated_user_details["_id"])  # Convert ObjectId to string
+
+    return JSONResponse(content=updated_user_details, status_code=200)
+
 
 @route2.get("/users/details", response_model=UserDetails, tags=["User Details"])
 async def get_user_details(
