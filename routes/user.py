@@ -82,19 +82,7 @@ async def login_for_access_token(
         db_client: MongoClient = Depends(db.get_client)
 ):
     user_from_db = db_client[db.db_name]["user"].find_one({"username": form_data.username})
-
-    if not user_from_db or not verify_password(form_data.password, user_from_db['password']):
-        raise HTTPException(
-            status_code=401,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
     
-    if not user_from_db.get("is_active", False):  # Ensure account is active
-        raise HTTPException(
-            status_code=403,
-            detail="Account is inactive. Please contact support.",
-        )
     
     if user_from_db and verify_password(form_data.password, user_from_db['password']):
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
