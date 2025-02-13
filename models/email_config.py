@@ -1,28 +1,3 @@
-# from pydantic import BaseModel
-# from fastapi_mail import ConnectionConfig
-
-# class EmailSettings(BaseModel):
-#     MAIL_USERNAME: str = "connect@projectdevops.in"
-#     MAIL_PASSWORD: str = "kbcfzhilrdtithsr"  # Use the App Password
-#     MAIL_FROM: str = "connect@projectdevops.in"
-#     MAIL_PORT: int = 587  # TLS (or 465 for SSL)
-#     MAIL_SERVER: str = "smtp.gmail.com"
-#     MAIL_STARTTLS: bool = True  # Correct field name
-#     MAIL_SSL_TLS: bool = False  # Correct field name
-#     MAIL_FROM_NAME: str = "Project DevOps"
-
-# settings = EmailSettings()
-
-# conf = ConnectionConfig(
-#     MAIL_USERNAME=settings.MAIL_USERNAME,
-#     MAIL_PASSWORD=settings.MAIL_PASSWORD,
-#     MAIL_FROM=settings.MAIL_FROM,
-#     MAIL_PORT=settings.MAIL_PORT,
-#     MAIL_SERVER=settings.MAIL_SERVER,
-#     MAIL_STARTTLS=settings.MAIL_STARTTLS,  # Corrected field
-#     MAIL_SSL_TLS=settings.MAIL_SSL_TLS     # Corrected field
-# )
-
 import os
 from pydantic import BaseModel
 from fastapi_mail import ConnectionConfig
