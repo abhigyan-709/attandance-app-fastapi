@@ -11,10 +11,8 @@ from pymongo import MongoClient
 import secrets
 from bson import ObjectId
 from fastapi.responses import JSONResponse
-from fastapi import HTTPException, APIRouter, Depends
 from pymongo import MongoClient
 from models.user import User
-from database.db import db
 from models.user_details import UserDetails
 from routes.send_email import send_registration_email
 
@@ -77,26 +75,6 @@ async def root():
     client = db.get_client()
     return {"message": "Connected to MongoDB successfully!"}
 
-# @route2.post("/token", response_model=Token, tags=["Login & Authentication"])
-# async def login_for_access_token(
-#         form_data: OAuth2PasswordRequestForm = Depends(),
-#         db_client: MongoClient = Depends(db.get_client)
-# ):
-#     user_from_db = db_client[db.db_name]["user"].find_one({"username": form_data.username})
-    
-#     if user_from_db and verify_password(form_data.password, user_from_db['password']):
-#         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-#         access_token = create_access_token(
-#             data={"username": form_data.username},
-#             expires_delta=access_token_expires
-#         )
-#         return {"access_token": access_token, "token_type": "bearer"}
-
-#     raise HTTPException(
-#         status_code=401,
-#         detail="Incorrect username or password",
-#         headers={"WWW-Authenticate": "Bearer"},
-#     )
 
 @route2.post("/token", response_model=Token, tags=["Login & Authentication"])
 async def login_for_access_token(
@@ -104,6 +82,19 @@ async def login_for_access_token(
         db_client: MongoClient = Depends(db.get_client)
 ):
     user_from_db = db_client[db.db_name]["user"].find_one({"username": form_data.username})
+
+    if not user_from_db or not verify_password(form_data.password, user_from_db['password']):
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    if not user_from_db.get("is_active", False):  # Ensure account is active
+        raise HTTPException(
+            status_code=403,
+            detail="Account is inactive. Please contact support.",
+        )
     
     if user_from_db and verify_password(form_data.password, user_from_db['password']):
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -128,12 +119,6 @@ async def login_for_access_token(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-
-    raise HTTPException(
-        status_code=401,
-        detail="Incorrect username or password",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
 
 
 @route2.post("/register/", tags=["User Registration"])
