@@ -76,6 +76,27 @@ async def root():
     client = db.get_client()
     return {"message": "Connected to MongoDB successfully!"}
 
+# @route2.post("/token", response_model=Token, tags=["Login & Authentication"])
+# async def login_for_access_token(
+#         form_data: OAuth2PasswordRequestForm = Depends(),
+#         db_client: MongoClient = Depends(db.get_client)
+# ):
+#     user_from_db = db_client[db.db_name]["user"].find_one({"username": form_data.username})
+    
+#     if user_from_db and verify_password(form_data.password, user_from_db['password']):
+#         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+#         access_token = create_access_token(
+#             data={"username": form_data.username},
+#             expires_delta=access_token_expires
+#         )
+#         return {"access_token": access_token, "token_type": "bearer"}
+
+#     raise HTTPException(
+#         status_code=401,
+#         detail="Incorrect username or password",
+#         headers={"WWW-Authenticate": "Bearer"},
+#     )
+
 @route2.post("/token", response_model=Token, tags=["Login & Authentication"])
 async def login_for_access_token(
         form_data: OAuth2PasswordRequestForm = Depends(),
@@ -89,7 +110,23 @@ async def login_for_access_token(
             data={"username": form_data.username},
             expires_delta=access_token_expires
         )
+
+        # Store active session in MongoDB
+        session_data = {
+            "username": form_data.username,
+            "token": access_token,
+            "login_time": datetime.utcnow()
+        }
+        db_client[db.db_name]["active_sessions"].insert_one(session_data)
+
         return {"access_token": access_token, "token_type": "bearer"}
+
+    raise HTTPException(
+        status_code=401,
+        detail="Incorrect username or password",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
 
     raise HTTPException(
         status_code=401,
@@ -266,4 +303,30 @@ async def get_user_details(
 
     
 
-    
+@route2.get("/active-sessions", tags=["User Management"])
+async def get_active_sessions(
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    # Only admin can view active sessions
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+    active_sessions = list(db_client[db.db_name]["active_sessions"].find({}, {"_id": 0}))
+    return {"active_users": active_sessions}
+
+
+@route2.post("/logout", tags=["Login & Authentication"])
+async def logout(
+    token: str,
+    db_client: MongoClient = Depends(db.get_client)
+):
+    session = db_client[db.db_name]["active_sessions"].find_one({"token": token})
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    db_client[db.db_name]["active_sessions"].delete_one({"token": token})
+
+    return {"message": "Successfully logged out"}
+
