@@ -2,6 +2,7 @@ from fastapi_mail import FastMail, MessageSchema
 from models.email_config import conf
 
 async def send_registration_email(email: str, username: str):
+    # mail to be sent
     subject = "Welcome to Project DevOps!"
     body = f"""
     <html>
