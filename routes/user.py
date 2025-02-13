@@ -16,6 +16,7 @@ from pymongo import MongoClient
 from models.user import User
 from database.db import db
 from models.user_details import UserDetails
+from routes.send_email import send_registration_email
 
 
 route2 = APIRouter()
@@ -156,6 +157,8 @@ async def register(user: User, db_client: MongoClient = Depends(db.get_client)):
     
     # Convert ObjectId to string
     user_dict["_id"] = str(result.inserted_id)
+
+    await send_registration_email(user.email, user.username)
 
     # Return response with the user data
     return JSONResponse(content=user_dict, status_code=201)
