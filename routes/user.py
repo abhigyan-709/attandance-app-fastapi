@@ -158,7 +158,7 @@ async def register(user: User, db_client: MongoClient = Depends(db.get_client)):
     # Convert ObjectId to string
     user_dict["_id"] = str(result.inserted_id)
 
-    await send_registration_email(user.email, user.username)
+    await send_registration_email(user.email, user.first_name, user.last_name)
 
     # Return response with the user data
     return JSONResponse(content=user_dict, status_code=201)
