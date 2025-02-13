@@ -84,7 +84,14 @@ jobs:
             echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> /home/$USER/.env
             echo "AWS_REGION=${{ secrets.AWS_REGION }}" >> /home/$USER/.env
             echo "AWS_BUCKET_NAME=${{ secrets.AWS_BUCKET_NAME }}" >> /home/$USER/.env
-            
+            echo "MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}" >> /home/$USER/.env
+            echo "MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}" >> /home/$USER/.env
+            echo "MAIL_FROM=${{ secrets.MAIL_FROM }}" >> /home/$USER/.env
+            echo "MAIL_PORT=${{ secrets.MAIL_PORT }}" >> /home/$USER/.env
+            echo "MAIL_SERVER=${{ secrets.MAIL_SERVER }}" >> /home/$USER/.env
+            echo "MAIL_STARTTLS=${{ secrets.MAIL_STARTTLS }}" >> /home/$USER/.env
+            echo "MAIL_SSL_TLS=${{ secrets.MAIL_SSL_TLS }}" >> /home/$USER/.env
+            echo "MAIL_FROM_NAME=${{ secrets.MAIL_FROM_NAME }}" >> /home/$USER/.env
           fi
 
 
