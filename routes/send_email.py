@@ -32,7 +32,7 @@
 from fastapi_mail import FastMail, MessageSchema
 from models.email_config import conf
 
-async def send_registration_email(email: str, username: str):
+async def send_registration_email(email: str, first_name: str, last_name: str):
     # Mail subject
     subject = "Congratulations! You are Registered for Project DevOps Training"
 
@@ -41,7 +41,7 @@ async def send_registration_email(email: str, username: str):
     <html>
         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
             <div style="max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
-                <h2 style="color: #1A237E; text-align: center;">Dear {username},</h2>
+                <h2 style="color: #1A237E; text-align: center;">Dear {first_name} {last_name},</h2>
                 <p>Congratulations! You have successfully registered for the <b>3-Months Free Certificate Training Program</b> in <b>Python, Cloud Computing & DevOps</b>, hosted by <b>Project DevOps</b> in collaboration with <b>Support Foundation</b>.</p>
 
                 <h3 style="color: #FF5722;">Training Details:</h3>
