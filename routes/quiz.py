@@ -6,6 +6,7 @@ from models.user import User
 from routes.user import get_current_user
 from typing import List
 import datetime
+import json
 
 router17 = APIRouter()
 
@@ -14,14 +15,19 @@ active_connections: List[WebSocket] = []
 
 # WebSocket for real-time quiz notifications
 @router17.websocket("/quiz-notifications")
-async def quiz_notifications(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     active_connections.append(websocket)
+    print(f"New WebSocket connection: {websocket}")
+
     try:
         while True:
-            await websocket.receive_text()  # Keep connection alive
+            await websocket.receive_text()
     except WebSocketDisconnect:
         active_connections.remove(websocket)
+        print("WebSocket disconnected")
+
+
 
 # Admin creates a new quiz & notifies users
 @router17.post("/create-quiz")
