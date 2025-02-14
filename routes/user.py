@@ -7,20 +7,22 @@ from database.db import db
 from models.user import User
 from models.token import Token
 from typing import Union, List
-from pymongo import MongoClient
 import secrets
 from bson import ObjectId
 from fastapi.responses import JSONResponse
 from pymongo import MongoClient
 from models.user import User
 from models.user_details import UserDetails
-from routes.send_email import send_registration_email
+from routes.send_email import send_registration_email ,send_password_reset_email  # Import the new function
 
 
 route2 = APIRouter()
 SECRET_KEY = secrets.token_urlsafe(32)
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+RESET_TOKEN_EXPIRY_MINUTES = 15  # Token expires in 15 minutes
+RESET_SECRET_KEY = secrets.token_urlsafe(32)
 
 # Create an instance of CryptContext for password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -306,3 +308,72 @@ async def logout(
 
     return {"message": "Successfully logged out"}
 
+
+
+
+@route2.post("/password-reset/request", tags=["Password Reset"])
+async def request_password_reset(email: str, db_client: MongoClient = Depends(db.get_client)):
+    user_from_db = db_client[db.db_name]["user"].find_one({"email": email})
+    
+    if not user_from_db:
+        raise HTTPException(status_code=404, detail="User with this email not found")
+
+    # Generate reset token
+    reset_token = jwt.encode(
+        {"email": email, "exp": datetime.utcnow() + timedelta(minutes=RESET_TOKEN_EXPIRY_MINUTES)},
+        RESET_SECRET_KEY,
+        algorithm="HS256"
+    )
+
+    # Store reset token in DB
+    db_client[db.db_name]["password_resets"].insert_one(
+        {"email": email, "token": reset_token, "expires_at": datetime.utcnow() + timedelta(minutes=RESET_TOKEN_EXPIRY_MINUTES)}
+    )
+
+    print(f"Generated Token: {reset_token}")
+
+    # Send email with reset link
+    reset_link = f"https://projectdevops.in/reset-password?token={reset_token}"
+    await send_password_reset_email(email, reset_link)
+
+    return JSONResponse(content={"message": "Password reset email sent"}, status_code=200)
+
+
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+@route2.post("/password-reset/confirm", tags=["Password Reset"])
+async def reset_password(token: str, new_password: str, db_client: MongoClient = Depends(db.get_client)):
+    try:
+        # Decode token
+        payload = jwt.decode(token, RESET_SECRET_KEY, algorithms=["HS256"])
+        email = payload.get("email")
+
+        if not email:
+            raise HTTPException(status_code=400, detail="Invalid token")
+
+        # Check if token exists in DB
+        token_entry = db_client[db.db_name]["password_resets"].find_one({"email": email, "token": token})
+        if not token_entry:
+            raise HTTPException(status_code=400, detail="Invalid or expired token")
+
+        # Hash new password
+        hashed_password = pwd_context.hash(new_password)
+
+        # Update user password
+        db_client[db.db_name]["user"].update_one({"email": email}, {"$set": {"password": hashed_password}})
+
+        token_entry = db_client[db.db_name]["password_resets"].find_one({"email": email})
+        print(f"Stored Token: {token_entry['token']}")
+
+
+        # Delete the used token
+        db_client[db.db_name]["password_resets"].delete_one({"email": email})
+
+        return JSONResponse(content={"message": "Password reset successful"}, status_code=200)
+
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=400, detail="Token has expired")
+    except jwt.PyJWTError:
+        raise HTTPException(status_code=400, detail="Invalid token")
