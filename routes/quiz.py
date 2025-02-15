@@ -87,3 +87,35 @@ async def submit_quiz(quiz_id: str, user_response: UserResponse, current_user: U
     db_client[db.db_name]["quiz_responses"].insert_one(response_doc)
 
     return {"message": "Quiz submitted successfully"}
+
+from fastapi import Query
+
+from fastapi import Query
+import pytz
+
+@router17.get("/quiz-attempts/count")
+async def get_quiz_attempt_count(
+    date: str = Query(..., description="Date in YYYY-MM-DD format"),
+    current_user: User = Depends(get_current_user),
+):
+    db_client = db.get_client()
+
+    try:
+        # Convert date string to UTC datetime range
+        local_timezone = pytz.utc  # Change this if your timestamps are in another timezone
+        start_date = datetime.datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=local_timezone)
+        end_date = start_date + datetime.timedelta(days=1)
+
+        # Debugging: Print date range
+        print(f"Querying from {start_date} to {end_date}")
+
+        # Count quiz responses for the user on the given date
+        count = db_client[db.db_name]["quiz_responses"].count_documents({
+            "username": current_user.username,
+            "submitted_at": {"$gte": start_date, "$lt": end_date}
+        })
+
+        return {"date": date, "username": current_user.username, "quiz_attempt_count": count}
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
