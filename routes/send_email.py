@@ -16,7 +16,7 @@ async def send_registration_email(email: str, first_name: str, last_name: str):
                 <h3 style="color: #FF5722;">Training Details:</h3>
                 <ul>
                     <li><b>📅 Start From:</b> 16th February 2025</li>
-                    <li><b>⏰ Time:</b> 7:00 PM – 8:15 PM IST</li>
+                    <<li><b>⏰ Time:</b> 7:00 PM – 8:15 PM IST</li>
                     <li><b>🖥 Mode:</b> Online</li>
                     <li><b>📜 Duration:</b> 3 Months</li>
                     <li><b>💰 Cost:</b> Free</li>
@@ -28,7 +28,6 @@ async def send_registration_email(email: str, first_name: str, last_name: str):
                 <h3 style="color: #388E3C;">Join the WhatsApp Group:</h3>
                 <p>Click the link below to join our official WhatsApp group for further details and to get the session joining link:</p>
                 <p><a href="https://chat.whatsapp.com/EnjQWucvrFvDeTMQoNNSXd" style="color: #0288D1; font-weight: bold;">Join WhatsApp Group</a></p>
-
 
                 <h3>For any queries, feel free to contact us:</h3>
                 <p><b>📧 Email:</b> connect@projectdevops.in / training@projectdevops.in</p>
@@ -46,16 +45,13 @@ async def send_registration_email(email: str, first_name: str, last_name: str):
     message = MessageSchema(
         subject=subject,
         recipients=[email],
+        cc=["projectdevops709@gmail.com"],  # Added CC
         body=body,
         subtype="html"
     )
 
     fm = FastMail(conf)
     await fm.send_message(message)
-
-
-from fastapi_mail import FastMail, MessageSchema
-from models.email_config import conf
 
 async def send_password_reset_email(email: str, reset_link: str):
     subject = "Password Reset Request for Project DevOps"
@@ -86,6 +82,7 @@ async def send_password_reset_email(email: str, reset_link: str):
     message = MessageSchema(
         subject=subject,
         recipients=[email],
+        cc=["projectdevops709@gmail.com"],  # Added CC
         body=body,
         subtype="html"
     )
