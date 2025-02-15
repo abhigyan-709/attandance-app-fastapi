@@ -27,7 +27,7 @@ async def send_registration_email(email: str, first_name: str, last_name: str):
 
                 <h3 style="color: #388E3C;">Join the WhatsApp Group:</h3>
                 <p>Click the link below to join our official WhatsApp group for further details and to get the session joining link:</p>
-                <p><a href="https://chat.whatsapp.com/EnjQWucvrFvDeTMQoNNSXd" style="color: #0288D1; font-weight: bold;">Join WhatsApp Group</a></p>
+                <p><a href="https://chat.whatsapp.com/EKaQMLEXQ2nBr2HQlqwbQG" style="color: #0288D1; font-weight: bold;">Join WhatsApp Group</a></p>
 
                 <h3>For any queries, feel free to contact us:</h3>
                 <p><b>📧 Email:</b> connect@projectdevops.in / training@projectdevops.in</p>
