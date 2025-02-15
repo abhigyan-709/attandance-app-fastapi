@@ -14,6 +14,9 @@ from pymongo import MongoClient
 from models.user import User
 from models.user_details import UserDetails
 from routes.send_email import send_registration_email ,send_password_reset_email  # Import the new function
+from datetime import datetime, timedelta
+import pytz
+
 
 
 route2 = APIRouter()
@@ -377,3 +380,38 @@ async def reset_password(token: str, new_password: str, db_client: MongoClient =
         raise HTTPException(status_code=400, detail="Token has expired")
     except jwt.PyJWTError:
         raise HTTPException(status_code=400, detail="Invalid token")
+
+
+
+@route2.post("/migrate-users", tags=["User Management"])
+async def migrate_users(current_user: User = Depends(get_current_user), db_client: MongoClient = Depends(db.get_client)):
+    # Ensure only admins can perform this migration
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to perform this operation"
+        )
+
+    users_collection = db_client[db.db_name]["user"]
+    new_collection = db_client[db.db_name]["user_migrated"]  # New collection for migrated users
+
+    users_without_created_at = users_collection.find({"created_at": {"$exists": False}})
+    migrated_count = 0
+
+    ist_timezone = pytz.timezone("Asia/Kolkata")
+
+    for user in users_without_created_at:
+        # Convert ObjectId timestamp (UTC) to IST
+        utc_time = user["_id"].generation_time  # UTC time from ObjectId
+        ist_time = utc_time.astimezone(ist_timezone)  # Convert to IST
+
+        # Store created_at as a string in ISO format with IST timezone
+        user["created_at"] = ist_time.strftime("%Y-%m-%d %H:%M:%S %z")  # Explicitly store IST time
+
+        user["_id"] = str(user["_id"])  # Convert ObjectId to string
+
+        # Insert into the new collection
+        new_collection.insert_one(user)
+        migrated_count += 1
+
+    return {"message": f"Migration completed. {migrated_count} users migrated successfully!"}
