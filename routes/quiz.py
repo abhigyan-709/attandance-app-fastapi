@@ -30,7 +30,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 # Admin creates a new quiz & notifies users
-@router17.post("/create-quiz")
+@router17.post("/create-quiz", tags=["Quiz"])
 async def create_quiz(quiz_data: QuizCreate, current_user: User = Depends(get_current_user)):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Only admins can create quizzes.")
@@ -64,7 +64,7 @@ async def create_quiz(quiz_data: QuizCreate, current_user: User = Depends(get_cu
     return {"message": "Quiz created successfully", "quiz_id": quiz_id}
 
 # User submits a quiz response
-@router17.post("/submit-quiz/{quiz_id}")
+@router17.post("/submit-quiz/{quiz_id}", tags=["Quiz"])
 async def submit_quiz(quiz_id: str, user_response: UserResponse, current_user: User = Depends(get_current_user)):
     db_client = db.get_client()
     
@@ -93,7 +93,7 @@ from fastapi import Query
 from fastapi import Query
 import pytz
 
-@router17.get("/quiz-attempts/count")
+@router17.get("/quiz-attempts/count", tags=["Quiz"])
 async def get_quiz_attempt_count(
     date: str = Query(..., description="Date in YYYY-MM-DD format"),
     current_user: User = Depends(get_current_user),
@@ -118,4 +118,51 @@ async def get_quiz_attempt_count(
         return {"date": date, "username": current_user.username, "quiz_attempt_count": count}
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+    
+
+@router17.get("/quiz-attempts/correct-count", tags=["Quiz"])
+async def get_correct_quiz_attempt_count(
+    date: str = Query(..., description="Date in YYYY-MM-DD format"),
+    current_user: User = Depends(get_current_user),
+):
+    db_client = db.get_client()
+
+    try:
+        # Convert date string to UTC datetime range
+        local_timezone = pytz.utc  
+        start_date = datetime.datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=local_timezone)
+        end_date = start_date + datetime.timedelta(days=1)
+
+        # Fetch all quizzes created on this date
+        quizzes = list(db_client[db.db_name]["quizzes"].find({
+            "created_at": {"$gte": start_date, "$lt": end_date}
+        }))
+
+        # Fetch all user's responses for this date
+        responses = list(db_client[db.db_name]["quiz_responses"].find({
+            "username": current_user.username,
+            "submitted_at": {"$gte": start_date, "$lt": end_date}
+        }))
+
+        if not responses:
+            return {"message": "No quiz attempts found for this date.", "correct_answers": 0}
+
+        correct_count = 0
+
+        # Compare user responses with correct answers
+        for response in responses:
+            for quiz in quizzes:
+                if str(quiz["_id"]) == response["quiz_id"]:  # Match quiz ID
+                    if response["selected_option"] == quiz["correct_answer"]:
+                        correct_count += 1
+
+        return {
+            "date": date,
+            "username": current_user.username,
+            "correct_answers": correct_count,
+            "total_quizzes": len(quizzes)
+        }
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
 
