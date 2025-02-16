@@ -15,8 +15,8 @@ async def send_registration_email(email: str, first_name: str, last_name: str):
 
                 <h3 style="color: #FF5722;">Training Details:</h3>
                 <ul>
-                    <li><b>📅 Start From:</b> 16th February 2025</li>
-                    <<li><b>⏰ Time:</b> 7:00 PM – 8:15 PM IST</li>
+                    <li><b>📅 Start From:</b> 24th February 2025</li>
+                    <<li><b>⏰ Time:</b> 8:30 PM – 9:30 PM IST</li>
                     <li><b>🖥 Mode:</b> Online</li>
                     <li><b>📜 Duration:</b> 3 Months</li>
                     <li><b>💰 Cost:</b> Free</li>
