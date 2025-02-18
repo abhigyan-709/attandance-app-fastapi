@@ -302,3 +302,21 @@ async def get_correct_quiz_attempt_count(
     }
 
 
+@router17.get("/test-redis", tags=["Test"])
+async def test_redis():
+    try:
+        # Get Redis client
+        redis_client = db.get_redis()
+
+        # Test setting a value in Redis
+        redis_client.set("test_key", "Redis is working!")
+
+        # Get the value from Redis
+        value = redis_client.get("test_key")
+
+        if value:
+            return {"message": "Redis is working!", "value": value.decode("utf-8")}
+        else:
+            return {"message": "Redis is not working. No value found."}
+    except Exception as e:
+        return {"message": "Error connecting to Redis", "error": str(e)}
