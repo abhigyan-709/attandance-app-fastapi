@@ -8,6 +8,7 @@ from routes.meet import router6 as meet_router  # Import the dependency
 from routes.attendance import router7 as attendance_router
 from routes.notes import router10 as notes_router
 from routes.quiz import router17
+from routes.feedback import router18
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -45,6 +46,7 @@ app.include_router(meet_router, prefix="/api", tags=["Google Meet"])
 app.include_router(attendance_router, prefix="/api", tags=["Attendance"])
 app.include_router(notes_router, prefix="/api", tags=["Notes"])
 app.include_router(router17)
+app.include_router(router18)
 
 
 if __name__ == "__main__":
