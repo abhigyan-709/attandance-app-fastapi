@@ -43,30 +43,6 @@ async def mark_attendance(attendance: Attendance, db_client: MongoClient = Depen
     return JSONResponse(content={"message": "Attendance marked successfully"}, status_code=201)
 
 
-# Route to check if attendance is marked for today
-# @router7.get("/check-attendance/{username}")
-# async def check_attendance(username: str, db_client: MongoClient = Depends(db.get_client)):
-#     user_collection = db_client[db.db_name]["user"]
-#     attendance_collection = db_client[db.db_name]["attendance"]
-
-#     # 🔍 Check if user exists
-#     user = user_collection.find_one({"username": username})
-    
-#     if not user:
-#         raise HTTPException(status_code=404, detail="User does not exist. Please register.")
-
-#     today_date = datetime.utcnow().strftime("%Y-%m-%d")
-
-#     # 🔍 Check if attendance is already marked for today
-#     existing_attendance = attendance_collection.find_one(
-#         {"username": username, "attendance_days.date": today_date}
-#     )
-
-#     if existing_attendance:
-#         return JSONResponse(content={"marked": True, "message": "Attendance already marked"})
-    
-#     return JSONResponse(content={"marked": False, "message": "Attendance not marked yet"})
-
 @router7.get("/attendance/{username}", tags=["Attendance for USER Dashboard"])
 async def get_attendance(
     username: str,
