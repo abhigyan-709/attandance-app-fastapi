@@ -22,6 +22,8 @@ def get_mongo_uri():
     except Exception as e:
         print(f"Error retrieving secret: {e}")
         return None
+    
+# removed unused secret
 
 # Get Mongo URI from Secrets Manager
 mongo_uri = get_mongo_uri()
