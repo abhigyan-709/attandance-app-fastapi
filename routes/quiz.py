@@ -315,8 +315,9 @@ async def test_redis():
         value = redis_client.get("test_key")
 
         if value:
-            return {"message": "Redis is working!", "value": value.decode("utf-8")}
+            return {"message": "Redis is working!", "value": value}  # No need for decode()
         else:
             return {"message": "Redis is not working. No value found."}
     except Exception as e:
         return {"message": "Error connecting to Redis", "error": str(e)}
+
