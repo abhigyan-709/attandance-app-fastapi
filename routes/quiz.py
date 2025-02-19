@@ -6,6 +6,8 @@ from models.user import User
 from routes.user import get_current_user
 from typing import List
 import datetime
+from fastapi import Query
+import pytz
 import json
 
 router17 = APIRouter()
@@ -26,7 +28,6 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         active_connections.remove(websocket)
         print("WebSocket disconnected")
-
 
 
 # Admin creates a new quiz & notifies users
@@ -64,7 +65,6 @@ async def create_quiz(quiz_data: QuizCreate, current_user: User = Depends(get_cu
     return {"message": "Quiz created successfully", "quiz_id": quiz_id}
 
 
-
 # User submits a quiz response
 @router17.post("/submit-quiz/{quiz_id}", tags=["Quiz"])
 async def submit_quiz(quiz_id: str, user_response: UserResponse, current_user: User = Depends(get_current_user)):
@@ -90,13 +90,6 @@ async def submit_quiz(quiz_id: str, user_response: UserResponse, current_user: U
 
     return {"message": "Quiz submitted successfully"}
 
-
-
-
-from fastapi import Query
-
-from fastapi import Query
-import pytz
 
 @router17.get("/quiz-attempts/count", tags=["Quiz"])
 async def get_quiz_attempt_count(
@@ -124,9 +117,6 @@ async def get_quiz_attempt_count(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
 
-
-
-    
 
 @router17.get("/quiz-attempts/correct-count", tags=["Quiz"])
 async def get_correct_quiz_attempt_count(
