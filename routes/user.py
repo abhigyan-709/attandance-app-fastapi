@@ -49,7 +49,7 @@ def create_access_token(data: dict, expires_delta: Union[timedelta, None] = None
     return encoded_jwt
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db_client: MongoClient = Depends(db.get_client)):
+async def get_current_user(token: str = Depends(oauth2_scheme)):
     credentials_exception = HTTPException(
         status_code=401,
         detail="Could not validate credentials",
@@ -61,12 +61,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db_client: Mongo
         if username is None:
             raise credentials_exception
 
-        # Check if the token exists in active sessions
-        active_session = db_client[db.db_name]["active_sessions"].find_one({"username": username, "token": token})
-        if not active_session:
-            raise HTTPException(status_code=401, detail="Session expired or invalid. Please log in again.")
-
-        # Fetch user details
+        # Fetch user details including the role from the database
+        db_client = db.get_client()  # Use db.get_client directly
         user_from_db = db_client[db.db_name]["user"].find_one({"username": username})
         if user_from_db is None:
             raise credentials_exception
@@ -78,7 +74,6 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db_client: Mongo
     except jwt.PyJWTError:
         raise credentials_exception
 
-
 @route2.get("/")
 async def root():
     # Test MongoDB connection
@@ -88,42 +83,34 @@ async def root():
 
 @route2.post("/token", response_model=Token, tags=["Login & Authentication"])
 async def login_for_access_token(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db_client: MongoClient = Depends(db.get_client)
+        form_data: OAuth2PasswordRequestForm = Depends(),
+        db_client: MongoClient = Depends(db.get_client)
 ):
     user_from_db = db_client[db.db_name]["user"].find_one({"username": form_data.username})
-
+    
+    
     if user_from_db and verify_password(form_data.password, user_from_db['password']):
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
-            data={"username": form_data.username, "role": user_from_db["role"]},  # Add role
+            data={"username": form_data.username},
             expires_delta=access_token_expires
         )
 
-        # Ensure single active session per user
-        db_client[db.db_name]["active_sessions"].delete_many({"username": form_data.username})  # Remove old session
-
-        # Store new session
+        # Store active session in MongoDB
         session_data = {
             "username": form_data.username,
-            "role": user_from_db["role"],  # Store role as well
             "token": access_token,
             "login_time": datetime.utcnow()
         }
         db_client[db.db_name]["active_sessions"].insert_one(session_data)
 
-        return {
-            "access_token": access_token,
-            "token_type": "bearer",
-            "role": user_from_db["role"]  # Return role
-        }
+        return {"access_token": access_token, "token_type": "bearer"}
 
     raise HTTPException(
         status_code=401,
         detail="Incorrect username or password",
         headers={"WWW-Authenticate": "Bearer"},
     )
-
 
 
 
@@ -323,7 +310,6 @@ async def logout(
     db_client[db.db_name]["active_sessions"].delete_one({"token": token})
 
     return {"message": "Successfully logged out"}
-
 
 
 
