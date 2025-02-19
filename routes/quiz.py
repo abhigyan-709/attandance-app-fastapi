@@ -1,16 +1,23 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+import redis
+import json
+import datetime
+import pytz
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
 from database.db import db
 from bson import ObjectId
 from models.quiz import QuizCreate, UserResponse
 from models.user import User
 from routes.user import get_current_user
 from typing import List
-import datetime
 from fastapi import Query
-import pytz
-import json
 
 router17 = APIRouter()
+
+# Redis connection
+REDIS_HOST = "13.233.112.149"  # Replace with Redis private IP
+REDIS_PORT = 6379 # Set if applicable
+
+redis_client = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
 
 # Store active WebSocket connections
 active_connections: List[WebSocket] = []
@@ -20,14 +27,12 @@ active_connections: List[WebSocket] = []
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     active_connections.append(websocket)
-    print(f"New WebSocket connection: {websocket}")
 
     try:
         while True:
             await websocket.receive_text()
     except WebSocketDisconnect:
         active_connections.remove(websocket)
-        print("WebSocket disconnected")
 
 
 # Admin creates a new quiz & notifies users
@@ -65,9 +70,14 @@ async def create_quiz(quiz_data: QuizCreate, current_user: User = Depends(get_cu
     return {"message": "Quiz created successfully", "quiz_id": quiz_id}
 
 
-# User submits a quiz response
 @router17.post("/submit-quiz/{quiz_id}", tags=["Quiz"])
-async def submit_quiz(quiz_id: str, user_response: UserResponse, current_user: User = Depends(get_current_user)):
+async def submit_quiz(
+    quiz_id: str,
+    user_response: UserResponse,
+    background_tasks: BackgroundTasks,  # Move this before default arguments
+    current_user: User = Depends(get_current_user)  # Keep Depends() at the end
+):
+
     db_client = db.get_client()
     
     # Validate quiz existence
@@ -75,90 +85,59 @@ async def submit_quiz(quiz_id: str, user_response: UserResponse, current_user: U
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found.")
 
-    # Ensure submitted_at is a valid datetime
-    submitted_time = user_response.submitted_at or datetime.utcnow()
-
-    # Store response in MongoDB
+    submitted_time = user_response.submitted_at or datetime.datetime.utcnow()
+    
     response_doc = {
         "quiz_id": quiz_id,
         "username": current_user.username,
         "selected_option": user_response.selected_option,
-        "submitted_at": submitted_time  # Ensure it's stored as datetime
+        "submitted_at": submitted_time.isoformat(),
     }
-    
-    db_client[db.db_name]["quiz_responses"].insert_one(response_doc)
 
-    return {"message": "Quiz submitted successfully"}
+    # Store in Redis (List for batch processing)
+    redis_client.rpush("quiz_responses", json.dumps(response_doc))
+
+    # Update quiz attempt count in Redis
+    redis_client.hincrby(f"user:{current_user.username}:quiz_attempts", quiz_id, 1)
+
+    # Check if correct
+    if user_response.selected_option == quiz["correct_answer"]:
+        redis_client.hincrby(f"user:{current_user.username}:correct_quiz_attempts", quiz_id, 1)
+
+    # Background task to process batch writes to MongoDB
+    background_tasks.add_task(process_redis_quiz_responses)
+
+    return {"message": "Quiz response received and stored in Redis"}
 
 
+# Background task to process Redis responses and insert into MongoDB
+def process_redis_quiz_responses():
+    db_client = db.get_client()
+    while redis_client.llen("quiz_responses") > 0:
+        response_json = redis_client.lpop("quiz_responses")
+        if response_json:
+            response_doc = json.loads(response_json)
+            response_doc["submitted_at"] = datetime.datetime.fromisoformat(response_doc["submitted_at"])
+            db_client[db.db_name]["quiz_responses"].insert_one(response_doc)
+
+
+# Get total quiz attempts from Redis
 @router17.get("/quiz-attempts/count", tags=["Quiz"])
 async def get_quiz_attempt_count(
-    date: str = Query(..., description="Date in YYYY-MM-DD format"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user)
 ):
-    db_client = db.get_client()
+    attempt_counts = redis_client.hgetall(f"user:{current_user.username}:quiz_attempts")
+    total_attempts = sum(map(int, attempt_counts.values())) if attempt_counts else 0
 
-    try:
-        # Convert date string to UTC datetime range
-        local_timezone = pytz.utc  # Change this if your timestamps are in another timezone
-        start_date = datetime.datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=local_timezone)
-        end_date = start_date + datetime.timedelta(days=1)
-
-        # Debugging: Print date range
-        print(f"Querying from {start_date} to {end_date}")
-
-        # Count quiz responses for the user on the given date
-        count = db_client[db.db_name]["quiz_responses"].count_documents({
-            "username": current_user.username,
-            "submitted_at": {"$gte": start_date, "$lt": end_date}
-        })
-
-        return {"date": date, "username": current_user.username, "quiz_attempt_count": count}
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+    return {"username": current_user.username, "quiz_attempt_count": total_attempts}
 
 
+# Get correct quiz attempts from Redis
 @router17.get("/quiz-attempts/correct-count", tags=["Quiz"])
 async def get_correct_quiz_attempt_count(
-    date: str = Query(..., description="Date in YYYY-MM-DD format"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user)
 ):
-    db_client = db.get_client()
+    correct_counts = redis_client.hgetall(f"user:{current_user.username}:correct_quiz_attempts")
+    total_correct = sum(map(int, correct_counts.values())) if correct_counts else 0
 
-    try:
-        # Convert date string to UTC datetime range
-        local_timezone = pytz.utc  
-        start_date = datetime.datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=local_timezone)
-        end_date = start_date + datetime.timedelta(days=1)
-
-        # Fetch all quizzes created on this date
-        quizzes = list(db_client[db.db_name]["quizzes"].find({
-            "created_at": {"$gte": start_date, "$lt": end_date}
-        }))
-
-        # Fetch all user's responses for this date
-        responses = list(db_client[db.db_name]["quiz_responses"].find({
-            "username": current_user.username,
-            "submitted_at": {"$gte": start_date, "$lt": end_date}
-        }))
-
-        if not responses:
-            return {"message": "No quiz attempts found for this date.", "correct_answers": 0}
-
-        correct_count = 0
-
-        # Compare user responses with correct answers
-        for response in responses:
-            for quiz in quizzes:
-                if str(quiz["_id"]) == response["quiz_id"]:  # Match quiz ID
-                    if response["selected_option"] == quiz["correct_answer"]:
-                        correct_count += 1
-
-        return {
-            "date": date,
-            "username": current_user.username,
-            "correct_answers": correct_count,
-            "total_quizzes": len(quizzes)
-        }
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+    return {"username": current_user.username, "correct_answers": total_correct}
