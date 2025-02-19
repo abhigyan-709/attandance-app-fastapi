@@ -102,9 +102,9 @@ async def submit_quiz(quiz_id: str, user_response: UserResponse, current_user: U
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found.")
 
-    submitted_time = user_response.submitted_at or datetime.utcnow()
+    submitted_time = user_response.submitted_at or datetime.datetime.utcnow()
 
-    # Generate a unique key for the response
+    # Generate a unique key for Redis caching
     response_key = f"quiz_response:{quiz_id}:{current_user.username}:{uuid.uuid4()}"
 
     response_data = {
@@ -114,10 +114,18 @@ async def submit_quiz(quiz_id: str, user_response: UserResponse, current_user: U
         "submitted_at": submitted_time.isoformat()  # Store as string in Redis
     }
 
-    # Cache response in Redis (expires in 5 mins)
+    # ✅ Store response in MongoDB immediately
+    db_client[db.db_name]["quiz_responses"].insert_one({
+        "quiz_id": quiz_id,
+        "username": current_user.username,
+        "selected_option": user_response.selected_option,
+        "submitted_at": submitted_time
+    })
+
+    # ✅ Also cache response in Redis (expires in 5 mins)
     cache.set(response_key, json.dumps(response_data), expire=300)
 
-    return {"message": "Quiz response cached successfully. It will be saved to DB soon."}
+    return {"message": "Quiz response stored in MongoDB and cached in Redis."}
 
 
 
@@ -152,8 +160,6 @@ async def get_quiz_attempt_count(
         return {"date": date, "username": current_user.username, "quiz_attempt_count": count}
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
-
-
 
     
 

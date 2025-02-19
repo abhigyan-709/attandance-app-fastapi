@@ -7,7 +7,8 @@ import redis
 
 class Cache:
     def __init__(self):
-        self.redis_client = redis.Redis(host="172.31.38.238", port=6379, decode_responses=True)
+        #self.redis_client = redis.Redis(host="172.31.38.238", port=6379, decode_responses=True)
+        self.redis_client = redis.Redis(host="13.233.112.149", port=6379, decode_responses=True)
 
     def set(self, key, value, expire=300):
         self.redis_client.set(key, value, ex=expire)
