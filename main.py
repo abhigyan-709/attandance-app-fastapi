@@ -9,8 +9,11 @@ from routes.attendance import router7 as attendance_router
 from routes.notes import router10 as notes_router
 from routes.quiz import router17
 from routes.feedback import router18
-
+import time
+import json
+import threading
 from fastapi.middleware.cors import CORSMiddleware
+from database.db import db, cache 
 
 app = FastAPI(title="OpenSource Enterprise API",
               description="All in ONE API for basic authentication, user registration, attendance mapping and message sending",
@@ -37,6 +40,34 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+def sync_quiz_responses():
+    while True:
+        try:
+            keys = cache.redis_client.scan_iter("quiz_response:*")  
+            for key in keys:
+                response_data = cache.get(key)
+                if response_data:
+                    response_data = json.loads(response_data)
+
+                    # Save to MongoDB
+                    db_client = db.get_client()
+                    db_client[db.db_name]["quiz_responses"].insert_one(response_data)
+                    print(f"✅ Moved response {key} to MongoDB")
+
+                    # Delete from Redis
+                    cache.delete(key)
+                    print(f"🗑️ Deleted {key} from Redis")
+
+            time.sleep(10)  
+        except Exception as e:
+            print(f"❌ Error syncing quiz responses: {e}")
+            time.sleep(5)  # Retry after 5 seconds
+
+
+
+# Start the background thread when the app starts
+threading.Thread(target=sync_quiz_responses, daemon=True).start()
 
 
 app.include_router(route2)

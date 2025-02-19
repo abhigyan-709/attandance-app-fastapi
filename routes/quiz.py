@@ -65,7 +65,34 @@ async def create_quiz(quiz_data: QuizCreate, current_user: User = Depends(get_cu
 
 
 
-# User submits a quiz response
+# # User submits a quiz response
+# @router17.post("/submit-quiz/{quiz_id}", tags=["Quiz"])
+# async def submit_quiz(quiz_id: str, user_response: UserResponse, current_user: User = Depends(get_current_user)):
+#     db_client = db.get_client()
+    
+#     # Validate quiz existence
+#     quiz = db_client[db.db_name]["quizzes"].find_one({"_id": ObjectId(quiz_id)})
+#     if not quiz:
+#         raise HTTPException(status_code=404, detail="Quiz not found.")
+
+#     # Ensure submitted_at is a valid datetime
+#     submitted_time = user_response.submitted_at or datetime.utcnow()
+
+#     # Store response in MongoDB
+#     response_doc = {
+#         "quiz_id": quiz_id,
+#         "username": current_user.username,
+#         "selected_option": user_response.selected_option,
+#         "submitted_at": submitted_time  # Ensure it's stored as datetime
+#     }
+    
+#     db_client[db.db_name]["quiz_responses"].insert_one(response_doc)
+
+#     return {"message": "Quiz submitted successfully"}
+
+import uuid
+from database.db import cache  # Import the cache instance
+
 @router17.post("/submit-quiz/{quiz_id}", tags=["Quiz"])
 async def submit_quiz(quiz_id: str, user_response: UserResponse, current_user: User = Depends(get_current_user)):
     db_client = db.get_client()
@@ -75,20 +102,22 @@ async def submit_quiz(quiz_id: str, user_response: UserResponse, current_user: U
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found.")
 
-    # Ensure submitted_at is a valid datetime
     submitted_time = user_response.submitted_at or datetime.utcnow()
 
-    # Store response in MongoDB
-    response_doc = {
+    # Generate a unique key for the response
+    response_key = f"quiz_response:{quiz_id}:{current_user.username}:{uuid.uuid4()}"
+
+    response_data = {
         "quiz_id": quiz_id,
         "username": current_user.username,
         "selected_option": user_response.selected_option,
-        "submitted_at": submitted_time  # Ensure it's stored as datetime
+        "submitted_at": submitted_time.isoformat()  # Store as string in Redis
     }
-    
-    db_client[db.db_name]["quiz_responses"].insert_one(response_doc)
 
-    return {"message": "Quiz submitted successfully"}
+    # Cache response in Redis (expires in 5 mins)
+    cache.set(response_key, json.dumps(response_data), expire=300)
+
+    return {"message": "Quiz response cached successfully. It will be saved to DB soon."}
 
 
 
