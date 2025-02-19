@@ -3,6 +3,24 @@ import json
 from pymongo import MongoClient
 from botocore.exceptions import ClientError
 
+import redis
+
+class Cache:
+    def __init__(self):
+        self.redis_client = redis.Redis(host="172.31.38.238", port=6379, decode_responses=True)
+
+    def set(self, key, value, expire=300):
+        self.redis_client.set(key, value, ex=expire)
+
+    def get(self, key):
+        return self.redis_client.get(key)
+
+    def delete(self, key):
+        self.redis_client.delete(key)
+
+cache = Cache()
+
+
 class Database:
     client: MongoClient = None
     db_name: str = "testdb"
@@ -49,75 +67,3 @@ db = Database()
 client = db.get_client()
 
 
-# import boto3
-# import json
-# import redis
-# from pymongo import MongoClient
-# from botocore.exceptions import ClientError
-
-# class Database:
-#     client: MongoClient = None
-#     redis_client: redis.Redis = None
-#     db_name: str = "testdb"
-#     secret_name = "my_mongo_secret"  # Replace with your AWS Secret name
-#     redis_host = "13.233.112.149"  # Replace with your Redis server IP
-#     redis_port = 6379
-
-#     def test_connections(self):
-#     # Check Redis connection
-#         try:
-#             redis_ping = self.redis_client.ping()
-#             print(f"Redis connected: {redis_ping}")
-#         except redis.ConnectionError as e:
-#             print(f"Error connecting to Redis: {e}")
-        
-#         # Check MongoDB connection
-#         try:
-#             self.client.server_info()  # Tries to get server info from MongoDB
-#             print("MongoDB connected successfully!")
-#         except Exception as e:
-#             print(f"Error connecting to MongoDB: {e}")
-
-#     def get_mongo_uri(self):
-#         session = boto3.session.Session()
-#         client = session.client(service_name="secretsmanager", region_name="ap-south-1")
-
-#         try:
-#             response = client.get_secret_value(SecretId=self.secret_name)
-
-#             if 'SecretString' in response:
-#                 secret = json.loads(response['SecretString'])
-#                 return secret["MONGO_URI"]
-#             else:
-#                 return response['SecretBinary']
-#         except ClientError as e:
-#             print(f"Error retrieving secret: {e}")
-#             return None
-
-#     def connect(self):
-#         mongo_uri = self.get_mongo_uri()
-
-#         if mongo_uri:
-#             print(f"Connecting to MongoDB using URI: {mongo_uri}")
-#             self.client = MongoClient(mongo_uri)
-#         else:
-#             print("Failed to retrieve Mongo URI from Secrets Manager.")
-
-#         # Connect to Redis
-#         self.redis_client = redis.Redis(host=self.redis_host, port=self.redis_port, db=0, decode_responses=True)
-
-#     def get_client(self) -> MongoClient:
-#         if not self.client:
-#             self.connect()
-#         return self.client
-
-#     def get_redis(self) -> redis.Redis:
-#         if not self.redis_client:
-#             self.connect()
-#         return self.redis_client
-
-# # Example usage
-# db = Database()
-# client = db.get_client()
-# redis_client = db.get_redis()
-# db.test_connections() 
