@@ -96,28 +96,34 @@ async def login_for_access_token(
     if user_from_db and verify_password(form_data.password, user_from_db['password']):
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
-            data={"username": form_data.username},
+            data={"username": form_data.username, "role": user_from_db["role"]},  # Add role
             expires_delta=access_token_expires
         )
 
-        # **Ensure Single Active Session per User**
+        # Ensure single active session per user
         db_client[db.db_name]["active_sessions"].delete_many({"username": form_data.username})  # Remove old session
 
         # Store new session
         session_data = {
             "username": form_data.username,
+            "role": user_from_db["role"],  # Store role as well
             "token": access_token,
             "login_time": datetime.utcnow()
         }
         db_client[db.db_name]["active_sessions"].insert_one(session_data)
 
-        return {"access_token": access_token, "token_type": "bearer"}
+        return {
+            "access_token": access_token,
+            "token_type": "bearer",
+            "role": user_from_db["role"]  # Return role
+        }
 
     raise HTTPException(
         status_code=401,
         detail="Incorrect username or password",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
 
 
 
