@@ -3,25 +3,6 @@ import json
 from pymongo import MongoClient
 from botocore.exceptions import ClientError
 
-import redis
-
-class Cache:
-    def __init__(self):
-        #self.redis_client = redis.Redis(host="172.31.38.238", port=6379, decode_responses=True)
-        self.redis_client = redis.Redis(host="13.233.112.149", port=6379, decode_responses=True)
-
-    def set(self, key, value, expire=300):
-        self.redis_client.set(key, value, ex=expire)
-
-    def get(self, key):
-        return self.redis_client.get(key)
-
-    def delete(self, key):
-        self.redis_client.delete(key)
-
-cache = Cache()
-
-
 class Database:
     client: MongoClient = None
     db_name: str = "testdb"
@@ -66,5 +47,3 @@ class Database:
 # Example usage
 db = Database()
 client = db.get_client()
-
-
