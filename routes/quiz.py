@@ -14,7 +14,8 @@ from fastapi import Query
 router17 = APIRouter()
 
 # Redis connection
-REDIS_HOST = "13.233.112.149"  # Replace with Redis private IP
+# REDIS_HOST = "13.233.112.149"  # Replace with Redis private IP
+REDIS_HOST = "172.31.38.238"  # Replace with Redis private IP
 REDIS_PORT = 6379 # Set if applicable
 
 redis_client = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
