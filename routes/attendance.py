@@ -9,7 +9,7 @@ from pymongo import MongoClient
 
 router7 = APIRouter()
 
-# Route to mark attendance
+# Route to mark attendance production test
 @router7.post("/mark-attendance")
 async def mark_attendance(attendance: Attendance, db_client: MongoClient = Depends(db.get_client)):
     user_collection = db_client[db.db_name]["user"]
