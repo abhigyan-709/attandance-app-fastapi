@@ -8,6 +8,7 @@ from passlib.context import CryptContext
 
 route21 = APIRouter()
 
+# here we go for staging live
 # Create an instance of CryptContext for password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
