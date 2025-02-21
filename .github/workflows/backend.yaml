@@ -20,21 +20,28 @@ jobs:
         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws-region: ${{ secrets.AWS_REGION }}
 
-    - name: Login to Amazon ECR
+    - name: Login to Amazon ECR (Staging)
       run: |
         aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
-        docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+        docker login --username AWS --password-stdin \
+        ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
 
     - name: Build and tag Docker image (Staging)
       run: |
-        docker build -t ${{ secrets.ECR_REPOSITORY }}:staging .
-        docker tag ${{ secrets.ECR_REPOSITORY }}:staging \
-          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:staging
-  
+        STAGING_REPO="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/projectdevops-staging"
+        
+        # Build the Docker image for staging
+        docker build -t projectdevops-staging .
+        
+        # Tag the image for ECR
+        docker tag projectdevops-staging:latest $STAGING_REPO:staging
 
-    - name: Push Docker image to ECR
+    - name: Push Docker image to ECR (Staging)
       run: |
-        docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:staging
+        STAGING_REPO="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/projectdevops-staging"
+        
+        # Push the staging image
+        docker push $STAGING_REPO:staging
 
     - name: Deploy Staging on EC2
       env:
@@ -53,13 +60,14 @@ jobs:
           aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
           docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
 
-          # Staging variables
+          # Define variables
           APP_NAME="staging-attendance-app"
           PORT="8001"
           ENV_FILE="/home/$USER/.env.staging"
+          STAGING_REPO="${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/projectdevops-staging"
 
           # Pull latest staging image
-          docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:staging
+          docker pull $STAGING_REPO:staging
 
           # Stop and remove old staging container if exists
           docker stop $APP_NAME || true
@@ -86,5 +94,5 @@ jobs:
           # Run the staging container
           docker run -d --name $APP_NAME -p $PORT:8000 \
             --env-file $ENV_FILE \
-            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:staging
+            $STAGING_REPO:staging
         EOF
