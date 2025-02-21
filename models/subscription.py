@@ -3,7 +3,7 @@ from typing import Optional
 from bson import ObjectId
 
 class Courses(BaseModel):
-    # id: Optional[str] = Field(alias="_id")  # Store ObjectId from MongoDB
+    
     course_name: str
     course_duration: str
     course_fees: str

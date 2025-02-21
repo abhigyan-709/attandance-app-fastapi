@@ -7,6 +7,13 @@ from routes.send_email import send_registration_email ,send_password_reset_email
 from passlib.context import CryptContext
 from routes.user import get_current_user
 from models.user import User
+from fastapi import APIRouter, Request, HTTPException, BackgroundTasks
+import razorpay
+import json
+import hmac
+import hashlib
+from database.db import db
+from routes.send_email import send_registration_email
 
 route21 = APIRouter()
 
@@ -19,6 +26,13 @@ def verify_password(plain_password, hashed_password):
 
 def get_password_hash(password):
     return pwd_context.hash(password)
+
+def activate_user(email: str):
+    db_client = db.get_client()
+    db_client[db.db_name]["user_subscription"].update_one(
+        {"email": email}, {"$set": {"is_active": True}}
+    )
+    print(f"✅ User {email} activated successfully!")
 
 @route21.post("/course-subscription/", tags = ["Paid User Subscription"])
 async def course(course : Courses, current_user = Depends(get_current_user)):
@@ -64,3 +78,28 @@ async def subscription(user: UserSubscription, db_client: MongoClient = Depends(
 
     # Return response without sending an email
     return JSONResponse(content={"message": "User registered successfully. Redirect to payment."}, status_code=201)
+
+
+@route21.post("/razorpay/webhook/", tags=["Payment Webhook"])
+async def razorpay_webhook(background_tasks: BackgroundTasks, request: Request):
+    try:
+        payload = await request.json()
+        print("🔔 Webhook Received:", payload)  # Log webhook data
+
+        event = payload.get("event")
+        payment_id = payload.get("payload", {}).get("payment", {}).get("entity", {}).get("id")
+        email = payload.get("payload", {}).get("payment", {}).get("entity", {}).get("email")
+
+        print(f"🔔 Event: {event}, Payment ID: {payment_id}, Email: {email}")
+
+        # Simulate user activation for testing
+        if event == "payment.captured":
+            background_tasks.add_task(activate_user, email)
+            return {"status": "success", "message": "Test Mode: User activated"}
+
+        return {"status": "ignored", "message": "Unhandled event"}
+
+    except Exception as e:
+        print("⚠️ Webhook Error:", e)
+        raise HTTPException(status_code=500, detail="Webhook processing failed")
+
