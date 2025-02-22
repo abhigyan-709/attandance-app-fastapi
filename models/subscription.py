@@ -7,6 +7,7 @@ class Courses(BaseModel):
     course_name: str
     course_duration: str
     course_fees: str
+    payment_link: str
 
     class Config:
         orm_mode = True
