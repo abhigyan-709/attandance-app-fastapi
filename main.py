@@ -2,23 +2,24 @@ from fastapi import FastAPI, Depends
 # from routes.item import route as item_router  # Correct import
 from database.db import db
 from routes.user import route2
-# from routes.user_response import user_response_route 
-from routes.user import route2, get_current_user  # Import the dependency
+from routes.message import route3
+from routes.visitors import router4 as visitor_router
+from routes.meet import router6 as meet_router  # Import the dependency
+from routes.attendance import router7 as attendance_router
+from routes.notes import router10 as notes_router
+from routes.quiz import router17
+from routes.feedback import router18
 
 from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI(title="OpenSource Enterprise Authentication API",
-              description="All in ONE advanced Authentication API with User Management.",
+app = FastAPI(title="OpenSource Enterprise API",
+              description="All in ONE API for basic authentication, user registration, attendance mapping and message sending",
               version="1.1.0",
-    #           servers=[
-    #     {"url": "https://auth.globaltamasha.in", "description": "Staging environment"},
-    #     {"url": "https://auth.globaltamasha.com", "description": "Production environment"},
-    # ],
     docs_url="/docs",
     contact={
-        "name": "Abhigyan Kumar",
-        "url": "https://globaltamasha.in/docs",
-        "email": "info@globaltamasha.com",
+        "name": "Project DevOps",
+        "url": "https://api.projectdevops.in/docs",
+        "email": "connect@projectdevops.in",
 
     },
     swagger_ui_parameters={"syntaxHighlight.theme": "obsidian"})
@@ -39,6 +40,14 @@ app.add_middleware(
 
 
 app.include_router(route2)
+app.include_router(route3)
+app.include_router(visitor_router, prefix="/api", tags=["Visitors"])
+app.include_router(meet_router, prefix="/api", tags=["Google Meet"])
+app.include_router(attendance_router, prefix="/api", tags=["Attendance"])
+app.include_router(notes_router, prefix="/api", tags=["Notes"])
+app.include_router(router17)
+app.include_router(router18)
+
 
 if __name__ == "__main__":
     import uvicorn

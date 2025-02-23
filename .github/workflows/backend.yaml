@@ -1,0 +1,104 @@
+name: Deploy FastAPI to EC2
+
+on:
+  push:
+    branches:
+      - Abhigyans-Code
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Login to Amazon ECR
+      id: login-ecr
+      run: |
+        aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+        docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+    - name: Ensure ECR repository exists
+      run: |
+        aws ecr describe-repositories --repository-names ${{ secrets.ECR_REPOSITORY }} || \
+        aws ecr create-repository --repository-name ${{ secrets.ECR_REPOSITORY }}
+    - name: Build and tag Docker image
+      run: |
+        docker build -t ${{ secrets.ECR_REPOSITORY }} .
+        docker tag ${{ secrets.ECR_REPOSITORY }}:latest ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
+    - name: Push Docker image to ECR
+      run: |
+        docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
+    - name: Deploy on EC2
+      env:
+        PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        HOST: ${{ secrets.EC2_HOST }}
+        USER: ${{ secrets.EC2_USER }}
+      run: |
+        echo "$PRIVATE_KEY" > private_key.pem
+        chmod 600 private_key.pem
+        ssh -o StrictHostKeyChecking=no -i private_key.pem $USER@$HOST << 'EOF'
+          # Ensure AWS CLI v2 is installed
+          if ! command -v aws &> /dev/null; then
+            echo "Installing AWS CLI..."
+            sudo apt update
+            sudo apt install -y curl unzip
+            curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+            unzip awscliv2.zip
+            sudo ./aws/install
+          fi
+          # Ensure Docker is installed
+          if ! command -v docker &> /dev/null; then
+            echo "Installing Docker..."
+            sudo apt update
+            sudo apt install -y docker.io
+            sudo systemctl start docker
+            sudo systemctl enable docker
+          fi
+          # Login to Amazon ECR
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+          docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+          
+          # Pull latest image
+          docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
+          
+          # Stop and remove old container if exists
+          docker stop attendance-app || true
+          docker rm attendance-app || true
+
+
+
+          Ensure .env file exists
+          if [ ! -f "/home/$USER/.env" ]; then
+            echo "Creating .env file..."
+            # echo "MONGO_URI=mongodb://admin:Gyanu1234@13.126.160.142:27017/testdb" > /home/$USER/.env
+            echo "MONGO_URI=${{ secrets.MONGO_URI }}" > /home/$USER/.env
+            echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> /home/$USER/.env
+            echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> /home/$USER/.env
+            echo "AWS_REGION=${{ secrets.AWS_REGION }}" >> /home/$USER/.env
+            echo "AWS_BUCKET_NAME=${{ secrets.AWS_BUCKET_NAME }}" >> /home/$USER/.env
+            echo "MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}" >> /home/$USER/.env
+            echo "MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}" >> /home/$USER/.env
+            echo "MAIL_FROM=${{ secrets.MAIL_FROM }}" >> /home/$USER/.env
+            echo "MAIL_PORT=${{ secrets.MAIL_PORT }}" >> /home/$USER/.env
+            echo "MAIL_SERVER=${{ secrets.MAIL_SERVER }}" >> /home/$USER/.env
+            echo "MAIL_STARTTLS=${{ secrets.MAIL_STARTTLS }}" >> /home/$USER/.env
+            echo "MAIL_SSL_TLS=${{ secrets.MAIL_SSL_TLS }}" >> /home/$USER/.env
+            echo "MAIL_FROM_NAME=${{ secrets.MAIL_FROM_NAME }}" >> /home/$USER/.env
+          fi
+
+
+    
+
+          # Run the new container
+          docker run -d --name attendance-app -p 8000:8000 \
+            --env-file /home/$USER/.env \
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
+        EOF
