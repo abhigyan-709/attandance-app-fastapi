@@ -10,13 +10,43 @@ from models.user import User
 from routes.user import get_current_user
 from typing import List
 from fastapi import Query
+import boto3
+import json
+import redis
 
 router17 = APIRouter()
 
-REDIS_HOST = "172.31.38.238" 
-REDIS_PORT = 6379 
+def get_redis_credentials():
+    """Fetch Redis credentials from AWS Secrets Manager."""
+    secret_name = "RedisCredentials"  
+    region_name = "ap-south-1"  
 
-redis_client = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
+    client = boto3.client("secretsmanager", region_name=region_name)
+    
+    try:
+        response = client.get_secret_value(SecretId=secret_name)
+        secret = json.loads(response["SecretString"])
+        return secret
+    except Exception as e:
+        print(f"Error fetching Redis credentials: {e}")
+        return None
+
+# Load Redis credentials
+secrets = get_redis_credentials()
+if secrets:
+    REDIS_HOST = secrets["REDIS_HOST"]
+    REDIS_PORT = int(secrets["REDIS_PORT"])
+    REDIS_PASSWORD = secrets["REDIS_PASSWORD"]
+else:
+    raise Exception("Could not retrieve Redis credentials.")
+
+# Connect to Redis
+redis_client = redis.StrictRedis(
+    host=REDIS_HOST,
+    port=REDIS_PORT,
+    password=REDIS_PASSWORD,
+    decode_responses=True
+)
 
 # Store active WebSocket connections
 active_connections: List[WebSocket] = []
