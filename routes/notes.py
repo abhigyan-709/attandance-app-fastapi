@@ -17,7 +17,7 @@ s3_client = boto3.client(
     region_name=AWS_REGION,
 )
 
-# Connect to MongoDB with same staging db
+# Connect to MongoDB
 def get_db():
     return db.get_client()[db.db_name]
 

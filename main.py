@@ -9,6 +9,7 @@ from routes.attendance import router7 as attendance_router
 from routes.notes import router10 as notes_router
 from routes.quiz import router17
 from routes.feedback import router18
+from routes.subscription import route21
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -47,6 +48,7 @@ app.include_router(attendance_router, prefix="/api", tags=["Attendance"])
 app.include_router(notes_router, prefix="/api", tags=["Notes"])
 app.include_router(router17)
 app.include_router(router18)
+app.include_router(route21)
 
 
 if __name__ == "__main__":

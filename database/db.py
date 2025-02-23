@@ -8,6 +8,7 @@ class Database:
     db_name: str = "testdb"
     secret_name = "my_mongo_secret"  # Replace with your AWS Secret name
 
+    #get mongodb uri
     def get_mongo_uri(self):
         # Create a Secrets Manager client
         session = boto3.session.Session()
