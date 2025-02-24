@@ -91,8 +91,43 @@ async def send_password_reset_email(email: str, reset_link: str):
     await fm.send_message(message)
 
 
+# async def send_username_recovery_email(email: str, username: str):
+#     subject = "Username Recovery for Project DevOps"
+
+#     body = f"""
+#     <html>
+#         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+#             <div style="max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+#                 <h2 style="color: #1A237E; text-align: center;">Username Recovery Request</h2>
+#                 <p>Hello,</p>
+#                 <p>We received a request to recover your username for your Project DevOps account.</p>
+
+#                 <p><b>Your Username:</b> <span style="color: #FF5722; font-size: 18px;">{username}</span></p>
+
+#                 <p>If you did not request this, please ignore this email.</p>
+
+#                 <p>Best regards,<br><b>Project DevOps Team</b></p>
+#             </div>
+#         </body>
+#     </html>
+#     """
+
+#     message = MessageSchema(
+#         subject=subject,
+#         recipients=[email],
+#         cc=["projectdevops709@gmail.com"],  # Added CC
+#         body=body,
+#         subtype="html"
+#     )
+
+#     fm = FastMail(conf)
+#     await fm.send_message(message)
+
 async def send_username_recovery_email(email: str, username: str):
     subject = "Username Recovery for Project DevOps"
+
+    # Wrap username in double quotes
+    formatted_username = f'"{username}"'
 
     body = f"""
     <html>
@@ -102,7 +137,9 @@ async def send_username_recovery_email(email: str, username: str):
                 <p>Hello,</p>
                 <p>We received a request to recover your username for your Project DevOps account.</p>
 
-                <p><b>Your Username:</b> <span style="color: #FF5722; font-size: 18px;">{username}</span></p>
+                <p><b>Your Username:</b> 
+                   <span style="color: #FF5722; font-size: 18px;">{formatted_username}</span>
+                </p>
 
                 <p>If you did not request this, please ignore this email.</p>
 
@@ -115,7 +152,7 @@ async def send_username_recovery_email(email: str, username: str):
     message = MessageSchema(
         subject=subject,
         recipients=[email],
-        cc=["projectdevops709@gmail.com"],  # Added CC
+        cc=["projectdevops709@gmail.com"],  # Keep CC
         body=body,
         subtype="html"
     )
