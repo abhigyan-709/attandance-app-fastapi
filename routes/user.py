@@ -81,24 +81,58 @@ async def root():
     return {"message": "Connected to MongoDB successfully!"}
 
 
+# @route2.post("/token", response_model=Token, tags=["Login & Authentication"])
+# async def login_for_access_token(
+#         form_data: OAuth2PasswordRequestForm = Depends(),
+#         db_client: MongoClient = Depends(db.get_client)
+# ):
+#     user_from_db = db_client[db.db_name]["user"].find_one({"username": form_data.username})
+    
+    
+#     if user_from_db and verify_password(form_data.password, user_from_db['password']):
+#         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+#         access_token = create_access_token(
+#             data={"username": form_data.username},
+#             expires_delta=access_token_expires
+#         )
+
+#         # Store active session in MongoDB
+#         session_data = {
+#             "username": form_data.username,
+#             "token": access_token,
+#             "login_time": datetime.utcnow()
+#         }
+#         db_client[db.db_name]["active_sessions"].insert_one(session_data)
+
+#         return {"access_token": access_token, "token_type": "bearer"}
+
+#     raise HTTPException(
+#         status_code=401,
+#         detail="Incorrect username or password",
+#         headers={"WWW-Authenticate": "Bearer"},
+#     )
+
 @route2.post("/token", response_model=Token, tags=["Login & Authentication"])
 async def login_for_access_token(
-        form_data: OAuth2PasswordRequestForm = Depends(),
-        db_client: MongoClient = Depends(db.get_client)
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db_client: MongoClient = Depends(db.get_client)
 ):
-    user_from_db = db_client[db.db_name]["user"].find_one({"username": form_data.username})
+    # Sanitize input: Ensure username is treated as a string
+    username = str(form_data.username)
     
-    
-    if user_from_db and verify_password(form_data.password, user_from_db['password']):
+    # Fetch user securely (prevent NoSQL injection)
+    user_from_db = db_client[db.db_name]["user"].find_one({"username": username}, {"_id": 1, "username": 1, "password": 1})
+
+    if user_from_db and verify_password(form_data.password, user_from_db["password"]):
         access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
         access_token = create_access_token(
-            data={"username": form_data.username},
+            data={"username": username},
             expires_delta=access_token_expires
         )
 
         # Store active session in MongoDB
         session_data = {
-            "username": form_data.username,
+            "username": username,
             "token": access_token,
             "login_time": datetime.utcnow()
         }
@@ -111,6 +145,7 @@ async def login_for_access_token(
         detail="Incorrect username or password",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
 
 
 
