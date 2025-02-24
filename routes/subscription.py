@@ -17,8 +17,7 @@ from routes.send_email import send_registration_email
 
 route21 = APIRouter()
 
-# here we go for staging live
-# Create an instance of CryptContext for password hashing
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def verify_password(plain_password, hashed_password):
