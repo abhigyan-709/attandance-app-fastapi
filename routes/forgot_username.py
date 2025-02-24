@@ -13,7 +13,7 @@ class ForgotUsernameRequest(BaseModel):
 async def forgot_username(request: ForgotUsernameRequest, db_client: MongoClient = Depends(db.get_client)):
     print(f"Checking email: {request.email}")  # Debugging statement
     user_collection = db_client[db.db_name]["user"]
-    user = user_collection.find_one({"email": request.email})
+    user = user_collection.find_one({"email": {"$regex": f"^{request.email}$", "$options": "i"}})
 
     if not user:
         print("User not found in the database")  # Debugging statement
