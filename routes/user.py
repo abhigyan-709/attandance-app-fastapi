@@ -18,7 +18,6 @@ from datetime import datetime, timedelta
 import pytz
 
 
-
 route2 = APIRouter()
 SECRET_KEY = secrets.token_urlsafe(32)
 ALGORITHM = "HS256"
