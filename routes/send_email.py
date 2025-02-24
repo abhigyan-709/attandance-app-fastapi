@@ -159,3 +159,4 @@ async def send_username_recovery_email(email: str, username: str):
 
     fm = FastMail(conf)
     await fm.send_message(message)
+
