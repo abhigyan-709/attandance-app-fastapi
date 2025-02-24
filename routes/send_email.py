@@ -137,9 +137,7 @@ async def send_username_recovery_email(email: str, username: str):
                 <p>Hello,</p>
                 <p>We received a request to recover your username for your Project DevOps account.</p>
 
-                <p><b>Your Username:</b> 
-                   <span style="color: #FF5722; font-size: 18px;">{formatted_username}</span>
-                </p>
+                <p><b>Your Username:</b> <span style="color: #FF5722; font-size: 18px;">{formatted_username}</span></p>
 
                 <p>If you did not request this, please ignore this email.</p>
 
@@ -159,4 +157,5 @@ async def send_username_recovery_email(email: str, username: str):
 
     fm = FastMail(conf)
     await fm.send_message(message)
+
 
