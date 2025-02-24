@@ -37,11 +37,12 @@ async def forgot_username(request: ForgotUsernameRequest, db_client: MongoClient
     if not user:
         raise HTTPException(status_code=404, detail="Email not found")
 
-    username = user.get("username", "").strip()  # Get exact username (including spaces)
+    username = user.get("username", "").rstrip()  # Get exact username and remove only trailing spaces
 
-    # Send email with the formatted username
+    # Send email with the formatted username (include trailing space if it exists)
     await send_username_recovery_email(request.email, username)
 
     return {"message": "Your username has been sent to your email."}
+
 
 
