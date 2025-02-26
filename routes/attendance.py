@@ -123,3 +123,41 @@ async def get_all_attendance(current_user: User = Depends(get_current_user), db_
         attendance_list.append(attendance_data)
 
     return JSONResponse(content=attendance_list, status_code=200)
+
+# Route for Admin to add attendance manually
+@router7.post("/admin/add-attendance")
+async def add_attendance_admin(
+    username: str,
+    date: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admins can add attendance.")
+
+    attendance_collection = db_client[db.db_name]["attendance"]
+
+    # Convert date to required format
+    try:
+        attendance_date = datetime.strptime(date, "%Y-%m-%d").strftime("%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD.")
+
+    # Check if attendance is already marked for the given date
+    existing_attendance = attendance_collection.find_one(
+        {"username": username, "attendance_days.date": attendance_date}
+    )
+
+    if existing_attendance:
+        raise HTTPException(status_code=400, detail="Attendance already marked for this date.")
+
+    # Add attendance for the specified date
+    attendance_collection.update_one(
+        {"username": username},
+        {
+            "$push": {"attendance_days": {"date": attendance_date, "timestamp": datetime.utcnow()}}
+        },
+        upsert=True
+    )
+
+    return JSONResponse(content={"message": "Attendance added successfully"}, status_code=201)
