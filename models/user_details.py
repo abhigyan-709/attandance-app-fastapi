@@ -11,6 +11,7 @@ class UserDetails(BaseModel):
     branch: str
     year_of_passing: int
     date_of_birth: str
+    user_batch: Optional[str] = None
 
     class Config:
         orm_mode = True
