@@ -2,7 +2,6 @@ import uuid
 import boto3
 import shutil
 import os
-import secrets
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from typing import Optional
@@ -12,12 +11,9 @@ from database.db import db
 from models.employees import Employees
 from models.user import User
 from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+from routes.user import get_current_user  # Import get_current_user from user.py
 
 route5 = APIRouter()
-
-# Secret Key for JWT
-SECRET_KEY = secrets.token_urlsafe(32)
-ALGORITHM = "HS256"
 
 # Initialize S3 Client for Employee Documents
 s3_client = boto3.client(
@@ -28,31 +24,6 @@ s3_client = boto3.client(
 )
 
 EMPLOYEE_BUCKET = "projectdevops-employeed"
-
-async def get_current_user(token: str = Depends()):
-    """Validate JWT and get the current user."""
-    credentials_exception = HTTPException(
-        status_code=401,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-
-        db_client = db.get_client()
-        user_from_db = db_client[db.db_name]["user"].find_one({"username": username})
-        if user_from_db is None:
-            raise credentials_exception
-
-        user = User(**user_from_db)
-        return user
-    except jwt.ExpiredSignatureError:
-        raise credentials_exception
-    except jwt.PyJWTError:
-        raise credentials_exception
 
 async def is_admin(current_user: User = Depends(get_current_user)):
     """Ensure only admin users can add employees."""
