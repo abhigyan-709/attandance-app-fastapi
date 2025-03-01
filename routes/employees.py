@@ -13,7 +13,7 @@ from models.employees import Employees
 from models.user import User
 from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
 
-route3 = APIRouter()
+route5 = APIRouter()
 
 # Secret Key for JWT
 SECRET_KEY = secrets.token_urlsafe(32)
@@ -76,7 +76,7 @@ def upload_to_s3(upload_file: UploadFile, prefix: str):
             raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
     return None
 
-@route3.post("/add-employee", tags=["Employees"])
+@route5.post("/add-employee", tags=["Employees"])
 async def add_employee(
     employee: Employees,
     photo: Optional[UploadFile] = None,
