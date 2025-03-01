@@ -1,10 +1,10 @@
-from pydantic import BaseModel, EmailStr, validator
+from pydantic import BaseModel, EmailStr, validator, FilePath, Field
 from typing import Optional
 from datetime import datetime
 
 class Employees(BaseModel):
-    username: str
-    password: str
+    username: str = Field(..., description="Unique username of the employee")
+    password: str = Field(..., min_length=6, description="Password with at least 6 characters")
     first_name: str
     last_name: str
     mobile_number: str  # 10-digit validation handled below
@@ -28,15 +28,15 @@ class Employees(BaseModel):
     emergency_contact: Optional[str] = None
     address: Optional[str] = None
 
-    # Document uploads (file paths or Base64 encoded)
-    photo: Optional[str] = None
-    aadhar_upload: Optional[str] = None
-    pan_upload: Optional[str] = None
-    previous_payslip_upload: Optional[str] = None
-    cv_upload: Optional[str] = None
+    # File Upload Fields (Use FilePath for validation)
+    photo: Optional[FilePath] = None
+    aadhar_upload: Optional[FilePath] = None
+    pan_upload: Optional[FilePath] = None
+    previous_payslip_upload: Optional[FilePath] = None
+    cv_upload: Optional[FilePath] = None
 
-    created_at: datetime = datetime.utcnow()
-    updated_at: datetime = datetime.utcnow()
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     # Validators
     @validator("mobile_number")
@@ -64,4 +64,8 @@ class Employees(BaseModel):
         if value and (not value.isdigit() or len(value) != 10):
             raise ValueError("Emergency contact must be exactly 10 digits")
         return value
+
+    @validator("updated_at", pre=True, always=True)
+    def update_timestamp(cls, value):
+        return datetime.utcnow()
 
