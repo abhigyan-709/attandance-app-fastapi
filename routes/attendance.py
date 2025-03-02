@@ -66,15 +66,15 @@ async def get_attendance(
             "attendancePercentage": 0
         }, status_code=200)
 
-    # 📅 Generate attendance data (Last 7 days)
+    # 📅 Generate attendance data (Last 30 days)
     from datetime import datetime, timedelta
 
     today = datetime.utcnow()
     attendanceData = []
     presentDays = 0
 
-    for i in range(7):
-        day = today - timedelta(days=6 - i)
+    for i in range(30):
+        day = today - timedelta(days=29 - i)
         day_str = day.strftime("%Y-%m-%d")
 
         attended = any(record["date"] == day_str for record in attendance_record.get("attendance_days", []))
