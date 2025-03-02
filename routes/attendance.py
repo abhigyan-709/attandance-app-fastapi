@@ -78,12 +78,11 @@ async def get_attendance(
         day_str = day.strftime("%Y-%m-%d")
 
         attended = any(record["date"] == day_str for record in attendance_record.get("attendance_days", []))
-        attendance_date = next((record["timestamp"] for record in attendance_record.get("attendance_days", []) if record["date"] == day_str), None)
 
         attendanceData.append({
             "day": f"Day {i+1}",
             "attended": attended,
-            "date": attendance_date.isoformat() if attendance_date else None
+            "date": day_str if attended else None
         })
 
         if attended:
