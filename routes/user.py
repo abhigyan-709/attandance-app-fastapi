@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 import jwt
 from datetime import datetime, timedelta
@@ -16,6 +16,8 @@ from models.user_details import UserDetails
 from routes.send_email import send_registration_email ,send_password_reset_email  # Import the new function
 from datetime import datetime, timedelta
 import pytz
+import requests
+import base64
 
 
 route2 = APIRouter()
@@ -135,6 +137,27 @@ async def verify_token(token: str = Depends(oauth2_scheme), db_client: MongoClie
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
+    
+LMS_AUTH_URL = "https://api.projectdevops.in/token"
+@route2.get("/authenticate", tags=["Login & Authentication"])
+async def authenticate(request: Request):
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Basic "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    auth_decoded = base64.b64decode(auth_header.split(" ")[1]).decode("utf-8")
+    username, password = auth_decoded.split(":", 1)
+
+    response = requests.post(
+        LMS_AUTH_URL,
+        headers={"accept": "application/json", "Content-Type": "application/x-www-form-urlencoded"},
+        data={"grant_type": "password", "username": username, "password": password}
+    )
+
+    if response.status_code == 200:
+        return {}  # Authentication successful (Nginx allows access)
+
+    raise HTTPException(status_code=401, detail="Invalid credentials")
 
 
 @route2.post("/register/", tags=["User Registration"])
