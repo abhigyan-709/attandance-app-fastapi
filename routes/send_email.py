@@ -111,8 +111,8 @@ async def send_message_receipt_email(email: str, first_name: str, last_name: str
                 <p>We appreciate your interest and will respond to your query at the earliest.</p>
 
                 <h3>Contact Us:</h3>
-                <p><b>📧 Email:</b> support@supportfoundation.org</p>
-                <p><b>📞 Phone:</b> +91 9876543210</p>
+                <p><b>📧 Email:</b> sfmuzsoc@gmail.com</p>
+                <p><b>📞 Phone:</b> +91 7004718940</p>
                 <p><b>🌐 Website:</b> <a href="https://www.supportfoundation.co.in" style="color: #0288D1;">www.supportfoundation.co.in</a></p>
 
                 <p style="text-align: center;"><b>Best regards,<br>Support Foundation Team</b></p>
