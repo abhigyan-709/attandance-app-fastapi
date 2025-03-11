@@ -56,7 +56,7 @@ async def get_s3_images():
         raise HTTPException(status_code=500, detail={"status": "error", "message": f"Error fetching images: {str(e)}"})
     
 
-@route1.post("/message", tags=["Utilities & Functions"])
+@route1.post("/sf-message/", tags=["Utilities & Functions"])
 async def create_message(message: SFMessage):
     db_client = db.get_client()
     db_client[db.db_name]["sf-messages"].insert_one(message.dict())
