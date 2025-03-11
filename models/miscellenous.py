@@ -4,7 +4,7 @@ from pydantic import BaseModel, EmailStr
 
 class SFMessage(BaseModel):
     first_name: str
-    last_anem: str
+    last_name: str
     email: EmailStr
     mobile: str
     message: str
