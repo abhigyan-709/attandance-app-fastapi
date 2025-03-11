@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends
 from database.db import db
+from routes.miscellenous import route1
 from routes.user import route2
 from routes.message import route3
 from routes.visitors import router4 as visitor_router
@@ -39,7 +40,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
+app.include_router(route1)
 app.include_router(route2)
 app.include_router(route3)
 app.include_router(visitor_router, prefix="/api", tags=["Visitors"])

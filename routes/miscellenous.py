@@ -10,7 +10,7 @@ REGION = "ap-south-1"  # Replace with your AWS region
 # Initialize S3 client
 s3_client = boto3.client("s3", region_name=REGION)
 
-@route1.get("/s3/images", response_model=list[str])
+@route1.get("/s3/images", response_model=list[str], tags=["Utilities & Functions"])
 async def get_s3_images():
     """
     Fetches all images from the public S3 bucket and returns a structured JSON response.
