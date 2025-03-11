@@ -5,6 +5,8 @@ from typing import List
 from models.miscellenous import SFMessage
 from database.db import db
 from fastapi.responses import JSONResponse
+from send_email import send_message_receipt_email
+from fastapi import BackgroundTasks
 
 route1 = APIRouter()
 
@@ -56,9 +58,22 @@ async def get_s3_images():
         raise HTTPException(status_code=500, detail={"status": "error", "message": f"Error fetching images: {str(e)}"})
     
 
+
 @route1.post("/sf-message/", tags=["Utilities & Functions"])
-async def create_message(message: SFMessage):
+async def create_message(message: SFMessage, background_tasks: BackgroundTasks):
     db_client = db.get_client()
     db_client[db.db_name]["sf-messages"].insert_one(message.dict())
+
+    # Send email in the background
+    background_tasks.add_task(
+        send_message_receipt_email,
+        email=message.email,
+        first_name=message.first_name,
+        last_name=message.last_name,
+        mobile=message.mobile,
+        message_content=message.message
+    )
+
     return JSONResponse(content={"message": "Message sent successfully"}, status_code=201)
+
 

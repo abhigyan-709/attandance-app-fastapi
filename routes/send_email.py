@@ -89,3 +89,45 @@ async def send_password_reset_email(email: str, reset_link: str):
 
     fm = FastMail(conf)
     await fm.send_message(message)
+
+
+async def send_message_receipt_email(email: str, first_name: str, last_name: str, mobile: str, message_content: str):
+    subject = "Support Foundation - Your Message Receipt"
+
+    body = f"""
+    <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+                <h2 style="color: #1A237E; text-align: center;">Hello {first_name} {last_name},</h2>
+                <p>Thank you for reaching out to <b>Support Foundation</b>. We have received your message and will get back to you as soon as possible.</p>
+
+                <h3 style="color: #FF5722;">Message Details:</h3>
+                <ul>
+                    <li><b>📧 Email:</b> {email}</li>
+                    <li><b>📞 Mobile:</b> {mobile}</li>
+                    <li><b>📝 Message:</b> {message_content}</li>
+                </ul>
+
+                <p>We appreciate your interest and will respond to your query at the earliest.</p>
+
+                <h3>Contact Us:</h3>
+                <p><b>📧 Email:</b> support@supportfoundation.org</p>
+                <p><b>📞 Phone:</b> +91 9876543210</p>
+                <p><b>🌐 Website:</b> <a href="https://www.supportfoundation.co.in" style="color: #0288D1;">www.supportfoundation.co.in</a></p>
+
+                <p style="text-align: center;"><b>Best regards,<br>Support Foundation Team</b></p>
+            </div>
+        </body>
+    </html>
+    """
+
+    message = MessageSchema(
+        subject=subject,
+        recipients=[email],
+        cc=["sfmuzsoc@gmail.com"],  # Admin notification email
+        body=body,
+        subtype="html"
+    )
+
+    fm = FastMail(conf)
+    await fm.send_message(message)
