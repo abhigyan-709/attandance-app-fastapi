@@ -5,7 +5,7 @@ from typing import List
 from models.miscellenous import SFMessage
 from database.db import db
 from fastapi.responses import JSONResponse
-from send_email import send_message_receipt_email
+from routes.send_email import send_message_receipt_email
 from fastapi import BackgroundTasks
 
 route1 = APIRouter()
