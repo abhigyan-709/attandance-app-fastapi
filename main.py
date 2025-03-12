@@ -10,7 +10,7 @@ from routes.notes import router10 as notes_router
 from routes.quiz import router17
 from routes.feedback import router18
 from routes.subscription import route21
-
+from routes.blogs import blog_router
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -40,6 +40,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(blog_router)
 app.include_router(route1)
 app.include_router(route2)
 app.include_router(route3)
