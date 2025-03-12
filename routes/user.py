@@ -113,31 +113,6 @@ async def login_for_access_token(
         headers={"WWW-Authenticate": "Bearer"},
     )
 
-# @route2.get("/verify-token", tags=["Login & Authentication"])
-# async def verify_token(token: str = Depends(oauth2_scheme), db_client: MongoClient = Depends(db.get_client)):
-#     """
-#     Verifies the JWT token from the request and checks if the user exists.
-#     """
-#     try:
-#         # Decode the JWT token
-#         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-#         username: str = payload.get("sub")
-
-#         if not username:
-#             raise HTTPException(status_code=401, detail="Invalid token")
-
-#         # Check if the user exists in the database
-#         user_from_db = db_client[db.db_name]["user"].find_one({"username": username})
-#         if not user_from_db:
-#             raise HTTPException(status_code=401, detail="User not found")
-
-#         return JSONResponse(content={"status": "authorized"}, status_code=200)
-
-#     except jwt.ExpiredSignatureError:
-#         raise HTTPException(status_code=401, detail="Token expired")
-#     except jwt.PyJWTError:
-#         raise HTTPException(status_code=401, detail="Invalid token")
-
 @route2.post("/verify-token", tags=["Login & Authentication"])
 async def verify_token(request: Request, db_client: MongoClient = Depends(db.get_client)):
     """
