@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pymongo import MongoClient
 from models.blogs import BlogPost, Comment, Category
 from models.user import User
@@ -59,6 +59,7 @@ async def update_blog(
     existing_blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
     if not existing_blog:
         raise HTTPException(status_code=404, detail="Blog not found")
+    
     updated_blog.updated_at = datetime.utcnow()
     db_client[db.db_name]["blogs"].update_one(
         {"_id": ObjectId(blog_id)}, {"$set": updated_blog.dict(by_alias=True, exclude={"id", "author_id", "created_at"})}
@@ -75,6 +76,7 @@ async def delete_blog(
     existing_blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
     if not existing_blog:
         raise HTTPException(status_code=404, detail="Blog not found")
+
     db_client[db.db_name]["blogs"].delete_one({"_id": ObjectId(blog_id)})
     return {"message": "Blog deleted successfully"}
 
@@ -93,6 +95,7 @@ async def add_comment(
     inserted_comment = db_client[db.db_name]["comments"].insert_one(comment_dict)
     comment.id = str(inserted_comment.inserted_id)
     return comment
+
 
 @blog_router.post("/categories", response_model=Category, tags=["Categories"])
 async def create_category(
