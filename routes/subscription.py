@@ -18,7 +18,6 @@ from routes.send_email import send_registration_email
 route21 = APIRouter()
 
 # setting up pwd concept
-
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def verify_password(plain_password, hashed_password):

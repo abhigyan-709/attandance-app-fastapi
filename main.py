@@ -11,6 +11,7 @@ from routes.quiz import router17
 from routes.feedback import router18
 from routes.forgot_username import router
 from routes.blogs import blog_router
+from routes.subscription import route21
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -40,6 +41,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(route21)
 app.include_router(blog_router)
 app.include_router(route2)
 app.include_router(route3)
