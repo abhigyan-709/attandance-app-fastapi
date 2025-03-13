@@ -15,6 +15,13 @@ def get_current_admin_user(current_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Not authorized to perform this action")
     return current_user
 
+def serialize_document(document):
+    """Convert MongoDB document ObjectId fields to strings."""
+    if document and "_id" in document:
+        document["_id"] = str(document["_id"])
+    return document
+
+
 @blog_router.post("/blogs", response_model=BlogPost, tags=["Blogs"])
 async def create_blog(
     blog: BlogPost,
@@ -32,17 +39,16 @@ async def create_blog(
 @blog_router.get("/blogs", response_model=List[BlogPost], tags=["Blogs"])
 async def get_blogs(db_client: MongoClient = Depends(db.get_client)):
     blogs = list(db_client[db.db_name]["blogs"].find())
-    for blog in blogs:
-        blog["id"] = str(blog["_id"])
-    return blogs
+    return [serialize_document(blog) for blog in blogs]
 
 @blog_router.get("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
 async def get_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
     blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
     if not blog:
         raise HTTPException(status_code=404, detail="Blog not found")
-    blog["id"] = str(blog["_id"])
-    return blog
+    
+    return serialize_document(blog)
+
 
 @blog_router.put("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
 async def update_blog(
