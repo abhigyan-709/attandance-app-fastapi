@@ -152,6 +152,21 @@ async def create_category(
     category.id = str(inserted_category.inserted_id)
     return category
 
+@blog_router.post("/categories/bulk", response_model=List[Category], tags=["Blogs"])
+async def create_multiple_categories(
+    categories: List[Category],
+    current_admin: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    category_dicts = [category.dict(by_alias=True, exclude={"id"}) for category in categories]
+    inserted_categories = db_client[db.db_name]["categories"].insert_many(category_dicts)
+
+    for i, category in enumerate(categories):
+        category.id = str(inserted_categories.inserted_ids[i])
+
+    return categories
+
+
 @blog_router.get("/blogs/category/{category_name}", response_model=List[BlogPost], tags=["Blogs"])
 async def get_blogs_by_category(category_name: str, db_client: MongoClient = Depends(db.get_client)):
     blogs = list(db_client[db.db_name]["blogs"].find({"categories": category_name}))
@@ -167,3 +182,4 @@ async def get_blogs_by_category(category_name: str, db_client: MongoClient = Dep
             comment["_id"] = str(comment["_id"])
 
     return blogs
+
