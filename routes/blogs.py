@@ -87,27 +87,14 @@ async def create_blog(
     return blog_data
 
 
-
-# @blog_router.get("/blogs", response_model=List[BlogPost], tags=["Blogs"])
-# async def get_blogs(db_client: MongoClient = Depends(db.get_client)):
-#     blogs = list(db_client[db.db_name]["blogs"].find())
-#     return [serialize_document(blog) for blog in blogs]
-
-# @blog_router.get("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
-# async def get_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
-#     blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
-#     if not blog:
-#         raise HTTPException(status_code=404, detail="Blog not found")
-    
-#     return serialize_document(blog)
-
 @blog_router.get("/blogs", response_model=List[BlogPost], tags=["Blogs"])
 async def get_blogs(db_client: MongoClient = Depends(db.get_client)):
     blogs = list(db_client[db.db_name]["blogs"].find())
     
     for blog in blogs:
         blog["_id"] = str(blog["_id"])
-        blog["comments"] = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
+        # blog["comments"] = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
+        blog["comments"] = list(db_client[db.db_name]["comments"].find({"blog_id": str(blog["_id"])}))
         for comment in blog["comments"]:
             comment["_id"] = str(comment["_id"])  # Convert ObjectId to string
     
@@ -122,7 +109,8 @@ async def get_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)
     blog["_id"] = str(blog["_id"])
     
     # Fetch associated comments
-    comments = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
+    # comments = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
+    comments = list(db_client[db.db_name]["comments"].find({"blog_id": str(blog["_id"])}))
     for comment in comments:
         comment["_id"] = str(comment["_id"])
 
