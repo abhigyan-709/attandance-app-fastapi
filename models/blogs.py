@@ -2,6 +2,12 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 
+class Comment(BaseModel):
+    id: Optional[str] = Field(default=None, alias="_id")
+    blog_id: str  # Reference to BlogPost
+    username: str  # Storing username instead of user ID
+    content: str
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class BlogPost(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
@@ -13,15 +19,7 @@ class BlogPost(BaseModel):
     published: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
-
-
-class Comment(BaseModel):
-    id: Optional[str] = Field(default=None, alias="_id")
-    blog_id: str  # Reference to BlogPost
-    username: str  # Replacing user_id with username
-    content: str
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-
+    comments: Optional[List[Comment]] = []  # Fetch comments while getting blogs
 
 class Category(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
