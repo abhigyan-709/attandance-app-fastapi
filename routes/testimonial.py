@@ -68,6 +68,6 @@ async def create_testimonial(
 
 @route5.get("/testimonials", response_model=List[Testimonial], tags=["Testimonials"])
 async def get_testimonials(db_client: MongoClient = Depends(db.get_client)):
-    testimonials = db_client["testimonials"].find()
-    return list(testimonials)
+    testimonials = list(db_client[db.db_name]["testimonials"].find())
+    return testimonials
 
