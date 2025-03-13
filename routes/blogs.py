@@ -9,10 +9,12 @@ from datetime import datetime
 from routes.user import get_current_user
 import uuid
 import boto3
-from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_BUCKET_NAME, AWS_REGION
+from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
 
 
 blog_router = APIRouter()
+
+AWS_BUCKET_NAME = "projectdevops-blogs"
 
 s3_client = boto3.client(
     "s3",
