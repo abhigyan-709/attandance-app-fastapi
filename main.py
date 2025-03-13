@@ -12,6 +12,7 @@ from routes.feedback import router18
 from routes.forgot_username import router
 from routes.blogs import blog_router
 from routes.subscription import route21
+from routes.testimonial import route5
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -45,6 +46,7 @@ app.include_router(route21)
 app.include_router(blog_router)
 app.include_router(route2)
 app.include_router(route3)
+app.include_router(route5)
 app.include_router(visitor_router, prefix="/api", tags=["Visitors"])
 app.include_router(meet_router, prefix="/api", tags=["Google Meet"])
 app.include_router(attendance_router, prefix="/api", tags=["Attendance"])

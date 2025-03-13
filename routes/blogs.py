@@ -29,45 +29,6 @@ def get_current_admin_user(current_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Not authorized to perform this action")
     return current_user
 
-# @blog_router.post("/blogs", response_model=BlogPost, tags=["Blogs"])
-# async def create_blog(
-#     title: str = Form(...),
-#     content: str = Form(...),
-#     categories: List[str] = Form([]),
-#     published: bool = Form(True),
-#     file: UploadFile = File(...),
-#     current_admin: User = Depends(get_current_admin_user),
-#     db_client: MongoClient = Depends(db.get_client)
-# ):
-#     file_extension = file.filename.split(".")[-1]
-#     unique_filename = f"blogs/{uuid.uuid4()}.{file_extension}"
-
-#     try:
-#         s3_client.upload_fileobj(
-#             file.file,
-#             AWS_BUCKET_NAME,
-#             unique_filename,
-#             ExtraArgs={"ContentType": file.content_type}
-#         )
-#         image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
-
-#     blog_data = {
-#         "title": title,
-#         "image_url": image_url,
-#         "content": content,
-#         "author_username": current_admin.username,
-#         "categories": categories,
-#         "published": published,
-#         "created_at": datetime.utcnow(),
-#         "updated_at": datetime.utcnow(),
-#     }
-
-#     inserted_blog = db_client[db.db_name]["blogs"].insert_one(blog_data)
-#     blog_data["_id"] = str(inserted_blog.inserted_id)
-    
-#     return blog_data
 
 @blog_router.post("/blogs", response_model=BlogPost, tags=["Blogs"])
 async def create_blog(
