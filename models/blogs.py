@@ -16,7 +16,7 @@ class BlogPost(BaseModel):
 
 class Comment(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
-    post_id: str  # Reference to BlogPost
+    blog_id: str  # Reference to BlogPost
     user_id: str  # Reference to User model
     content: str
     created_at: datetime = Field(default_factory=datetime.utcnow)

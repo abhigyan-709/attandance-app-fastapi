@@ -81,7 +81,7 @@ async def delete_blog(
     return {"message": "Blog deleted successfully"}
 
 
-@blog_router.post("/blogs/{blog_id}/comments", response_model=Comment, tags=["Comments"])
+@blog_router.post("/blogs/{blog_id}/comments", response_model=Comment, tags=["Blogs"])
 async def add_comment(
     blog_id: str,
     comment: Comment,
@@ -97,7 +97,7 @@ async def add_comment(
     return comment
 
 
-@blog_router.post("/categories", response_model=Category, tags=["Categories"])
+@blog_router.post("/categories", response_model=Category, tags=["Blogs"])
 async def create_category(
     category: Category,
     current_admin: User = Depends(get_current_admin_user),
