@@ -61,7 +61,7 @@ async def create_testimonial(
         "image_url": image_url
     }
 
-    result = db_client["testimonials"].insert_one(testimonial_data)
+    result = db_client[db.db_name]["testimonials"].insert_one(testimonial_data)
     testimonial_data["_id"] = str(result.inserted_id)
 
     return testimonial_data
