@@ -11,6 +11,7 @@ import boto3
 from routes.user import get_current_user
 from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
 from typing import Optional
+from typing import List
 
 blog_router = APIRouter()
 
@@ -146,6 +147,19 @@ async def get_blogs_by_category_and_tags(
             comment["_id"] = str(comment["_id"])
 
     return blogs
+
+@blog_router.get("/blogs/tags", response_model=List[str], tags=["Blogs"])
+async def get_all_tags(db_client: MongoClient = Depends(db.get_client)):
+    """
+    Fetch all unique tags used in blog posts.
+    """
+    tags_cursor = db_client[db.db_name]["blogs"].aggregate([
+        {"$unwind": "$tags"},  # Unwind the tags array
+        {"$group": {"_id": "$tags"}}  # Group by unique tags
+    ])
+
+    tags = [tag["_id"] for tag in tags_cursor]
+    return tags
 
 
 @blog_router.get("/blogs", response_model=List[BlogPost], tags=["Blogs"])
