@@ -33,7 +33,7 @@ async def create_blog(
 async def get_blogs(db_client: MongoClient = Depends(db.get_client)):
     blogs = list(db_client[db.db_name]["blogs"].find())
     for blog in blogs:
-        blog["id"] = str(blog("_id"))
+        blog["id"] = str(blog["_id"])
     return blogs
 
 @blog_router.get("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
@@ -41,7 +41,7 @@ async def get_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)
     blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
     if not blog:
         raise HTTPException(status_code=404, detail="Blog not found")
-    blog["id"] = str(blog.pop("_id"))
+    blog["id"] = str(blog["_id"])
     return blog
 
 @blog_router.put("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
@@ -57,7 +57,7 @@ async def update_blog(
     
     updated_blog.updated_at = datetime.utcnow()
     db_client[db.db_name]["blogs"].update_one(
-        {"_id": ObjectId(blog_id)}, 
+        {"_id": ObjectId(blog_id)},
         {"$set": updated_blog.dict(by_alias=True, exclude={"id", "author_id", "created_at"})}
     )
     updated_blog.id = blog_id
@@ -72,6 +72,7 @@ async def delete_blog(
     existing_blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
     if not existing_blog:
         raise HTTPException(status_code=404, detail="Blog not found")
+    
     db_client[db.db_name]["blogs"].delete_one({"_id": ObjectId(blog_id)})
     return {"message": "Blog deleted successfully"}
 
