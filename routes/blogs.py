@@ -10,6 +10,7 @@ import uuid
 import boto3
 from routes.user import get_current_user
 from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+from typing import Optional
 
 blog_router = APIRouter()
 
@@ -27,11 +28,52 @@ def get_current_admin_user(current_user: User = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Not authorized to perform this action")
     return current_user
 
+# @blog_router.post("/blogs", response_model=BlogPost, tags=["Blogs"])
+# async def create_blog(
+#     title: str = Form(...),
+#     content: str = Form(...),
+#     categories: List[str] = Form([]),
+#     published: bool = Form(True),
+#     file: UploadFile = File(...),
+#     current_admin: User = Depends(get_current_admin_user),
+#     db_client: MongoClient = Depends(db.get_client)
+# ):
+#     file_extension = file.filename.split(".")[-1]
+#     unique_filename = f"blogs/{uuid.uuid4()}.{file_extension}"
+
+#     try:
+#         s3_client.upload_fileobj(
+#             file.file,
+#             AWS_BUCKET_NAME,
+#             unique_filename,
+#             ExtraArgs={"ContentType": file.content_type}
+#         )
+#         image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
+
+#     blog_data = {
+#         "title": title,
+#         "image_url": image_url,
+#         "content": content,
+#         "author_username": current_admin.username,
+#         "categories": categories,
+#         "published": published,
+#         "created_at": datetime.utcnow(),
+#         "updated_at": datetime.utcnow(),
+#     }
+
+#     inserted_blog = db_client[db.db_name]["blogs"].insert_one(blog_data)
+#     blog_data["_id"] = str(inserted_blog.inserted_id)
+    
+#     return blog_data
+
 @blog_router.post("/blogs", response_model=BlogPost, tags=["Blogs"])
 async def create_blog(
     title: str = Form(...),
     content: str = Form(...),
     categories: List[str] = Form([]),
+    tags: List[str] = Form([]),  # 🔹 Accepting Tags
     published: bool = Form(True),
     file: UploadFile = File(...),
     current_admin: User = Depends(get_current_admin_user),
@@ -57,6 +99,7 @@ async def create_blog(
         "content": content,
         "author_username": current_admin.username,
         "categories": categories,
+        "tags": tags,  # 🔹 Storing Tags
         "published": published,
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow(),
@@ -66,6 +109,44 @@ async def create_blog(
     blog_data["_id"] = str(inserted_blog.inserted_id)
     
     return blog_data
+
+@blog_router.get("/blogs/tags/{tag}", response_model=List[BlogPost], tags=["Blogs"])
+async def get_blogs_by_tag(tag: str, db_client: MongoClient = Depends(db.get_client)):
+    blogs = list(db_client[db.db_name]["blogs"].find({"tags": tag}))
+
+    for blog in blogs:
+        blog["_id"] = str(blog["_id"])
+        blog["comments"] = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
+        
+        for comment in blog["comments"]:
+            comment["_id"] = str(comment["_id"])
+    
+    return blogs
+
+
+@blog_router.get("/blogs/filter", response_model=List[BlogPost], tags=["Blogs"])
+async def get_blogs_by_category_and_tags(
+    category: Optional[str] = None,
+    tag: Optional[str] = None,
+    db_client: MongoClient = Depends(db.get_client)
+):
+    query = {}
+    if category:
+        query["categories"] = category
+    if tag:
+        query["tags"] = tag
+
+    blogs = list(db_client[db.db_name]["blogs"].find(query))
+
+    for blog in blogs:
+        blog["_id"] = str(blog["_id"])
+        blog["comments"] = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
+
+        for comment in blog["comments"]:
+            comment["_id"] = str(comment["_id"])
+
+    return blogs
+
 
 @blog_router.get("/blogs", response_model=List[BlogPost], tags=["Blogs"])
 async def get_blogs(db_client: MongoClient = Depends(db.get_client)):
