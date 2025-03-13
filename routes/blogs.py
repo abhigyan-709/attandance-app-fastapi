@@ -96,8 +96,9 @@ async def create_blog(
             file.file,
             AWS_BUCKET_NAME,
             unique_filename,
-            ExtraArgs={"ACL": "public-read", "ContentType": file.content_type},
+            ExtraArgs={"ContentType": file.content_type}  # Keep ContentType, remove ACL
         )
+
 
         # Generate S3 image URL
         image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"
