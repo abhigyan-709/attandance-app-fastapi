@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from pymongo import MongoClient
 from models.blogs import BlogPost, Comment, Category
 from models.user import User
@@ -7,8 +7,19 @@ from typing import List
 from bson import ObjectId
 from datetime import datetime
 from routes.user import get_current_user
+import uuid
+import boto3
+from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_BUCKET_NAME, AWS_REGION
+
 
 blog_router = APIRouter()
+
+s3_client = boto3.client(
+    "s3",
+    aws_access_key_id=AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+    region_name=AWS_REGION,
+)
 
 def get_current_admin_user(current_user: User = Depends(get_current_user)):
     if current_user.role != "admin":
@@ -25,16 +36,44 @@ def serialize_document(document):
 @blog_router.post("/blogs", response_model=BlogPost, tags=["Blogs"])
 async def create_blog(
     blog: BlogPost,
+    file: UploadFile = File(...),  # Image file to be uploaded
     current_admin: User = Depends(get_current_admin_user),
-    db_client: MongoClient = Depends(db.get_client),
+    db_client: MongoClient = Depends(db.get_client)
 ):
-    blog.author_username = current_admin.username  # Store username instead of user ID
+    # Generate a unique filename for the uploaded image
+    file_extension = file.filename.split(".")[-1]
+    unique_filename = f"blogs/{uuid.uuid4()}.{file_extension}"
+
+    try:
+        # Upload the file to S3
+        s3_client.upload_fileobj(
+            file.file,
+            AWS_BUCKET_NAME,
+            unique_filename,
+            ExtraArgs={"ACL": "public-read", "ContentType": file.content_type},
+        )
+
+        # Generate the S3 image URL
+        image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
+
+    # Assign values to blog fields
+    blog.author_username = current_admin.username
+    blog.image_url = image_url  # Store the image URL
     blog.created_at = datetime.utcnow()
     blog.updated_at = datetime.utcnow()
+
+    # Convert blog to a dictionary for MongoDB insertion
     blog_dict = blog.dict(by_alias=True, exclude={"id"})
     inserted_blog = db_client[db.db_name]["blogs"].insert_one(blog_dict)
+    
+    # Set the inserted blog ID
     blog.id = str(inserted_blog.inserted_id)
+    
     return blog
+
 
 @blog_router.get("/blogs", response_model=List[BlogPost], tags=["Blogs"])
 async def get_blogs(db_client: MongoClient = Depends(db.get_client)):
