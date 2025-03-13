@@ -10,6 +10,7 @@ from routes.user import get_current_user
 import uuid
 import boto3
 from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+from fastapi import Form
 
 
 blog_router = APIRouter()
@@ -34,49 +35,6 @@ def serialize_document(document):
         document["_id"] = str(document["_id"])
     return document
 
-
-# @blog_router.post("/blogs", response_model=BlogPost, tags=["Blogs"])
-# async def create_blog(
-#     blog: BlogPost,
-#     file: UploadFile = File(...),  # Image file to be uploaded
-#     current_admin: User = Depends(get_current_admin_user),
-#     db_client: MongoClient = Depends(db.get_client)
-# ):
-#     # Generate a unique filename for the uploaded image
-#     file_extension = file.filename.split(".")[-1]
-#     unique_filename = f"blogs/{uuid.uuid4()}.{file_extension}"
-
-#     try:
-#         # Upload the file to S3
-#         s3_client.upload_fileobj(
-#             file.file,
-#             AWS_BUCKET_NAME,
-#             unique_filename,
-#             ExtraArgs={"ACL": "public-read", "ContentType": file.content_type},
-#         )
-
-#         # Generate the S3 image URL
-#         image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"
-    
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
-
-#     # Assign values to blog fields
-#     blog.author_username = current_admin.username
-#     blog.image_url = image_url  # Store the image URL
-#     blog.created_at = datetime.utcnow()
-#     blog.updated_at = datetime.utcnow()
-
-#     # Convert blog to a dictionary for MongoDB insertion
-#     blog_dict = blog.dict(by_alias=True, exclude={"id"})
-#     inserted_blog = db_client[db.db_name]["blogs"].insert_one(blog_dict)
-    
-#     # Set the inserted blog ID
-#     blog.id = str(inserted_blog.inserted_id)
-    
-#     return blog
-
-from fastapi import Form
 
 @blog_router.post("/blogs", response_model=BlogPost, tags=["Blogs"])
 async def create_blog(
@@ -130,10 +88,30 @@ async def create_blog(
 
 
 
+# @blog_router.get("/blogs", response_model=List[BlogPost], tags=["Blogs"])
+# async def get_blogs(db_client: MongoClient = Depends(db.get_client)):
+#     blogs = list(db_client[db.db_name]["blogs"].find())
+#     return [serialize_document(blog) for blog in blogs]
+
+# @blog_router.get("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
+# async def get_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
+#     blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
+#     if not blog:
+#         raise HTTPException(status_code=404, detail="Blog not found")
+    
+#     return serialize_document(blog)
+
 @blog_router.get("/blogs", response_model=List[BlogPost], tags=["Blogs"])
 async def get_blogs(db_client: MongoClient = Depends(db.get_client)):
     blogs = list(db_client[db.db_name]["blogs"].find())
-    return [serialize_document(blog) for blog in blogs]
+    
+    for blog in blogs:
+        blog["_id"] = str(blog["_id"])
+        blog["comments"] = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
+        for comment in blog["comments"]:
+            comment["_id"] = str(comment["_id"])  # Convert ObjectId to string
+    
+    return blogs
 
 @blog_router.get("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
 async def get_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
@@ -141,7 +119,16 @@ async def get_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)
     if not blog:
         raise HTTPException(status_code=404, detail="Blog not found")
     
-    return serialize_document(blog)
+    blog["_id"] = str(blog["_id"])
+    
+    # Fetch associated comments
+    comments = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
+    for comment in comments:
+        comment["_id"] = str(comment["_id"])
+
+    blog["comments"] = comments
+    return blog
+
 
 
 @blog_router.put("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
