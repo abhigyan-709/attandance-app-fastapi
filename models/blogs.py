@@ -7,7 +7,7 @@ class BlogPost(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
     title: str
     content: str
-    author_id: str  # Reference to logged-in admin user
+    author_username: str  # Replacing author_id with username
     categories: List[str] = []
     published: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -17,7 +17,7 @@ class BlogPost(BaseModel):
 class Comment(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
     blog_id: str  # Reference to BlogPost
-    user_id: str  # Reference to User model
+    username: str  # Replacing user_id with username
     content: str
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
