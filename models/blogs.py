@@ -6,6 +6,7 @@ from datetime import datetime
 class BlogPost(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
     title: str
+    image_url: Optional[str] = None
     content: str
     author_username: str  # Replacing author_id with username
     categories: List[str] = []
