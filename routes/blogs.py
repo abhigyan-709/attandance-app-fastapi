@@ -208,6 +208,16 @@ async def create_category(
     category.id = str(inserted_category.inserted_id)
     return category
 
+@blog_router.get("/categories", response_model=List[Category], tags=["Blogs"])
+async def get_categories(
+    db_client: MongoClient = Depends(db.get_client),
+):
+    categories = list(db_client[db.db_name]["categories"].find({}))
+    for category in categories:
+        category["_id"] = str(category["_id"])  # Convert ObjectId to string
+    return categories
+
+
 @blog_router.post("/categories/bulk", response_model=List[Category], tags=["Blogs"])
 async def create_multiple_categories(
     categories: List[Category],
