@@ -46,7 +46,7 @@ class BlogPost(BaseModel):
     categories: List[str] = []
     tags: List[str] = []  # 🔹 New Field for Tags
     published: bool = True
-    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
     comments: Optional[List[Comment]] = []  # Fetch comments while getting blogs
 
