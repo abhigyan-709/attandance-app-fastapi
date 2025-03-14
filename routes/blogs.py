@@ -12,6 +12,7 @@ from routes.user import get_current_user
 from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
 from typing import Optional
 from typing import List
+from pymongo import DESCENDING
 
 blog_router = APIRouter()
 
@@ -123,9 +124,23 @@ async def get_all_tags(db_client: MongoClient = Depends(db.get_client)):
     return tags
 
 
+# @blog_router.get("/blogs", response_model=List[BlogPost], tags=["Blogs"])
+# async def get_blogs(db_client: MongoClient = Depends(db.get_client)):
+#     blogs = list(db_client[db.db_name]["blogs"].find())
+
+#     for blog in blogs:
+#         blog["_id"] = str(blog["_id"])
+#         blog["comments"] = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
+        
+#         for comment in blog["comments"]:
+#             comment["_id"] = str(comment["_id"])
+    
+#     return blogs
+
 @blog_router.get("/blogs", response_model=List[BlogPost], tags=["Blogs"])
 async def get_blogs(db_client: MongoClient = Depends(db.get_client)):
-    blogs = list(db_client[db.db_name]["blogs"].find())
+    # Sort by 'created_at' in descending order (latest first)
+    blogs = list(db_client[db.db_name]["blogs"].find().sort("created_at", DESCENDING))
 
     for blog in blogs:
         blog["_id"] = str(blog["_id"])
@@ -135,6 +150,7 @@ async def get_blogs(db_client: MongoClient = Depends(db.get_client)):
             comment["_id"] = str(comment["_id"])
     
     return blogs
+
 
 @blog_router.get("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
 async def get_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
