@@ -43,7 +43,7 @@ class BlogPost(BaseModel):
     image_url: Optional[str] = None
     content: str
     author_username: str  # Replacing author_id with username
-    categories: List[str] = []
+    categories: str
     tags: List[str] = []  # 🔹 New Field for Tags
     published: bool = True
     created_at: datetime = Field(default_factory=datetime.utcnow)
