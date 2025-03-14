@@ -34,7 +34,7 @@ def get_current_admin_user(current_user: User = Depends(get_current_user)):
 async def create_blog(
     title: str = Form(...),
     content: str = Form(...),
-    categories: List[str] = Form([]),
+    categories: str = Form([]),
     tags: List[str] = Form([]),  # 🔹 Accepting Tags
     published: bool = Form(True),
     file: UploadFile = File(...),
