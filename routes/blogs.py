@@ -251,7 +251,8 @@ async def create_multiple_categories(
 
 @blog_router.get("/blogs/category/{category_name}", response_model=List[BlogPost], tags=["Blogs"])
 async def get_blogs_by_category(category_name: str, db_client: MongoClient = Depends(db.get_client)):
-    blogs = list(db_client[db.db_name]["blogs"].find({"categories": category_name}))
+    # blogs = list(db_client[db.db_name]["blogs"].find({"categories": category_name}))
+    blogs = list(db_client[db.db_name]["blogs"].find({"categories": category_name}).sort("created_at", DESCENDING))
 
     if not blogs:
         raise HTTPException(status_code=404, detail="No blogs found for this category")
