@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Depends
 # from routes.item import route as item_router  # Correct import
 from database.db import db
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from routes.user import route2
 from routes.message import route3
 from routes.visitors import router4 as visitor_router
@@ -34,6 +36,7 @@ app.openapi_version = "3.0.2"
 
 
 # Allow all origins for CORS (update this to a specific origin in production)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
