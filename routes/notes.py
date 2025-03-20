@@ -141,3 +141,21 @@ async def upload_pdf(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+
+
+
+# # 2️⃣ Fetch List of Notes
+@router10.get("/list-notes/")
+async def list_notes(db_client=Depends(get_db), current_user: dict = Depends(get_current_user)):
+    """Returns a list of uploaded notes (Accessible to all authenticated users)"""
+
+    # ✅ Allow access if the user is either "admin" or "user"
+    if current_user.role not in ["admin", "user"]:
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to access this resource"
+        )
+
+    # Fetch all notes from MongoDB
+    notes = list(db_client.notes.find({}, {"_id": 0}))  # Exclude MongoDB ObjectId
+    return notes
