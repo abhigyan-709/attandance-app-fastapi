@@ -359,9 +359,17 @@ async def get_blog_meta(blog_id: str, db_client: MongoClient = Depends(db.get_cl
     if not blog:
         raise HTTPException(status_code=404, detail="Blog not found")
 
+    # Extract and sanitize fields
     title = blog["title"]
-    description = blog["content"][:150] + "..."
+    # Strip HTML tags from content for description
+    from bs4 import BeautifulSoup
+    description = BeautifulSoup(blog["content"], "html.parser").get_text()[:150] + "..."
     image_url = blog["image_url"]
+    # Ensure image_url is absolute
+    if not image_url.startswith("http"):
+        image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{image_url}"
+    # Define the canonical URL
+    blog_url = f"https://www.projectdevops.in/blog/{blog_id}/{title.replace(' ', '-').lower()}"
 
     html_content = f"""
     <!DOCTYPE html>
@@ -372,10 +380,13 @@ async def get_blog_meta(blog_id: str, db_client: MongoClient = Depends(db.get_cl
         <meta property="og:title" content="{title}" />
         <meta property="og:description" content="{description}" />
         <meta property="og:image" content="{image_url}" />
+        <meta property="og:url" content="{blog_url}" />
         <meta property="og:type" content="article" />
+        <meta name="twitter:card" content="summary_large_image" />
         <title>{title}</title>
     </head>
     <body>
+        <p>Visit the full blog post at <a href="{blog_url}">{title}</a></p>
     </body>
     </html>
     """
