@@ -49,6 +49,8 @@ class BlogPost(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
     comments: Optional[List[Comment]] = []  # Fetch comments while getting blogs
+    views: Optional[int] = 0  # New field for total view count
+    viewed_ips: Optional[List[str]] = []  # New field to track IPs
 
 class Category(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
