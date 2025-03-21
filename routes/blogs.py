@@ -264,19 +264,44 @@ async def delete_blog(
     db_client[db.db_name]["blogs"].delete_one({"_id": ObjectId(blog_id)})
     return {"message": "Blog deleted successfully"}
 
+# @blog_router.post("/blogs/{blog_id}/comments", response_model=Comment, tags=["Blogs"])
+# async def add_comment(
+#     blog_id: str,
+#     comment: Comment,
+#     current_user: User = Depends(get_current_user),
+#     db_client: MongoClient = Depends(db.get_client),
+# ):
+#     comment.blog_id = blog_id
+#     comment.username = current_user.username
+#     comment.created_at = datetime.utcnow()
+#     comment_dict = comment.dict(by_alias=True, exclude={"id"})
+#     inserted_comment = db_client[db.db_name]["comments"].insert_one(comment_dict)
+#     comment.id = str(inserted_comment.inserted_id)
+#     return comment
+
 @blog_router.post("/blogs/{blog_id}/comments", response_model=Comment, tags=["Blogs"])
 async def add_comment(
     blog_id: str,
-    comment: Comment,
-    current_user: User = Depends(get_current_user),
+    comment: Comment,  # Use the updated Comment model directly
     db_client: MongoClient = Depends(db.get_client),
 ):
+    """
+    Add a comment to a blog post. Open to all users (no authentication required).
+    """
+    # Verify the blog exists
+    blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
+    if not blog:
+        raise HTTPException(status_code=404, detail="Blog not found")
+
+    # Set the blog_id and created_at fields
     comment.blog_id = blog_id
-    comment.username = current_user.username
     comment.created_at = datetime.utcnow()
+
+    # Convert to dict and insert into MongoDB
     comment_dict = comment.dict(by_alias=True, exclude={"id"})
     inserted_comment = db_client[db.db_name]["comments"].insert_one(comment_dict)
     comment.id = str(inserted_comment.inserted_id)
+
     return comment
 
 @blog_router.post("/categories", response_model=Category, tags=["Blogs"])
