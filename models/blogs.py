@@ -30,12 +30,29 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 
+# class Comment(BaseModel):
+#     id: Optional[str] = Field(default=None, alias="_id")
+#     blog_id: str  # Reference to BlogPost
+#     username: str  # Storing username instead of user ID
+#     content: str
+#     created_at: datetime = Field(default_factory=datetime.utcnow)
+
 class Comment(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
     blog_id: str  # Reference to BlogPost
-    username: str  # Storing username instead of user ID
-    content: str
+    name: str     # New field for commenter's name
+    email: str    # New field for commenter's email
+    phone: str    # New field for commenter's phone
+    content: str  # Comment text
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat(),
+            "ObjectId": str
+        }
+        alias_generator = lambda x: "_id" if x == "id" else x
 
 class BlogPost(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
