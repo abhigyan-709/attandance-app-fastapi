@@ -51,6 +51,8 @@ class BlogPost(BaseModel):
     comments: Optional[List[Comment]] = []  # Fetch comments while getting blogs
     views: Optional[int] = 0  # New field for total view count
     viewed_ips: Optional[List[str]] = []  # New field to track IPs
+    likes: int = 0           # Added
+    liked_ips: List[str] = [] # Added
 
 class Category(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
