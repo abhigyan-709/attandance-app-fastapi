@@ -308,6 +308,11 @@ import uuid
 import boto3
 from routes.user import get_current_user
 from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+import logging
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 blog_router = APIRouter()
 
@@ -459,9 +464,18 @@ async def increment_blog_views(
     if not blog:
         raise HTTPException(status_code=404, detail="Blog not found")
 
-    client_ip = request.client.host
+    # Get client IP, checking X-Forwarded-For header first
+    client_ip = request.headers.get("X-Forwarded-For", request.client.host)
+    if client_ip and ',' in client_ip:
+        client_ip = client_ip.split(',')[0].strip()
+    if not client_ip:
+        logger.warning("No valid client IP detected")
+        client_ip = "unknown"  # Fallback for invalid IPs
+
     viewed_ips = blog.get("viewed_ips", [])
     current_views = blog.get("views", 0)
+
+    logger.info(f"Client IP: {client_ip}, Viewed IPs: {viewed_ips}, Current Views: {current_views}")
 
     if client_ip not in viewed_ips:
         viewed_ips.append(client_ip)
@@ -470,6 +484,7 @@ async def increment_blog_views(
             {"_id": ObjectId(blog_id)},
             {"$set": {"viewed_ips": viewed_ips, "views": current_views}}
         )
+        logger.info(f"Updated - New Views: {current_views}, Added IP: {client_ip}")
 
     return {"views": current_views}
 
