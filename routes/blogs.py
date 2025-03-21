@@ -13,6 +13,7 @@ from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
 from typing import Optional
 from typing import List
 from pymongo import DESCENDING
+from fastapi.responses import HTMLResponse
 
 blog_router = APIRouter()
 
@@ -266,3 +267,30 @@ async def get_blogs_by_category(category_name: str, db_client: MongoClient = Dep
 
     return blogs
 
+@blog_router.get("/blogs/{blog_id}/meta", response_class=HTMLResponse, tags=["Blogs"])
+async def get_blog_meta(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
+    blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
+    if not blog:
+        raise HTTPException(status_code=404, detail="Blog not found")
+
+    title = blog["title"]
+    description = blog["content"][:150] + "..."  # Short excerpt
+    image_url = blog["image_url"]
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta property="og:title" content="{title}" />
+        <meta property="og:description" content="{description}" />
+        <meta property="og:image" content="{image_url}" />
+        <meta property="og:type" content="article" />
+        <title>{title}</title>
+    </head>
+    <body>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
