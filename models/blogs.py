@@ -80,8 +80,6 @@ class BlogPostUpdate(BaseModel):
     published: Optional[bool] = None
     comments: Optional[List[Comment]] = None
 
-    class Config:
-        arbitrary_types_allowed = True
 
 class Category(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
