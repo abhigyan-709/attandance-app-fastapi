@@ -62,7 +62,7 @@ class BlogPost(BaseModel):
     author_username: str  # Replacing author_id with username
     categories: str
     tags: List[str] = []  # 🔹 New Field for Tags
-    published: bool = True
+    published: bool = False
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
     comments: Optional[List[Comment]] = []  # Fetch comments while getting blogs
