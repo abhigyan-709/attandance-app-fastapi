@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form, Request
 from fastapi.responses import HTMLResponse
 from pymongo import MongoClient, DESCENDING
-from models.blogs import BlogPost, Comment, Category, BlogPostUpdate
+from models.blogs import BlogPost, Comment, Category
 from models.user import User
 from database.db import db
 from typing import List, Optional
@@ -228,50 +228,50 @@ async def increment_blog_likes(
 
     return {"likes": current_likes}
 
-# @blog_router.put("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
-# async def update_blog(
-#     blog_id: str,
-#     updated_blog: BlogPost,
-#     current_user: User = Depends(get_current_author_or_admin_user),
-#     db_client: MongoClient = Depends(db.get_client),
-# ):
-#     existing_blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
-#     if not existing_blog:
-#         raise HTTPException(status_code=404, detail="Blog not found")
-    
-#     updated_blog.updated_at = datetime.utcnow()
-#     db_client[db.db_name]["blogs"].update_one(
-#         {"_id": ObjectId(blog_id)},
-#         {"$set": updated_blog.dict(by_alias=True, exclude={"id", "author_username", "created_at", "views", "viewed_ips", "likes", "liked_ips"})}
-#     )
-#     updated_blog.id = blog_id
-#     return updated_blog
-
 @blog_router.put("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
 async def update_blog(
     blog_id: str,
-    updated_blog: BlogPostUpdate,  # Use the new model here
+    updated_blog: BlogPost,
     current_user: User = Depends(get_current_author_or_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
-    # Check if blog exists
     existing_blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
     if not existing_blog:
         raise HTTPException(status_code=404, detail="Blog not found")
-
-    # Set updated_at timestamp
-    update_data = updated_blog.dict(exclude_unset=True)  # Only include fields that were provided
-    update_data["updated_at"] = datetime.utcnow()
-
-    # Update the blog in the database
+    
+    updated_blog.updated_at = datetime.utcnow()
     db_client[db.db_name]["blogs"].update_one(
         {"_id": ObjectId(blog_id)},
-        {"$set": update_data}
+        {"$set": updated_blog.dict(by_alias=True, exclude={"id", "author_username", "created_at", "views", "viewed_ips", "likes", "liked_ips"})}
     )
+    updated_blog.id = blog_id
+    return updated_blog
 
-    # Fetch the updated blog to return
-    updated_blog_full = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
-    return BlogPost(**updated_blog_full)
+# @blog_router.put("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
+# async def update_blog(
+#     blog_id: str,
+#     updated_blog: BlogPostUpdate,  # Use the new model here
+#     current_user: User = Depends(get_current_author_or_admin_user),
+#     db_client: MongoClient = Depends(db.get_client),
+# ):
+#     # Check if blog exists
+#     existing_blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
+#     if not existing_blog:
+#         raise HTTPException(status_code=404, detail="Blog not found")
+
+#     # Set updated_at timestamp
+#     update_data = updated_blog.dict(exclude_unset=True)  # Only include fields that were provided
+#     update_data["updated_at"] = datetime.utcnow()
+
+#     # Update the blog in the database
+#     db_client[db.db_name]["blogs"].update_one(
+#         {"_id": ObjectId(blog_id)},
+#         {"$set": update_data}
+#     )
+
+#     # Fetch the updated blog to return
+#     updated_blog_full = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
+#     return BlogPost(**updated_blog_full)
 
 @blog_router.delete("/blogs/{blog_id}", tags=["Blogs"])
 async def delete_blog(
