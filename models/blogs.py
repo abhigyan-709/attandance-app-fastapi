@@ -78,7 +78,7 @@ class BlogPostUpdate(BaseModel):
     categories: Optional[str] = None
     tags: Optional[List[str]] = None
     published: Optional[bool] = None
-    comments: Optional[List[Comment]] = None
+    
 
 
 class Category(BaseModel):
