@@ -56,29 +56,20 @@ class Comment(BaseModel):
 
 class BlogPost(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
-    title: Optional[str] = None
+    title: str
     image_url: Optional[str] = None
-    content: Optional[str] = None
-    author_username: Optional[str] = None  # Replacing author_id with username
-    categories: Optional[str] = None
-    tags: Optional[List[str]] = []  # 🔹 New Field for Tags
-    published: Optional[bool] = False
-    created_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
+    content: str
+    author_username: str  # Replacing author_id with username
+    categories: str
+    tags: List[str] = []  # 🔹 New Field for Tags
+    published: bool = False
+    created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
     comments: Optional[List[Comment]] = []  # Fetch comments while getting blogs
     views: Optional[int] = 0  # New field for total view count
     viewed_ips: Optional[List[str]] = []  # New field to track IPs
-    likes: Optional[int] = 0           # Added
-    liked_ips: Optional[List[str]] = [] # Added
-
-class BlogPostUpdate(BaseModel):
-    title: Optional[str] = None
-    image_url: Optional[str] = None
-    content: Optional[str] = None
-    categories: Optional[str] = None
-    tags: Optional[List[str]] = None
-    published: Optional[bool] = None
-    
+    likes: int = 0           # Added
+    liked_ips: List[str] = [] # Added
 
 
 class Category(BaseModel):
