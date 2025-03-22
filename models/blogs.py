@@ -71,6 +71,18 @@ class BlogPost(BaseModel):
     likes: Optional[int] = 0           # Added
     liked_ips: Optional[List[str]] = [] # Added
 
+class BlogPostUpdate(BaseModel):
+    title: Optional[str] = None
+    image_url: Optional[str] = None
+    content: Optional[str] = None
+    categories: Optional[str] = None
+    tags: Optional[List[str]] = None
+    published: Optional[bool] = None
+    comments: Optional[List[Comment]] = None
+
+    class Config:
+        arbitrary_types_allowed = True
+
 class Category(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
     name: str
