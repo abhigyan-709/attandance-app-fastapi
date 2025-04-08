@@ -5,7 +5,7 @@ router4 = APIRouter()
 
 @router4.get("/visitor-count")
 async def get_visitor_count():
-    """Fetch the current visitor count."""
+    """Fetch the current visitor count, on the website for project devops."""
     client = db.get_client()  # Get MongoDB client
     visitors_collection = client.testdb["visitors"]  # Access the correct database and collection
 
