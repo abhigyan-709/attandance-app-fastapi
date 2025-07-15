@@ -13,6 +13,8 @@ RUN pip install --no-cache-dir --no-deps -r requirements.txt
 
 
 # Copy the rest of the application code to the container
+COPY .env .
+
 COPY . .
 
 # Expose the port FastAPI runs on
