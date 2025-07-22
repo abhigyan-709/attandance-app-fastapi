@@ -44,6 +44,6 @@ class Database:
             self.connect()
         return self.client
 
-# Example usage
+# Example usage added in aws secrets maanger as well
 db = Database()
 client = db.get_client()
