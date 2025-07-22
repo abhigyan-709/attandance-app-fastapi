@@ -102,7 +102,7 @@ name: Deploy FastAPI to EC2
 on:
   push:
     branches:
-      - Abhigyans-Code
+      - staging-api
 
 jobs:
   build-and-deploy:
