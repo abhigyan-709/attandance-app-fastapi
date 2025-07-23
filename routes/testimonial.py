@@ -44,7 +44,7 @@ async def create_testimonial(
             file.file,
             AWS_BUCKET_NAME,
             unique_filename,
-            ExtraArgs={"ContentType": file.content_type, "ACL": "public-read"}
+            ExtraArgs={"ContentType": file.content_type}
         )
         image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"
     except Exception as e:
