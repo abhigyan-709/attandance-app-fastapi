@@ -303,7 +303,8 @@ async def add_comment(
     inserted_comment = db_client[db.db_name]["comments"].insert_one(comment_dict)
     comment.id = str(inserted_comment.inserted_id)
 
-    return comment
+    return comment 
+# return comment
 
 @blog_router.post("/categories", response_model=Category, tags=["Blogs"])
 async def create_category(
