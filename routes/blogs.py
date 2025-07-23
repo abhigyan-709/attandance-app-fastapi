@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 blog_router = APIRouter()
 
-AWS_BUCKET_NAME = "projectdevops-blogs"
+AWS_BUCKET_NAME = "projectdevops-blogs-new"
 
 s3_client = boto3.client(
     "s3",
