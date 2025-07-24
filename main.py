@@ -15,6 +15,7 @@ from routes.forgot_username import router
 from routes.blogs import blog_router
 from routes.subscription import route21
 from routes.testimonial import route5
+from routes import product
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -57,6 +58,7 @@ app.include_router(notes_router, prefix="/api", tags=["Notes"])
 app.include_router(router17)
 app.include_router(router18)
 app.include_router(router)
+app.include_router(product.router)
 
 
 if __name__ == "__main__":
