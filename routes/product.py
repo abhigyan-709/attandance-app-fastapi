@@ -10,8 +10,8 @@ router = APIRouter()
 
 collection = db.get_client()[db.db_name]["products"]
 
-@router.post("/products", response_model=Product)
-def create_product(product: ProductCreate, user: User = Depends(get_current_user)):
+@router.post("/products", response_model=Product, tags=["Products"])
+async def create_product(product: ProductCreate, user: User = Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required.")
 
@@ -23,13 +23,13 @@ def create_product(product: ProductCreate, user: User = Depends(get_current_user
     data["id"] = str(result.inserted_id)
     return data
 
-@router.get("/products", response_model=list[Product])
-def list_products():
+@router.get("/products", response_model=list[Product], tags=["Products"])
+async def list_products():
     products = collection.find()
     return [{**prod, "id": str(prod["_id"])} for prod in products]
 
-@router.patch("/products/{product_id}", response_model=Product)
-def update_product(product_id: str, update: ProductUpdate, user: User = Depends(get_current_user)):
+@router.patch("/products/{product_id}", response_model=Product, tags=["Products"])
+async def update_product(product_id: str, update: ProductUpdate, user: User = Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required.")
     
@@ -47,8 +47,8 @@ def update_product(product_id: str, update: ProductUpdate, user: User = Depends(
     result["id"] = str(result["_id"])
     return result
 
-@router.delete("/products/{product_id}")
-def delete_product(product_id: str, user: User = Depends(get_current_user)):
+@router.delete("/products/{product_id}", tags=["Products"])
+async def delete_product(product_id: str, user: User = Depends(get_current_user)):
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required.")
     
