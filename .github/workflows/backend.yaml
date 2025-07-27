@@ -101,7 +101,7 @@ jobs:
             echo "MAIL_FROM_NAME=${{ secrets.MAIL_FROM_NAME }}" >> /home/$USER/.env
             echo "REDIS_HOST=${{ secrets.REDIS_HOST }}" >> /home/$USER/.env
             echo "REDIS_PORT=${{ secrets.REDIS_PORT }}" >> /home/$USER/.env
-            echo "REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}" >> /home/$USER/.en
+            echo "REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}" >> /home/$USER/.env
           fi
 
           # Run the new container
