@@ -46,3 +46,5 @@ async def get_meet_link(batch: str = Query(...)):
     meet_link["_id"] = str(meet_link["_id"])
 
     return meet_link
+
+# new deployment
