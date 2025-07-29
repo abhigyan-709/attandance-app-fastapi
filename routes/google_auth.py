@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from authentication.google_auth import verify_google_token
 from database.db import Database
 
-router = APIRouter()
+router31 = APIRouter()
 
 # Initialize your custom DB connection (uses AWS Secrets Manager internally)
 db = Database()
@@ -14,7 +14,7 @@ collection = client[db_name]["google_users"]  # Use separate collection for Goog
 class GoogleLoginRequest(BaseModel):
     id_token: str
 
-@router.post("/auth/google")
+@router31.post("/auth/google")
 async def google_login(payload: GoogleLoginRequest):
     user_info = verify_google_token(payload.id_token)
     if not user_info:
