@@ -16,7 +16,7 @@ from routes.blogs import blog_router
 from routes.subscription import route21
 from routes.testimonial import route5
 from routes import product
-from routes.googe_auth import router31
+from routes.google_auth import router31
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="OpenSource Enterprise API",
