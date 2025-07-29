@@ -4,7 +4,7 @@ from authentication.secrets import get_google_oauth_secrets
 
 def verify_google_token(id_token_str: str) -> dict | None:
     secrets = get_google_oauth_secrets()
-    client_id = secrets.get("GOOGLE_ANDROID_CLIENT_ID")
+    client_id = secrets.get("GOOGLE_WEB_CLIENT_ID")
 
     try:
         id_info = id_token.verify_oauth2_token(
