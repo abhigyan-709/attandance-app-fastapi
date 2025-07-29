@@ -27,7 +27,7 @@ async def google_login(payload: GoogleLoginRequest):
         # Insert new Google user
         collection.insert_one(user_info)
 
-    # Respond with the user info and a dummy token (later replace with JWT if needed)
+    # Respond with the user info and a dummy token
     return {
         "access_token": user_info["sub"],
         "token_type": "bearer",
