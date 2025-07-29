@@ -16,7 +16,7 @@ from routes.blogs import blog_router
 from routes.subscription import route21
 from routes.testimonial import route5
 from routes import product
-
+from routes.googe_auth import router31
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="OpenSource Enterprise API",
@@ -59,7 +59,7 @@ app.include_router(router17)
 app.include_router(router18)
 app.include_router(router)
 app.include_router(product.router)
-
+app.include_router(router31)
 
 if __name__ == "__main__":
     import uvicorn
