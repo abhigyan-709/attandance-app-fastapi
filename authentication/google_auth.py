@@ -1,6 +1,6 @@
 from google.oauth2 import id_token
 from google.auth.transport import requests
-from utils.secrets import get_google_oauth_secrets
+from authentication.secrets import get_google_oauth_secrets
 
 def verify_google_token(id_token_str: str) -> dict | None:
     secrets = get_google_oauth_secrets()
