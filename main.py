@@ -18,6 +18,9 @@ from routes.testimonial import route5
 from routes import product
 from routes.google_auth import router31
 from fastapi.middleware.cors import CORSMiddleware
+from routes.google_refresh import router as google_refresh_router
+
+
 
 app = FastAPI(title="OpenSource Enterprise API",
               description="All in ONE API for basic authentication, user registration, attendance mapping and message sending",
@@ -60,6 +63,7 @@ app.include_router(router18)
 app.include_router(router)
 app.include_router(product.router)
 app.include_router(router31)
+app.include_router(google_refresh_router)
 
 if __name__ == "__main__":
     import uvicorn
