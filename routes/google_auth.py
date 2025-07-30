@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from authentication.google_auth import verify_google_token
 from database.db import Database
 from bson import ObjectId
+from authentication.google_jwt import create_google_access_token, create_google_refresh_token
 
 router31 = APIRouter()
 
@@ -41,9 +42,12 @@ async def google_login(payload: GoogleLoginRequest):
 
     # Convert ObjectId to string for response
     user_sanitized = convert_objectid(user)
+    access_token = create_google_access_token({"sub": user_info["sub"]})
+    refresh_token = create_google_refresh_token({"sub": user_info["sub"]})
 
     return {
-        "access_token": user_info["sub"],  # You can replace this with a real JWT later
+        "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "user": user_sanitized
     }
