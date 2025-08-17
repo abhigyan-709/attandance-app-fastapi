@@ -491,7 +491,6 @@ async def create_product(
             Key=key,
             Body=data,
             ContentType=content_type,
-            ACL="public-read",
         )
         image_urls.append(s3_url(AWS_BUCKET_NAME, AWS_REGION, key))
 
