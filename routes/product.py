@@ -420,23 +420,95 @@ ensure_indexes()
 
 
 # -------------------- PRODUCT ENDPOINTS -------------------- #
+# @router.post("/products", response_model=Product, tags=["Products"])
+# async def create_product(product: ProductCreate, user: User = Depends(get_current_user)):
+#     if user.role != "admin":
+#         raise HTTPException(status_code=403, detail="Admin access required.")
+
+#     v_id = oid(product.vendor_id)
+#     vendor = vendor_collection.find_one({"_id": v_id})
+#     if not vendor:
+#         raise HTTPException(status_code=404, detail="Vendor not found")
+
+#     data = product.dict()
+#     data["vendor_id"] = v_id
+#     data["created_at"] = datetime.utcnow()
+#     data["updated_at"] = datetime.utcnow()
+#     # ensure images array exists
+#     if "images" not in data or data["images"] is None:
+#         data["images"] = []
+
+#     result = product_collection.insert_one(data)
+#     product_id = result.inserted_id
+
+#     vendor_collection.update_one({"_id": v_id}, {"$push": {"products": product_id}})
+
+#     created = product_collection.find_one({"_id": product_id})
+#     return serialize_product(created)
+
 @router.post("/products", response_model=Product, tags=["Products"])
-async def create_product(product: ProductCreate, user: User = Depends(get_current_user)):
+async def create_product(
+    name: str = Form(...),
+    description: str = Form(...),
+    price: float = Form(...),
+    region: str = Form(...),
+    sku: str = Form(...),
+    category: str = Form(...),
+    stock: int = Form(...),
+    vendor_id: str = Form(...),
+    files: List[UploadFile] = File([], description="Optional product images"),
+    user: User = Depends(get_current_user),
+):
+    """
+    Create a new product with optional image uploads.
+    - Product details are received as form fields
+    - Images are uploaded to S3
+    - Stored in MongoDB with image URLs
+    """
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required.")
 
-    v_id = oid(product.vendor_id)
+    v_id = oid(vendor_id)
     vendor = vendor_collection.find_one({"_id": v_id})
     if not vendor:
         raise HTTPException(status_code=404, detail="Vendor not found")
 
-    data = product.dict()
-    data["vendor_id"] = v_id
-    data["created_at"] = datetime.utcnow()
-    data["updated_at"] = datetime.utcnow()
-    # ensure images array exists
-    if "images" not in data or data["images"] is None:
-        data["images"] = []
+    image_urls: List[str] = []
+    for f in files:
+        content_type = f.content_type or mimetypes.guess_type(f.filename)[0] or ""
+        if content_type.lower() not in ALLOWED_IMAGE_MIMES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type for {f.filename}: {content_type}",
+            )
+        data = await f.read()
+        if len(data) > MAX_IMAGE_BYTES:
+            raise HTTPException(status_code=400, detail=f"File too large: {f.filename}")
+
+        key = s3_key_for_product(str(v_id), f.filename)
+        s3_client.put_object(
+            Bucket=AWS_BUCKET_NAME,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+            ACL="public-read",
+        )
+        image_urls.append(s3_url(AWS_BUCKET_NAME, AWS_REGION, key))
+
+    # Build product document
+    data = {
+        "name": name,
+        "description": description,
+        "price": price,
+        "region": region,
+        "sku": sku,
+        "category": category,
+        "stock": stock,
+        "vendor_id": v_id,
+        "images": image_urls,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+    }
 
     result = product_collection.insert_one(data)
     product_id = result.inserted_id
