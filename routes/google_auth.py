@@ -144,6 +144,16 @@ async def google_login(payload: GoogleLoginRequest):
 
 
 # ---------- UPDATE USER DETAILS ----------
+
+@router31.get("/users/google/details/{user_id}")
+async def get_google_user_details(user_id: str):
+    user_id = str(user_id).strip()
+    user_details = google_users_details_collection.find_one({"user_id": user_id})
+    if not user_details:
+        raise HTTPException(status_code=404, detail="User details not found")
+    return {"user_details": convert_objectid(user_details)}
+
+
 @router31.put("/users/google/details/{user_id}")
 async def update_google_user_details(user_id: str, payload: UserDetails):
     update_data = {k: v for k, v in payload.dict(exclude_unset=True).items()}
