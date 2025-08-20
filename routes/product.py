@@ -524,38 +524,97 @@ async def list_products():
     return [serialize_product(d) for d in docs]
 
 
+# @router.patch("/products/{product_id}", response_model=Product, tags=["Products"])
+# async def update_product(
+#     product_id: str,
+#     update: ProductUpdate,
+#     user: User = Depends(get_current_user),
+# ):
+#     if user.role != "admin":
+#         raise HTTPException(status_code=403, detail="Admin access required.")
+
+#     existing = product_collection.find_one({"_id": oid(product_id)})
+#     if not existing:
+#         raise HTTPException(status_code=404, detail="Product not found")
+
+#     update_data = {k: v for k, v in update.dict().items() if v is not None}
+#     update_data["updated_at"] = datetime.utcnow()
+
+#     if "vendor_id" in update_data:
+#         new_vendor_id_str = update_data["vendor_id"]
+#         new_vendor_id = oid(new_vendor_id_str)
+#         if not vendor_collection.find_one({"_id": new_vendor_id}):
+#             raise HTTPException(status_code=404, detail="New vendor not found")
+#         old_vendor_id = existing.get("vendor_id")
+#         if old_vendor_id != new_vendor_id:
+#             if old_vendor_id:
+#                 vendor_collection.update_one(
+#                     {"_id": old_vendor_id}, {"$pull": {"products": existing["_id"]}}
+#                 )
+#             vendor_collection.update_one(
+#                 {"_id": new_vendor_id}, {"$push": {"products": existing["_id"]}}
+#             )
+#         update_data["vendor_id"] = new_vendor_id
+
+#     updated = product_collection.find_one_and_update(
+#         {"_id": oid(product_id)},
+#         {"$set": update_data},
+#         return_document=ReturnDocument.AFTER,
+#     )
+
+#     return serialize_product(updated)
+
 @router.patch("/products/{product_id}", response_model=Product, tags=["Products"])
 async def update_product(
     product_id: str,
     update: ProductUpdate,
     user: User = Depends(get_current_user),
 ):
+    # Only admins can update
     if user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required.")
 
+    # Fetch existing product
     existing = product_collection.find_one({"_id": oid(product_id)})
     if not existing:
         raise HTTPException(status_code=404, detail="Product not found")
 
+    # Convert update to dict, skipping None
     update_data = {k: v for k, v in update.dict().items() if v is not None}
+
+    # Convert HttpUrl to str if images are present
+    if "images" in update_data:
+        update_data["images"] = [str(url) for url in update_data["images"]]
+
+    # Update timestamp
     update_data["updated_at"] = datetime.utcnow()
 
+    # Handle vendor change
     if "vendor_id" in update_data:
         new_vendor_id_str = update_data["vendor_id"]
         new_vendor_id = oid(new_vendor_id_str)
+
+        # Check if new vendor exists
         if not vendor_collection.find_one({"_id": new_vendor_id}):
             raise HTTPException(status_code=404, detail="New vendor not found")
+
         old_vendor_id = existing.get("vendor_id")
         if old_vendor_id != new_vendor_id:
+            # Remove product from old vendor
             if old_vendor_id:
                 vendor_collection.update_one(
-                    {"_id": old_vendor_id}, {"$pull": {"products": existing["_id"]}}
+                    {"_id": old_vendor_id},
+                    {"$pull": {"products": existing["_id"]}}
                 )
+            # Add product to new vendor
             vendor_collection.update_one(
-                {"_id": new_vendor_id}, {"$push": {"products": existing["_id"]}}
+                {"_id": new_vendor_id},
+                {"$push": {"products": existing["_id"]}}
             )
+        # Store as ObjectId
         update_data["vendor_id"] = new_vendor_id
 
+    # Update product in MongoDB
     updated = product_collection.find_one_and_update(
         {"_id": oid(product_id)},
         {"$set": update_data},
@@ -563,7 +622,6 @@ async def update_product(
     )
 
     return serialize_product(updated)
-
 
 @router.delete("/products/{product_id}", tags=["Products"])
 async def delete_product(product_id: str, user: User = Depends(get_current_user)):
