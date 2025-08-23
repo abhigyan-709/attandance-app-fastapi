@@ -124,6 +124,7 @@ class ProductUpdate(BaseModel):
     name: Optional[str]
     description: Optional[str]
     price: Optional[float]
+    unit: Optional[str] = None
     region: Optional[str]
     sku: Optional[str]
     stock: Optional[int]
