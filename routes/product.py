@@ -138,10 +138,32 @@ ensure_indexes()
 def serialize_order(doc: Dict[str, Any]) -> Dict[str, Any]:
     if not doc:
         return doc
-    doc = dict(doc)
-    doc["id"] = str(doc["_id"])
-    doc.pop("_id", None)
-    return serialize_id(doc)
+    d = dict(doc)
+    d["id"] = str(d["_id"])
+    d.pop("_id", None)
+    # vendor is already serialized via serialize_vendor when creating the order,
+    # but if it isn't for some reason, make it safe:
+    if isinstance(d.get("vendor"), dict) and "_id" in d["vendor"]:
+        d["vendor"]["id"] = str(d["vendor"]["_id"])
+        d["vendor"].pop("_id", None)
+    return serialize_id(d)
+
+def _u(user, key: str):
+    if hasattr(user, key):
+        return getattr(user, key)
+    if hasattr(user, "dict"):
+        dd = user.dict()
+        if key in dd:
+            return dd[key]
+    if isinstance(user, dict):
+        return user.get(key)
+    return None
+
+def _user_id_str(user) -> str:
+    uid = _u(user, "id") or _u(user, "_id")
+    if not uid:
+        raise HTTPException(status_code=400, detail="Authenticated user is missing id/_id")
+    return str(uid)
 
 def ensure_order_indexes() -> None:
     order_collection.create_index("user_id")
@@ -572,6 +594,10 @@ async def create_order(order: OrderCreate, user: User = Depends(get_current_user
     if user.role not in ["user", "admin"]:
         raise HTTPException(status_code=403, detail="Only users/admins can place orders.")
 
+    user_id = _user_id_str(user)
+    username = _u(user, "username")
+    email = _u(user, "email")
+
     items: List[Dict[str, Any]] = []
     product_total = 0.0
     gst_total = 0.0
@@ -587,27 +613,27 @@ async def create_order(order: OrderCreate, user: User = Depends(get_current_user
             raise HTTPException(status_code=400, detail=f"Insufficient stock for {product['name']}")
 
         # Subtotal before GST
-        subtotal = product["price"] * it.quantity
+        subtotal = float(product["price"]) * it.quantity
         product_total += subtotal
 
-        # GST calculation from product's gst field
-        product_gst_percent = product.get("gst", 0.0)
-        gst_amount = subtotal * product_gst_percent / 100
+        # GST calculation from product's gst field (per-product)
+        product_gst_percent = float(product.get("gst", 0.0))
+        gst_amount = subtotal * product_gst_percent / 100.0
         gst_total += gst_amount
 
         # Add item details
         items.append({
             "product_id": str(product["_id"]),
             "name": product["name"],
-            "unit_price": product["price"],
+            "unit_price": float(product["price"]),
             "quantity": it.quantity,
             "subtotal": subtotal,
             "gst_percent": product_gst_percent,
             "gst_amount": gst_amount,
         })
 
-        # Vendor validation
-        if not vendor_id:
+        # Vendor validation (only one vendor allowed per order)
+        if vendor_id is None:
             vendor_id = product.get("vendor_id")
             if vendor_id:
                 vendor_details = vendor_collection.find_one({"_id": vendor_id})
@@ -640,9 +666,9 @@ async def create_order(order: OrderCreate, user: User = Depends(get_current_user
     # ---- Build Order Document ----
     doc = {
         "user": {
-            "id": str(user.id),
-            "username": user.username,
-            "email": user.email,
+            "id": user_id,
+            "username": username,
+            "email": email,
         },
         "items": items,
         "vendor": serialize_vendor(vendor_details),
@@ -668,7 +694,8 @@ async def list_orders(user: User = Depends(get_current_user)):
     if user.role == "admin":
         docs = order_collection.find()
     else:
-        docs = order_collection.find({"user.id": str(user.id)})
+        user_id = _user_id_str(user)
+        docs = order_collection.find({"user.id": user_id})
     return [serialize_order(d) for d in docs]
 
 
@@ -681,8 +708,9 @@ async def get_order(order_id: str, user: User = Depends(get_current_user)):
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    if user.role != "admin" and order["user"]["id"] != str(user.id):
-        raise HTTPException(status_code=403, detail="Not allowed to view this order.")
+    if user.role != "admin":
+        if order.get("user", {}).get("id") != _user_id_str(user):
+            raise HTTPException(status_code=403, detail="Not allowed to view this order.")
 
     return serialize_order(order)
 
