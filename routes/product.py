@@ -18,6 +18,7 @@ from routes.user import get_current_user
 from models.user import User
 from models.product import Product, ProductCreate, ProductUpdate
 from models.product import Vendor, VendorCreate, VendorUpdate
+from models.product import Order, OrderCreate, PaymentBreakdown, Payment, OrderItem
 
 # NEW: AWS S3 config
 import uuid
@@ -35,6 +36,8 @@ client = db.get_client()
 database = client[db.db_name]
 product_collection = database["products"]
 vendor_collection = database["vendors"]
+order_collection = database["orders"]
+
 
 # ---------- S3 SETUP ----------
 AWS_BUCKET_NAME = "projectdevops-blogs-new"  # same bucket you mentioned
@@ -129,6 +132,24 @@ def ensure_indexes() -> None:
 
 # Create indexes at import time (idempotent)
 ensure_indexes()
+
+
+#-----------------Order Serialization-----------------#
+def serialize_order(doc: Dict[str, Any]) -> Dict[str, Any]:
+    if not doc:
+        return doc
+    doc = dict(doc)
+    doc["id"] = str(doc["_id"])
+    doc.pop("_id", None)
+    return serialize_id(doc)
+
+def ensure_order_indexes() -> None:
+    order_collection.create_index("user_id")
+    order_collection.create_index("vendor.id")
+    order_collection.create_index("status")
+
+ensure_order_indexes()
+#------------------------------------------------------#
 
 @router.post("/products", response_model=Product, tags=["Products"])
 async def create_product(
@@ -503,43 +524,6 @@ async def delete_vendor(
 
     return {"message": "Vendor deleted"}
 
-
-# -------------------- SEARCH (PUBLIC) -------------------- #
-# @router.get("/search", tags=["Search"])
-# async def search(
-#     q: str = Query(..., description="Search term for products/vendors"),
-#     region: Optional[str] = Query(None, description="Filter by GI region"),
-#     category: Optional[str] = Query(None, description="Filter by product category"),
-#     limit: int = Query(20, ge=1, le=100),
-# ):
-#     product_filter: Dict[str, Any] = {"$text": {"$search": q}}
-#     if region:
-#         product_filter["region"] = region
-#     if category:
-#         product_filter["category"] = category
-
-#     product_cursor = (
-#         product_collection
-#         .find(product_filter, {"score": {"$meta": "textScore"}})
-#         .sort([("score", {"$meta": "textScore"})])
-#         .limit(limit)
-#     )
-#     products = [serialize_product(p) for p in product_cursor]
-
-#     vendor_filter: Dict[str, Any] = {"$text": {"$search": q}}
-#     if region:
-#         vendor_filter["region"] = region
-
-#     vendor_cursor = (
-#         vendor_collection
-#         .find(vendor_filter, {"score": {"$meta": "textScore"}})
-#         .sort([("score", {"$meta": "textScore"})])
-#         .limit(limit)
-#     )
-#     vendors = [serialize_vendor(v) for v in vendor_cursor]
-
-#     return {"products": products, "vendors": vendors}
-
 @router.get("/search", tags=["Search"])
 async def search(
     q: str = Query(..., description="Search term for products/vendors"),
@@ -575,3 +559,141 @@ async def search(
     vendors = [serialize_vendor(v) for v in vendor_cursor]
 
     return {"products": products, "vendors": vendors}
+
+
+#-----------------------Order Endpoints-----------------------#
+
+@router.post("/orders", response_model=Dict[str, Any], tags=["Orders"])
+async def create_order(order: OrderCreate, user: User = Depends(get_current_user)):
+    """
+    Place a new order. Only allowed for users (role=user or admin).
+    """
+    if user.role not in ["user", "admin"]:
+        raise HTTPException(status_code=403, detail="Only users/admins can place orders.")
+
+    # Verify products and vendor
+    items: List[Dict[str, Any]] = []
+    product_total = 0.0
+    vendor_id: Optional[ObjectId] = None
+    vendor_details: Optional[Dict[str, Any]] = None
+
+    for it in order.items:
+        product = product_collection.find_one({"_id": oid(it.product_id)})
+        if not product:
+            raise HTTPException(status_code=404, detail=f"Product not found: {it.product_id}")
+        if product["stock"] < it.quantity:
+            raise HTTPException(status_code=400, detail=f"Insufficient stock for {product['name']}")
+
+        # Prepare order item
+        subtotal = product["price"] * it.quantity
+        product_total += subtotal
+        items.append({
+            "product_id": str(product["_id"]),
+            "name": product["name"],
+            "unit_price": product["price"],
+            "quantity": it.quantity,
+            "subtotal": subtotal,
+        })
+
+        # Ensure vendor
+        if not vendor_id:
+            vendor_id = product.get("vendor_id")
+            if vendor_id:
+                vendor_details = vendor_collection.find_one({"_id": vendor_id})
+        elif vendor_id != product.get("vendor_id"):
+            raise HTTPException(status_code=400, detail="Order can only contain products from one vendor.")
+
+    if not vendor_details:
+        raise HTTPException(status_code=400, detail="Vendor not found for order.")
+
+    # Example fixed GST/delivery/fees
+    gst_percent = 18.0
+    gst_amount = product_total * gst_percent / 100
+    delivery_charge = 50.0
+    handling_fee = 10.0
+    discount_amount = 0.0
+    final_amount = product_total + gst_amount + delivery_charge + handling_fee - discount_amount
+
+    # Build payment
+    payment = {
+        "payment_method": order.payment_method,
+        "status": "pending",
+        "breakdown": {
+            "product_total": product_total,
+            "gst_percent": gst_percent,
+            "gst_amount": gst_amount,
+            "delivery_charge": delivery_charge,
+            "handling_fee": handling_fee,
+            "discount_amount": discount_amount,
+            "final_amount": final_amount,
+        },
+    }
+
+    doc = {
+        "user": {
+            "id": str(user.id),
+            "username": user.username,
+            "email": user.email,
+        },
+        "items": items,
+        "vendor": serialize_vendor(vendor_details),
+        "delivery_address": order.delivery_address,
+        "contact_phone": order.contact_phone,
+        "payment": payment,
+        "status": "pending",
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+    }
+
+    result = order_collection.insert_one(doc)
+    created = order_collection.find_one({"_id": result.inserted_id})
+    return serialize_order(created)
+
+
+@router.get("/orders", response_model=List[Dict[str, Any]], tags=["Orders"])
+async def list_orders(user: User = Depends(get_current_user)):
+    """
+    List orders. Users see their own, admin sees all.
+    """
+    if user.role == "admin":
+        docs = order_collection.find()
+    else:
+        docs = order_collection.find({"user.id": str(user.id)})
+    return [serialize_order(d) for d in docs]
+
+
+@router.get("/orders/{order_id}", response_model=Dict[str, Any], tags=["Orders"])
+async def get_order(order_id: str, user: User = Depends(get_current_user)):
+    """
+    Get a single order. User can see own orders, admin sees all.
+    """
+    order = order_collection.find_one({"_id": oid(order_id)})
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    if user.role != "admin" and order["user"]["id"] != str(user.id):
+        raise HTTPException(status_code=403, detail="Not allowed to view this order.")
+
+    return serialize_order(order)
+
+
+@router.patch("/orders/{order_id}", response_model=Dict[str, Any], tags=["Orders"])
+async def update_order_status(
+    order_id: str,
+    status: str = Query(..., description="New status (confirmed/shipped/delivered/canceled)"),
+    user: User = Depends(get_current_user),
+):
+    """
+    Admin can update order status.
+    """
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required.")
+
+    updated = order_collection.find_one_and_update(
+        {"_id": oid(order_id)},
+        {"$set": {"status": status, "updated_at": datetime.utcnow()}},
+        return_document=ReturnDocument.AFTER,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return serialize_order(updated)
