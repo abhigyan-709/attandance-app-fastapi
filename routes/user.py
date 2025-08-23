@@ -50,6 +50,31 @@ def create_access_token(data: dict, expires_delta: Union[timedelta, None] = None
     return encoded_jwt
 
 
+# async def get_current_user(token: str = Depends(oauth2_scheme)):
+#     credentials_exception = HTTPException(
+#         status_code=401,
+#         detail="Could not validate credentials",
+#         headers={"WWW-Authenticate": "Bearer"},
+#     )
+#     try:
+#         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+#         username: str = payload.get("sub")
+#         if username is None:
+#             raise credentials_exception
+
+#         # Fetch user details including the role from the database
+#         db_client = db.get_client()  # Use db.get_client directly
+#         user_from_db = db_client[db.db_name]["user"].find_one({"username": username})
+#         if user_from_db is None:
+#             raise credentials_exception
+
+#         user = User(**user_from_db)  # Convert database response to User model
+#         return user
+#     except jwt.ExpiredSignatureError:
+#         raise credentials_exception
+#     except jwt.PyJWTError:
+#         raise credentials_exception
+
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     credentials_exception = HTTPException(
         status_code=401,
@@ -62,14 +87,24 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         if username is None:
             raise credentials_exception
 
-        # Fetch user details including the role from the database
-        db_client = db.get_client()  # Use db.get_client directly
+        # Fetch user details from DB
+        db_client = db.get_client()
         user_from_db = db_client[db.db_name]["user"].find_one({"username": username})
         if user_from_db is None:
             raise credentials_exception
 
-        user = User(**user_from_db)  # Convert database response to User model
-        return user
+        # Convert Mongo ObjectId → str
+        user_from_db["_id"] = str(user_from_db["_id"])
+
+        # Parse into your Pydantic User model (drops _id)
+        user = User(**user_from_db)
+
+        # Add "id" field explicitly for new flows
+        user_dict = user.dict()
+        user_dict["id"] = user_from_db["_id"]
+
+        return user_dict
+
     except jwt.ExpiredSignatureError:
         raise credentials_exception
     except jwt.PyJWTError:
