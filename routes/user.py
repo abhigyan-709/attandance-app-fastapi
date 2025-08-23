@@ -70,7 +70,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 
         user = User(**user_from_db)  # Convert database response to User model
 
-        # user.id = str(user_from_db.get("_id", ""))  # fall back
+        setattr(user, "user_id", str(user_from_db["_id"]))
         return user
     except jwt.ExpiredSignatureError:
         raise credentials_exception
