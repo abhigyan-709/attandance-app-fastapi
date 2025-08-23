@@ -587,8 +587,7 @@ async def search(
 
 #-----------------------Order Endpoints-----------------------#
 
-
-# ----------------------- Order Endpoints ----------------------- #
+# -------------------- Order Endpoints -------------------- #
 @router.post("/orders", response_model=Dict[str, Any], tags=["Orders"])
 async def create_order(order: OrderCreate, user: User = Depends(get_current_user)):
     """
@@ -597,9 +596,13 @@ async def create_order(order: OrderCreate, user: User = Depends(get_current_user
     if user.role not in ["user", "admin"]:
         raise HTTPException(status_code=403, detail="Only users/admins can place orders.")
 
-    user_id = _user_id_str(user)
-    username = _u(user, "username")
-    email = _u(user, "email")
+    # Ensure user has an ID
+    user_id = str(getattr(user, "id", None) or getattr(user, "_id", None))
+    if not user_id:
+        raise HTTPException(status_code=400, detail="Authenticated user is missing id/_id")
+
+    username = getattr(user, "username", None) or getattr(user, "email", None)
+    email = getattr(user, "email", None)
 
     items: List[Dict[str, Any]] = []
     product_total = 0.0
@@ -607,33 +610,35 @@ async def create_order(order: OrderCreate, user: User = Depends(get_current_user
     vendor_id: Optional[ObjectId] = None
     vendor_details: Optional[Dict[str, Any]] = None
 
-    # ---- Loop through order items ----
     for it in order.items:
         product = product_collection.find_one({"_id": oid(it.product_id)})
         if not product:
             raise HTTPException(status_code=404, detail=f"Product not found: {it.product_id}")
+
         if product["stock"] < it.quantity:
             raise HTTPException(status_code=400, detail=f"Insufficient stock for {product['name']}")
 
-        # Subtotal before GST
+        # Calculate subtotal
         subtotal = float(product["price"]) * it.quantity
         product_total += subtotal
 
-        # GST calculation
+        # Use product GST from DB
         product_gst_percent = float(product.get("gst", 0.0))
-        gst_amount = subtotal * product_gst_percent / 100.0
+        gst_amount = subtotal * product_gst_percent / 100
         gst_total += gst_amount
 
-        # Add item details
+        # Append order item
         items.append({
             "product_id": str(product["_id"]),
             "name": product["name"],
             "unit_price": float(product["price"]),
             "quantity": it.quantity,
             "subtotal": subtotal,
+            "gst_percent": product_gst_percent,
+            "gst_amount": gst_amount,
         })
 
-        # Vendor validation
+        # Ensure single vendor per order
         if vendor_id is None:
             vendor_id = product.get("vendor_id")
             if vendor_id:
@@ -644,27 +649,26 @@ async def create_order(order: OrderCreate, user: User = Depends(get_current_user
     if not vendor_details:
         raise HTTPException(status_code=400, detail="Vendor not found for order.")
 
-    # ---- Charges & final amount ----
+    # Charges
     delivery_charge = 50.0
     handling_fee = 10.0
     discount_amount = 0.0
     final_amount = product_total + gst_total + delivery_charge + handling_fee - discount_amount
 
-    # ---- Payment structure (matches Payment + PaymentBreakdown model) ----
-    payment = {
-        "payment_method": order.payment_method,
-        "status": "pending",
-        "breakdown": {
-            "product_total": product_total,
-            "gst_total": gst_total,
-            "delivery_charge": delivery_charge,
-            "handling_fee": handling_fee,
-            "discount_amount": discount_amount,
-            "final_amount": final_amount,
-        },
-    }
+    payment: Payment = Payment(
+        payment_method=order.payment_method,
+        status="pending",
+        breakdown=PaymentBreakdown(
+            product_total=product_total,
+            gst_total=gst_total,
+            delivery_charge=delivery_charge,
+            handling_fee=handling_fee,
+            discount_amount=discount_amount,
+            final_amount=final_amount,
+        ),
+    )
 
-    # ---- Build Order Document ----
+    # Build order document
     doc = {
         "user": {
             "id": user_id,
@@ -675,13 +679,13 @@ async def create_order(order: OrderCreate, user: User = Depends(get_current_user
         "vendor": serialize_vendor(vendor_details),
         "delivery_address": order.delivery_address,
         "contact_phone": order.contact_phone,
-        "payment": payment,
+        "payment": payment.dict(),
         "status": "pending",
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow(),
     }
 
-    # ---- Insert in DB ----
+    # Insert order
     result = order_collection.insert_one(doc)
     created = order_collection.find_one({"_id": result.inserted_id})
     return serialize_order(created)
@@ -695,7 +699,7 @@ async def list_orders(user: User = Depends(get_current_user)):
     if user.role == "admin":
         docs = order_collection.find()
     else:
-        user_id = _user_id_str(user)
+        user_id = str(getattr(user, "id", None) or getattr(user, "_id", None))
         docs = order_collection.find({"user.id": user_id})
     return [serialize_order(d) for d in docs]
 
@@ -710,7 +714,8 @@ async def get_order(order_id: str, user: User = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Order not found")
 
     if user.role != "admin":
-        if order.get("user", {}).get("id") != _user_id_str(user):
+        user_id = str(getattr(user, "id", None) or getattr(user, "_id", None))
+        if order.get("user", {}).get("id") != user_id:
             raise HTTPException(status_code=403, detail="Not allowed to view this order.")
 
     return serialize_order(order)
@@ -733,6 +738,8 @@ async def update_order_status(
         {"$set": {"status": status, "updated_at": datetime.utcnow()}},
         return_document=ReturnDocument.AFTER,
     )
+
     if not updated:
         raise HTTPException(status_code=404, detail="Order not found")
+
     return serialize_order(updated)
