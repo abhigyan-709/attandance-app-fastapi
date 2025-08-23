@@ -122,8 +122,7 @@ class OrderItem(BaseModel):
 # ---------------- PAYMENT BREAKDOWN ---------------- #
 class PaymentBreakdown(BaseModel):
     product_total: float = Field(..., ge=0)
-    gst_percent: float = Field(..., ge=0)
-    gst_amount: float = Field(..., ge=0)
+    gst_total: float = Field(..., ge=0)
     delivery_charge: float = Field(..., ge=0)
     handling_fee: float = Field(..., ge=0)
     discount_amount: Optional[float] = Field(0, ge=0)
