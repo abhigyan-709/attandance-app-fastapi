@@ -586,6 +586,9 @@ async def search(
 
 
 #-----------------------Order Endpoints-----------------------#
+
+
+# ----------------------- Order Endpoints ----------------------- #
 @router.post("/orders", response_model=Dict[str, Any], tags=["Orders"])
 async def create_order(order: OrderCreate, user: User = Depends(get_current_user)):
     """
@@ -616,7 +619,7 @@ async def create_order(order: OrderCreate, user: User = Depends(get_current_user
         subtotal = float(product["price"]) * it.quantity
         product_total += subtotal
 
-        # GST calculation from product's gst field (per-product)
+        # GST calculation
         product_gst_percent = float(product.get("gst", 0.0))
         gst_amount = subtotal * product_gst_percent / 100.0
         gst_total += gst_amount
@@ -628,11 +631,9 @@ async def create_order(order: OrderCreate, user: User = Depends(get_current_user
             "unit_price": float(product["price"]),
             "quantity": it.quantity,
             "subtotal": subtotal,
-            "gst_percent": product_gst_percent,
-            "gst_amount": gst_amount,
         })
 
-        # Vendor validation (only one vendor allowed per order)
+        # Vendor validation
         if vendor_id is None:
             vendor_id = product.get("vendor_id")
             if vendor_id:
@@ -649,7 +650,7 @@ async def create_order(order: OrderCreate, user: User = Depends(get_current_user
     discount_amount = 0.0
     final_amount = product_total + gst_total + delivery_charge + handling_fee - discount_amount
 
-    # ---- Payment structure ----
+    # ---- Payment structure (matches Payment + PaymentBreakdown model) ----
     payment = {
         "payment_method": order.payment_method,
         "status": "pending",
