@@ -135,7 +135,7 @@ async def create_product(
     name: str = Form(...),
     description: str = Form(...),
     price: float = Form(...),
-    unit: Optional[str] = Form(),
+    unit: Optional[str] = Form(...),
     region: str = Form(...),
     sku: str = Form(...),
     category: str = Form(...),
