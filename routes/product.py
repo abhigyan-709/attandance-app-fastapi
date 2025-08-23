@@ -156,6 +156,7 @@ async def create_product(
     name: str = Form(...),
     description: str = Form(...),
     price: float = Form(...),
+    gst: float = Form(...),
     unit: Optional[str] = Form(...),
     region: str = Form(...),
     sku: str = Form(...),
@@ -206,6 +207,7 @@ async def create_product(
         "name": name,
         "description": description,
         "price": price,
+        "gst": gst,  # Default GST; adjust as needed
         "unit": unit,
         "region": region,
         "sku": sku,

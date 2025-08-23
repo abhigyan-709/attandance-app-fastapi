@@ -70,6 +70,7 @@ class ProductBase(BaseModel):
     name: str
     description: Optional[str]
     price: float
+    gst: float
     unit: Optional[str]
     region: str  # GI tag region
     sku: str
@@ -87,6 +88,7 @@ class ProductUpdate(BaseModel):
     name: Optional[str]
     description: Optional[str]
     price: Optional[float]
+    gst: Optional[float]
     unit: Optional[str]
     region: Optional[str]
     sku: Optional[str]
