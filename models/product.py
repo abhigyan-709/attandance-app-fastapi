@@ -135,7 +135,7 @@ class ProductUpdate(BaseModel):
 class Product(ProductBase):
     id: str
     stock: int
-    vendor_id: str
+    vendor_id: Optional[str] = None
     images: List[HttpUrl] = []
     created_at: datetime
     updated_at: datetime
