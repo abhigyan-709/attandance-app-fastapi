@@ -463,6 +463,33 @@ async def delete_product_images(
     return serialize_product(updated)
 
 
+# -------------------- PRODUCTS BY CATEGORY -------------------- #
+@router.get("/products/category/{category_name}", response_model=List[Product], tags=["Products"])
+async def get_products_by_category(category_name: str):
+    """
+    Get all products belonging to a specific category
+    """
+    docs = product_collection.find({"category": category_name})
+    products = [serialize_product(d) for d in docs]
+    if not products:
+        raise HTTPException(status_code=404, detail="No products found for this category")
+    return products
+
+
+# -------------------- PRODUCTS BY SUBCATEGORY -------------------- #
+@router.get("/products/category/{category_name}/subcategory/{subcategory_name}", response_model=List[Product], tags=["Products"])
+async def get_products_by_subcategory(category_name: str, subcategory_name: str):
+    """
+    Get all products belonging to a specific category and subcategory
+    """
+    docs = product_collection.find({"category": category_name, "subcategory": subcategory_name})
+    products = [serialize_product(d) for d in docs]
+    if not products:
+        raise HTTPException(status_code=404, detail="No products found for this category and subcategory")
+    return products
+
+
+
 # -------------------- VENDOR ENDPOINTS -------------------- #
 @router.post("/vendors", response_model=Vendor, tags=["Vendors"])
 async def create_vendor(vendor: VendorCreate, user: User = Depends(get_current_user)):
@@ -583,113 +610,6 @@ async def search(
     vendors = [serialize_vendor(v) for v in vendor_cursor]
 
     return {"products": products, "vendors": vendors}
-
-
-#-----------------------Order Endpoints-----------------------#
-
-# -------------------- Order Endpoints -----------------------#
-
-# @router.post("/orders", response_model=Dict[str, Any], tags=["Orders"])
-# async def create_order(order: OrderCreate, user: User = Depends(get_current_user)):
-#     """
-#     Place a new order. Only allowed for users (role=user or admin).
-#     """
-#     if user.role not in ["user", "admin"]:
-#         raise HTTPException(status_code=403, detail="Only users/admins can place orders.")
-
-#     # Ensure user has an ID
-#     user_id = str(getattr(user, "id", None) or getattr(user, "_id", None))
-#     if not user_id:
-#         raise HTTPException(status_code=400, detail="Authenticated user is missing id/_id")
-
-#     username = getattr(user, "username", None) or getattr(user, "email", None)
-#     email = getattr(user, "email", None)
-
-#     items: List[Dict[str, Any]] = []
-#     product_total = 0.0
-#     gst_total = 0.0
-#     vendor_id: Optional[ObjectId] = None
-#     vendor_details: Optional[Dict[str, Any]] = None
-
-#     for it in order.items:
-#         product = product_collection.find_one({"_id": oid(it.product_id)})
-#         if not product:
-#             raise HTTPException(status_code=404, detail=f"Product not found: {it.product_id}")
-
-#         if product["stock"] < it.quantity:
-#             raise HTTPException(status_code=400, detail=f"Insufficient stock for {product['name']}")
-
-#         # Calculate subtotal
-#         subtotal = float(product["price"]) * it.quantity
-#         product_total += subtotal
-
-#         # Use product GST from DB
-#         product_gst_percent = float(product.get("gst", 0.0))
-#         gst_amount = subtotal * product_gst_percent / 100
-#         gst_total += gst_amount
-
-#         # Append order item
-#         items.append({
-#             "product_id": str(product["_id"]),
-#             "name": product["name"],
-#             "unit_price": float(product["price"]),
-#             "quantity": it.quantity,
-#             "subtotal": subtotal,
-#             "gst_percent": product_gst_percent,
-#             "gst_amount": gst_amount,
-#         })
-
-#         # Ensure single vendor per order
-#         if vendor_id is None:
-#             vendor_id = product.get("vendor_id")
-#             if vendor_id:
-#                 vendor_details = vendor_collection.find_one({"_id": vendor_id})
-#         elif vendor_id != product.get("vendor_id"):
-#             raise HTTPException(status_code=400, detail="Order can only contain products from one vendor.")
-
-#     if not vendor_details:
-#         raise HTTPException(status_code=400, detail="Vendor not found for order.")
-
-#     # Charges
-#     delivery_charge = 50.0
-#     handling_fee = 10.0
-#     discount_amount = 0.0
-#     final_amount = product_total + gst_total + delivery_charge + handling_fee - discount_amount
-
-#     payment: Payment = Payment(
-#         payment_method=order.payment_method,
-#         status="pending",
-#         breakdown=PaymentBreakdown(
-#             product_total=product_total,
-#             gst_total=gst_total,
-#             delivery_charge=delivery_charge,
-#             handling_fee=handling_fee,
-#             discount_amount=discount_amount,
-#             final_amount=final_amount,
-#         ),
-#     )
-
-#     # Build order document
-#     doc = {
-#         "user": {
-#             "id": user_id,
-#             "username": username,
-#             "email": email,
-#         },
-#         "items": items,
-#         "vendor": serialize_vendor(vendor_details),
-#         "delivery_address": order.delivery_address,
-#         "contact_phone": order.contact_phone,
-#         "payment": payment.dict(),
-#         "status": "pending",
-#         "created_at": datetime.utcnow(),
-#         "updated_at": datetime.utcnow(),
-#     }
-
-#     # Insert order
-#     result = order_collection.insert_one(doc)
-#     created = order_collection.find_one({"_id": result.inserted_id})
-#     return serialize_order(created)
 
 @router.post("/orders", response_model=Dict[str, Any], tags=["Orders"])
 async def create_order(order: OrderCreate, user: User = Depends(get_current_user)):
