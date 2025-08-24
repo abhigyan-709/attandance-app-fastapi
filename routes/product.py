@@ -931,28 +931,30 @@ async def update_order_status(
 
 # ----------------------------- CART -----------------------------
 
+from authentication.deps import get_current_principal, Principal
+
 @router.get("/cart", tags=["Cart"])
 async def get_my_cart(
     hydrate: bool = Query(True, description="Include product details for each item"),
-    user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
-    Return the current user's cart. Creates an empty cart if none exists.
+    Return the current user's cart (local or Google). Creates an empty cart if none exists.
     """
-    cart_doc = _get_or_create_cart_for_user(user)
+    cart_doc = _get_or_create_cart_for_user(principal)
     return _hydrate_cart(cart_doc, hydrate=hydrate)
 
 
 @router.post("/cart/items", tags=["Cart"])
 async def cart_add_item(
     item: CartItemIn,
-    user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     Add an item to the cart (or increase its quantity). Enforces single-vendor cart.
     Quantity cannot exceed current product stock.
     """
-    cart_doc = _get_or_create_cart_for_user(user)
+    cart_doc = _get_or_create_cart_for_user(principal)
     product = product_collection.find_one({"_id": oid(item.product_id)})
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -962,9 +964,7 @@ async def cart_add_item(
     # find existing
     items = cart_doc.get("items", [])
     idx = next((i for i, it in enumerate(items) if str(it["product_id"]) == str(product["_id"])), -1)
-    new_qty = item.quantity
-    if idx != -1:
-        new_qty = int(items[idx]["quantity"]) + item.quantity
+    new_qty = item.quantity if idx == -1 else int(items[idx]["quantity"]) + item.quantity
 
     stock = int(product.get("stock", 0))
     if new_qty > stock:
@@ -992,13 +992,13 @@ async def cart_add_item(
 async def cart_update_quantity(
     product_id: str,
     payload: CartQtyUpdate,
-    user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     Set quantity for a product already in the cart.
     If quantity==0, the item is removed.
     """
-    cart_doc = _get_or_create_cart_for_user(user)
+    cart_doc = _get_or_create_cart_for_user(principal)
     items = cart_doc.get("items", [])
 
     idx = next((i for i, it in enumerate(items) if str(it["product_id"]) == str(product_id)), -1)
@@ -1033,12 +1033,12 @@ async def cart_update_quantity(
 @router.delete("/cart/items/{product_id}", tags=["Cart"])
 async def cart_remove_item(
     product_id: str,
-    user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     Remove a product from the cart.
     """
-    cart_doc = _get_or_create_cart_for_user(user)
+    cart_doc = _get_or_create_cart_for_user(principal)
     items = [it for it in cart_doc.get("items", []) if str(it["product_id"]) != str(product_id)]
     vendor_id = cart_doc.get("vendor_id")
     if not items:
@@ -1053,11 +1053,11 @@ async def cart_remove_item(
 
 
 @router.delete("/cart", tags=["Cart"])
-async def cart_clear(user: User = Depends(get_current_user)):
+async def cart_clear(principal: Principal = Depends(get_current_principal)):
     """
     Clear the entire cart for the current user.
     """
-    cart_doc = _get_or_create_cart_for_user(user)
+    cart_doc = _get_or_create_cart_for_user(principal)
     updated = cart_collection.find_one_and_update(
         {"_id": cart_doc["_id"]},
         {"$set": {"items": [], "vendor_id": None, "updated_at": datetime.utcnow()}},
