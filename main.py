@@ -16,7 +16,7 @@ from routes.blogs import blog_router
 from routes.subscription import route21
 from routes.testimonial import route5
 from routes import product
-from routes import customer_details
+# from routes import customer_details
 from routes.google_auth import router31
 from fastapi.middleware.cors import CORSMiddleware
 from routes.google_refresh import router as google_refresh_router
@@ -63,7 +63,7 @@ app.include_router(router17)
 app.include_router(router18)
 app.include_router(router)
 app.include_router(product.router)
-app.include_router(customer_details.route)
+# app.include_router(customer_details.route)
 app.include_router(router31)
 app.include_router(google_refresh_router)
 
