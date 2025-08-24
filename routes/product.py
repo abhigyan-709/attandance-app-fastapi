@@ -626,7 +626,7 @@ async def search(
     - If q is provided:
         * First try category/subcategory match (case-insensitive)
         * Then text search for relevance
-        * Then partial regex match for related keywords
+        * If no text search results, fallback to partial regex search
     - If q is not provided: return all products/vendors (with filters if applied)
     """
     products = []
@@ -667,7 +667,7 @@ async def search(
             )
             products = [serialize_product(p) for p in product_cursor]
 
-        # 4️⃣ Partial regex match (related keywords, fallback)
+        # 4️⃣ Fallback to partial regex if text search gives no results
         if not products:
             products = [
                 serialize_product(p) for p in product_collection.find(
@@ -680,7 +680,7 @@ async def search(
                 ).limit(limit)
             ]
 
-        # 5️⃣ Vendor search (exact + text + partial regex)
+        # 5️⃣ Vendor search with fallback
         vendor_filter = {"$or": [
             {"name": {"$regex": q_normalized, "$options": "i"}},
             {"$text": {"$search": q_normalized}},
@@ -690,6 +690,14 @@ async def search(
 
         vendor_cursor = vendor_collection.find(vendor_filter).limit(limit)
         vendors = [serialize_vendor(v) for v in vendor_cursor]
+
+        # Vendor fallback if text search fails
+        if not vendors:
+            vendors = [
+                serialize_vendor(v) for v in vendor_collection.find(
+                    {"name": {"$regex": q_normalized, "$options": "i"}}
+                ).limit(limit)
+            ]
 
     else:
         # If no query, just return everything (with filters if applied)
@@ -712,7 +720,6 @@ async def search(
         vendors = [serialize_vendor(v) for v in vendor_cursor]
 
     return {"products": products, "vendors": vendors}
-
 
 
 #-----------------------------Orders-----------------------------
