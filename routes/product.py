@@ -1102,46 +1102,6 @@ def _serialize_customer(doc: Dict[str, Any]) -> Dict[str, Any]:
 
     return d
 
-
-# @router.get("/customer/details", response_model=CustomerDetails, tags=["Customer"])
-# async def get_customer_details(principal: Principal = Depends(get_current_principal)):
-#     """
-#     Return the customer's profile for the current authenticated principal.
-#     Selector: username == principal.username (for Google => email).
-#     """
-#     username = principal["username"]
-#     doc = customer_details_collection.find_one({"username": username})
-#     if not doc:
-#         raise HTTPException(status_code=404, detail="Customer details not found")
-#     return _serialize_customer(doc)
-
-# @router.post("/customer/details", response_model=CustomerDetails, tags=["Customer"])
-# async def upsert_customer_details(payload: CustomerDetails, principal: Principal = Depends(get_current_principal)):
-#     """
-#     Create or update the customer's profile. Payload is your CustomerDetails model.
-#     Server enforces username/email from the authenticated principal.
-#     """
-#     username = principal["username"]
-#     email = principal.get("email")
-
-#     data = payload.dict()
-#     data["username"] = username
-#     if email:
-#         data["email"] = email
-
-#     existing = customer_details_collection.find_one({"username": username})
-#     if not existing:
-#         data["created_at"] = _now_iso()
-#     data["updated_at"] = _now_iso()
-
-#     customer_details_collection.update_one(
-#         {"username": username},
-#         {"$set": data},
-#         upsert=True
-#     )
-#     saved = customer_details_collection.find_one({"username": username})
-#     return _serialize_customer(saved)
-
 @router.get("/customer/details", response_model=CustomerDetailsOut, tags=["Customer"])
 async def get_customer_details(principal: Principal = Depends(get_current_principal)):
     username = principal["username"]
