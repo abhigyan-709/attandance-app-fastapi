@@ -164,6 +164,30 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 # ❌ REMOVE duplicate helpers; you're importing from authentication.auth now
 # def verify_password(...), get_password_hash(...), create_access_token(...)
 
+# async def get_current_user(token: str = Depends(oauth2_scheme)):
+#     credentials_exception = HTTPException(
+#         status_code=401,
+#         detail="Could not validate credentials",
+#         headers={"WWW-Authenticate": "Bearer"},
+#     )
+#     try:
+#         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+#         username: str = payload.get("sub")
+#         if username is None:
+#             raise credentials_exception
+
+#         db_client = db.get_client()
+#         user_from_db = db_client[db.db_name]["user"].find_one({"username": username})
+#         if user_from_db is None:
+#             raise credentials_exception
+
+#         user = User(**user_from_db)
+#         return user
+#     except jwt.ExpiredSignatureError:
+#         raise credentials_exception
+#     except Exception:
+#         raise credentials_exception
+
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     credentials_exception = HTTPException(
         status_code=401,
@@ -172,21 +196,22 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
+        # 🔧 accept either "sub" or "username"
+        username: str = payload.get("sub") or payload.get("username")
+        if not username:
             raise credentials_exception
 
         db_client = db.get_client()
         user_from_db = db_client[db.db_name]["user"].find_one({"username": username})
-        if user_from_db is None:
+        if not user_from_db:
             raise credentials_exception
 
-        user = User(**user_from_db)
-        return user
-    except jwt.ExpiredSignatureError:
-        raise credentials_exception
+        return User(**user_from_db)
     except Exception:
+        # (Optional) you can import and catch jose.exceptions.ExpiredSignatureError/JWTError specifically,
+        # but the root cause here was missing "sub".
         raise credentials_exception
+
 
 @route2.post("/token", response_model=Token, tags=["Login & Authentication"])
 async def login_for_access_token(
