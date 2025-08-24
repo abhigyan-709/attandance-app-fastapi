@@ -767,154 +767,491 @@ async def search(
 
 #-----------------------------Orders-----------------------------
 
-@router.post("/orders", response_model=Dict[str, Any], tags=["Orders"])
-async def create_order(order: OrderCreate, user: User = Depends(get_current_user)):
-    """
-    Place a new order. Only allowed for users (role=user or admin).
-    Decreases product stock dynamically.
-    """
-    if user.role not in ["user", "admin"]:
-        raise HTTPException(status_code=403, detail="Only users/admins can place orders.")
+# @router.post("/orders", response_model=Dict[str, Any], tags=["Orders"])
+# async def create_order(order: OrderCreate, user: User = Depends(get_current_user)):
+#     """
+#     Place a new order. Only allowed for users (role=user or admin).
+#     Decreases product stock dynamically.
+#     """
+#     if user.role not in ["user", "admin"]:
+#         raise HTTPException(status_code=403, detail="Only users/admins can place orders.")
 
-    user_id = str(getattr(user, "id", None) or getattr(user, "_id", None))
-    if not user_id:
+#     user_id = str(getattr(user, "id", None) or getattr(user, "_id", None))
+#     if not user_id:
+#         raise HTTPException(status_code=400, detail="Authenticated user is missing id/_id")
+
+#     username = getattr(user, "username", None) or getattr(user, "email", None)
+#     email = getattr(user, "email", None)
+
+#     items: List[Dict[str, Any]] = []
+#     product_total = 0.0
+#     gst_total = 0.0
+#     vendor_id: Optional[ObjectId] = None
+#     vendor_details: Optional[Dict[str, Any]] = None
+
+#     for it in order.items:
+#         product = product_collection.find_one({"_id": oid(it.product_id)})
+#         if not product:
+#             raise HTTPException(status_code=404, detail=f"Product not found: {it.product_id}")
+
+#         if product["stock"] < it.quantity:
+#             raise HTTPException(status_code=400, detail=f"Insufficient stock for {product['name']}")
+
+#         # Calculate subtotal and GST
+#         subtotal = float(product["price"]) * it.quantity
+#         product_total += subtotal
+#         product_gst_percent = float(product.get("gst", 0.0))
+#         gst_amount = subtotal * product_gst_percent / 100
+#         gst_total += gst_amount
+
+#         # Append order item
+#         items.append({
+#             "product_id": str(product["_id"]),
+#             "name": product["name"],
+#             "unit_price": float(product["price"]),
+#             "quantity": it.quantity,
+#             "subtotal": subtotal,
+#             "gst_percent": product_gst_percent,
+#             "gst_amount": gst_amount,
+#         })
+
+#         # Ensure single vendor per order
+#         if vendor_id is None:
+#             vendor_id = product.get("vendor_id")
+#             if vendor_id:
+#                 vendor_details = vendor_collection.find_one({"_id": vendor_id})
+#         elif vendor_id != product.get("vendor_id"):
+#             raise HTTPException(status_code=400, detail="Order can only contain products from one vendor.")
+
+#         # ----------------- UPDATE STOCK ----------------- #
+#         new_stock = product["stock"] - it.quantity
+#         product_collection.update_one(
+#             {"_id": product["_id"]},
+#             {"$set": {"stock": new_stock, "updated_at": datetime.utcnow()}}
+#         )
+
+#     if not vendor_details:
+#         raise HTTPException(status_code=400, detail="Vendor not found for order.")
+
+#     # Charges
+#     delivery_charge = 50.0
+#     handling_fee = 10.0
+#     discount_amount = 0.0
+#     final_amount = product_total + gst_total + delivery_charge + handling_fee - discount_amount
+
+#     payment: Payment = Payment(
+#         payment_method=order.payment_method,
+#         status="pending",
+#         breakdown=PaymentBreakdown(
+#             product_total=product_total,
+#             gst_total=gst_total,
+#             delivery_charge=delivery_charge,
+#             handling_fee=handling_fee,
+#             discount_amount=discount_amount,
+#             final_amount=final_amount,
+#         ),
+#     )
+
+#     # Build order document
+#     doc = {
+#         "user": {
+#             "id": user_id,
+#             "username": username,
+#             "email": email,
+#         },
+#         "items": items,
+#         "vendor": serialize_vendor(vendor_details),
+#         "delivery_address": order.delivery_address,
+#         "contact_phone": order.contact_phone,
+#         "payment": payment.dict(),
+#         "status": "pending",
+#         "created_at": datetime.utcnow(),
+#         "updated_at": datetime.utcnow(),
+#     }
+
+#     result = order_collection.insert_one(doc)
+#     created = order_collection.find_one({"_id": result.inserted_id})
+#     return serialize_order(created)
+
+
+
+# @router.get("/orders", response_model=List[Dict[str, Any]], tags=["Orders"])
+# async def list_orders(user: User = Depends(get_current_user)):
+#     """
+#     List orders. Users see their own, admin sees all.
+#     """
+#     if user.role == "admin":
+#         docs = order_collection.find()
+#     else:
+#         user_id = str(getattr(user, "id", None) or getattr(user, "_id", None))
+#         docs = order_collection.find({"user.id": user_id})
+#     return [serialize_order(d) for d in docs]
+
+
+# @router.get("/orders/{order_id}", response_model=Dict[str, Any], tags=["Orders"])
+# async def get_order(order_id: str, user: User = Depends(get_current_user)):
+#     """
+#     Get a single order. User can see own orders, admin sees all.
+#     """
+#     order = order_collection.find_one({"_id": oid(order_id)})
+#     if not order:
+#         raise HTTPException(status_code=404, detail="Order not found")
+
+#     if user.role != "admin":
+#         user_id = str(getattr(user, "id", None) or getattr(user, "_id", None))
+#         if order.get("user", {}).get("id") != user_id:
+#             raise HTTPException(status_code=403, detail="Not allowed to view this order.")
+
+#     return serialize_order(order)
+
+
+# @router.patch("/orders/{order_id}", response_model=Dict[str, Any], tags=["Orders"])
+# async def update_order_status(
+#     order_id: str,
+#     status: str = Query(..., description="New status (confirmed/shipped/delivered/canceled)"),
+#     user: User = Depends(get_current_user),
+# ):
+#     """
+#     Admin can update order status.
+#     """
+#     if user.role != "admin":
+#         raise HTTPException(status_code=403, detail="Admin access required.")
+
+#     updated = order_collection.find_one_and_update(
+#         {"_id": oid(order_id)},
+#         {"$set": {"status": status, "updated_at": datetime.utcnow()}},
+#         return_document=ReturnDocument.AFTER,
+#     )
+
+#     if not updated:
+#         raise HTTPException(status_code=404, detail="Order not found")
+
+#     return serialize_order(updated)
+
+#-----------------------------Orders-----------------------------
+
+from authentication.deps import get_current_principal, Principal
+
+# --- static charges (kept server-side) ---
+DELIVERY_CHARGE_FLAT = 50.0
+HANDLING_FEE_FLAT = 10.0
+DISCOUNT_AMOUNT_FLAT = 0.0  # reserved for future promos
+
+def _principal_user_id(p: Principal) -> str:
+    uid = p.get("id") or p.get("_id")
+    if not uid:
+        # Some principals come with "user_id"
+        uid = p.get("user_id")
+    if not uid:
         raise HTTPException(status_code=400, detail="Authenticated user is missing id/_id")
+    return str(uid)
 
-    username = getattr(user, "username", None) or getattr(user, "email", None)
-    email = getattr(user, "email", None)
+def _principal_username(p: Principal) -> Optional[str]:
+    return p.get("username") or p.get("email")
 
-    items: List[Dict[str, Any]] = []
+def _principal_email(p: Principal) -> Optional[str]:
+    return p.get("email")
+
+def _compute_order_totals(items_rows: List[Dict[str, Any]]) -> Dict[str, float]:
+    """
+    items_rows: each with keys [unit_price, quantity, gst_percent]
+    Returns product_total, gst_total, delivery_charge, handling_fee, discount_amount, final_amount
+    """
     product_total = 0.0
     gst_total = 0.0
-    vendor_id: Optional[ObjectId] = None
-    vendor_details: Optional[Dict[str, Any]] = None
-
-    for it in order.items:
-        product = product_collection.find_one({"_id": oid(it.product_id)})
-        if not product:
-            raise HTTPException(status_code=404, detail=f"Product not found: {it.product_id}")
-
-        if product["stock"] < it.quantity:
-            raise HTTPException(status_code=400, detail=f"Insufficient stock for {product['name']}")
-
-        # Calculate subtotal and GST
-        subtotal = float(product["price"]) * it.quantity
+    for r in items_rows:
+        subtotal = float(r["unit_price"]) * int(r["quantity"])
+        gst_amount = subtotal * float(r.get("gst_percent", 0.0)) / 100.0
         product_total += subtotal
-        product_gst_percent = float(product.get("gst", 0.0))
-        gst_amount = subtotal * product_gst_percent / 100
         gst_total += gst_amount
 
-        # Append order item
-        items.append({
-            "product_id": str(product["_id"]),
-            "name": product["name"],
-            "unit_price": float(product["price"]),
-            "quantity": it.quantity,
-            "subtotal": subtotal,
-            "gst_percent": product_gst_percent,
-            "gst_amount": gst_amount,
-        })
+    delivery_charge = DELIVERY_CHARGE_FLAT
+    handling_fee   = HANDLING_FEE_FLAT
+    discount_amount = DISCOUNT_AMOUNT_FLAT
 
-        # Ensure single vendor per order
+    final_amount = product_total + gst_total + delivery_charge + handling_fee - discount_amount
+    return {
+        "product_total": round(product_total, 2),
+        "gst_total": round(gst_total, 2),
+        "delivery_charge": round(delivery_charge, 2),
+        "handling_fee": round(handling_fee, 2),
+        "discount_amount": round(discount_amount, 2),
+        "final_amount": round(final_amount, 2),
+    }
+
+def _order_serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
+    return serialize_order(doc)
+
+# ----- NEW: checkout directly from the user's server-side cart -----
+
+@router.post("/cart/checkout", response_model=Dict[str, Any], tags=["Orders"])
+async def checkout_from_cart(
+    payload: CartCheckoutRequest,                # delivery_address, contact_phone, payment_method (e.g. "cod")
+    principal: Principal = Depends(get_current_principal),
+):
+    """
+    Create an order from the authenticated user's cart.
+    - Validates stock
+    - Computes GST and static delivery/handling fees server-side
+    - Enforces one-vendor-per-cart
+    - Decrements product stock
+    - Clears cart after success
+    """
+    # 1) Fetch the user's cart
+    cart_doc = _get_or_create_cart_for_user(principal)
+    items = cart_doc.get("items", [])
+    if not items:
+        raise HTTPException(status_code=400, detail="Cart is empty")
+
+    # 2) Build order lines from cart, validate vendor and stock
+    user_id = _principal_user_id(principal)
+    username = _principal_username(principal)
+    email = _principal_email(principal)
+
+    order_items: List[Dict[str, Any]] = []
+    vendor_id: Optional[ObjectId] = cart_doc.get("vendor_id")
+    vendor_details: Optional[Dict[str, Any]] = None
+
+    if vendor_id:
+        vendor_details = vendor_collection.find_one({"_id": vendor_id})
+        if not vendor_details:
+            raise HTTPException(status_code=400, detail="Vendor not found for the cart")
+
+    # Iterate each cart item and validate against current product state
+    for it in items:
+        pid = it["product_id"]
+        qty = int(it["quantity"])
+        product = product_collection.find_one({"_id": oid(pid)})
+        if not product:
+            raise HTTPException(status_code=404, detail=f"Product not found: {pid}")
+
+        # Enforce single-vendor (belt & suspenders; cart already enforces this)
         if vendor_id is None:
             vendor_id = product.get("vendor_id")
-            if vendor_id:
-                vendor_details = vendor_collection.find_one({"_id": vendor_id})
-        elif vendor_id != product.get("vendor_id"):
-            raise HTTPException(status_code=400, detail="Order can only contain products from one vendor.")
+            vendor_details = vendor_collection.find_one({"_id": vendor_id}) if vendor_id else None
+        elif str(vendor_id) != str(product.get("vendor_id")):
+            raise HTTPException(status_code=400, detail="Cart can only contain products from one vendor.")
 
-        # ----------------- UPDATE STOCK ----------------- #
-        new_stock = product["stock"] - it.quantity
-        product_collection.update_one(
-            {"_id": product["_id"]},
-            {"$set": {"stock": new_stock, "updated_at": datetime.utcnow()}}
-        )
+        # Stock check
+        if int(product.get("stock", 0)) < qty:
+            raise HTTPException(status_code=400, detail=f"Insufficient stock for {product['name']}")
+
+        unit_price = float(product["price"])
+        subtotal = unit_price * qty
+        gst_percent = float(product.get("gst", 0.0))
+        gst_amount = subtotal * gst_percent / 100.0
+
+        order_items.append({
+            "product_id": str(product["_id"]),
+            "name": product["name"],
+            "unit_price": unit_price,
+            "quantity": qty,
+            "subtotal": round(subtotal, 2),
+            "gst_percent": gst_percent,
+            "gst_amount": round(gst_amount, 2),
+        })
 
     if not vendor_details:
         raise HTTPException(status_code=400, detail="Vendor not found for order.")
 
-    # Charges
-    delivery_charge = 50.0
-    handling_fee = 10.0
-    discount_amount = 0.0
-    final_amount = product_total + gst_total + delivery_charge + handling_fee - discount_amount
+    # 3) Compute totals
+    totals = _compute_order_totals(order_items)
 
-    payment: Payment = Payment(
-        payment_method=order.payment_method,
-        status="pending",
-        breakdown=PaymentBreakdown(
-            product_total=product_total,
-            gst_total=gst_total,
-            delivery_charge=delivery_charge,
-            handling_fee=handling_fee,
-            discount_amount=discount_amount,
-            final_amount=final_amount,
-        ),
-    )
+    payment = {
+        "payment_method": payload.payment_method,
+        "status": "pending",
+        "breakdown": totals,
+    }
 
-    # Build order document
-    doc = {
+    # 4) Create order document
+    order_doc = {
         "user": {
             "id": user_id,
             "username": username,
             "email": email,
         },
-        "items": items,
+        "items": order_items,
         "vendor": serialize_vendor(vendor_details),
-        "delivery_address": order.delivery_address,
-        "contact_phone": order.contact_phone,
-        "payment": payment.dict(),
+        "delivery_address": payload.delivery_address,
+        "contact_phone": payload.contact_phone,
+        "payment": payment,
         "status": "pending",
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow(),
     }
 
-    result = order_collection.insert_one(doc)
-    created = order_collection.find_one({"_id": result.inserted_id})
-    return serialize_order(created)
+    # 5) Decrement stock (now that we know everything is valid)
+    for row in order_items:
+        p_id = oid(row["product_id"])
+        qty = int(row["quantity"])
+        prod = product_collection.find_one({"_id": p_id})
+        # Double-check stock to be safe before update
+        if prod is None or int(prod.get("stock", 0)) < qty:
+            raise HTTPException(status_code=409, detail=f"Stock changed for {row['name']}, please retry")
 
+        product_collection.update_one(
+            {"_id": p_id},
+            {"$inc": {"stock": -qty}, "$set": {"updated_at": datetime.utcnow()}}
+        )
+
+    # 6) Persist order
+    result = order_collection.insert_one(order_doc)
+    created = order_collection.find_one({"_id": result.inserted_id})
+
+    # 7) Clear the user's cart
+    cart_collection.update_one(
+        {"_id": cart_doc["_id"]},
+        {"$set": {"items": [], "vendor_id": None, "updated_at": datetime.utcnow()}}
+    )
+
+    return _order_serialize(created)
+
+
+# ----- (Optional) legacy creation by explicit items payload -----
+# Keep this for admin tools or scripts if you want; now uses Principal as well.
+@router.post("/orders", response_model=Dict[str, Any], tags=["Orders"])
+async def create_order_legacy(
+    order: Dict[str, Any],                       # expects keys similar to your previous OrderCreate
+    principal: Principal = Depends(get_current_principal),
+):
+    """
+    Legacy endpoint to create an order by passing items explicitly.
+    Prefer /cart/checkout for the app.
+    """
+    role = (principal.get("role") or "user").lower()
+    if role not in ["user", "admin"]:
+        raise HTTPException(status_code=403, detail="Only users/admins can place orders.")
+
+    user_id = _principal_user_id(principal)
+    username = _principal_username(principal)
+    email = _principal_email(principal)
+
+    req_items = order.get("items") or []
+    if not isinstance(req_items, list) or not req_items:
+        raise HTTPException(status_code=400, detail="items is required and must be non-empty")
+
+    delivery_address = order.get("delivery_address") or ""
+    contact_phone = order.get("contact_phone") or ""
+    payment_method = order.get("payment_method") or "cod"
+
+    order_items: List[Dict[str, Any]] = []
+    vendor_id: Optional[ObjectId] = None
+    vendor_details: Optional[Dict[str, Any]] = None
+
+    for it in req_items:
+        pid = it.get("product_id")
+        qty = int(it.get("quantity", 0))
+        if not pid or qty <= 0:
+            raise HTTPException(status_code=400, detail="Each item requires product_id and quantity>0")
+
+        product = product_collection.find_one({"_id": oid(pid)})
+        if not product:
+            raise HTTPException(status_code=404, detail=f"Product not found: {pid}")
+        if int(product.get("stock", 0)) < qty:
+            raise HTTPException(status_code=400, detail=f"Insufficient stock for {product['name']}")
+
+        if vendor_id is None:
+            vendor_id = product.get("vendor_id")
+            vendor_details = vendor_collection.find_one({"_id": vendor_id}) if vendor_id else None
+        elif str(vendor_id) != str(product.get("vendor_id")):
+            raise HTTPException(status_code=400, detail="Order can only contain products from one vendor.")
+
+        unit_price = float(product["price"])
+        subtotal = unit_price * qty
+        gst_percent = float(product.get("gst", 0.0))
+        gst_amount = subtotal * gst_percent / 100.0
+
+        order_items.append({
+            "product_id": str(product["_id"]),
+            "name": product["name"],
+            "unit_price": unit_price,
+            "quantity": qty,
+            "subtotal": round(subtotal, 2),
+            "gst_percent": gst_percent,
+            "gst_amount": round(gst_amount, 2),
+        })
+
+    if not vendor_details:
+        raise HTTPException(status_code=400, detail="Vendor not found for order.")
+
+    totals = _compute_order_totals(order_items)
+    payment = {
+        "payment_method": payment_method,
+        "status": "pending",
+        "breakdown": totals,
+    }
+
+    order_doc = {
+        "user": {"id": user_id, "username": username, "email": email},
+        "items": order_items,
+        "vendor": serialize_vendor(vendor_details),
+        "delivery_address": delivery_address,
+        "contact_phone": contact_phone,
+        "payment": payment,
+        "status": "pending",
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+    }
+
+    # decrement stock
+    for row in order_items:
+        p_id = oid(row["product_id"])
+        qty = int(row["quantity"])
+        prod = product_collection.find_one({"_id": p_id})
+        if prod is None or int(prod.get("stock", 0)) < qty:
+            raise HTTPException(status_code=409, detail=f"Stock changed for {row['name']}, please retry")
+        product_collection.update_one(
+            {"_id": p_id},
+            {"$inc": {"stock": -qty}, "$set": {"updated_at": datetime.utcnow()}}
+        )
+
+    result = order_collection.insert_one(order_doc)
+    created = order_collection.find_one({"_id": result.inserted_id})
+    return _order_serialize(created)
 
 
 @router.get("/orders", response_model=List[Dict[str, Any]], tags=["Orders"])
-async def list_orders(user: User = Depends(get_current_user)):
+async def list_orders(principal: Principal = Depends(get_current_principal)):
     """
-    List orders. Users see their own, admin sees all.
+    List orders. Admin sees all; other users see their own.
     """
-    if user.role == "admin":
-        docs = order_collection.find()
+    role = (principal.get("role") or "user").lower()
+    if role == "admin":
+        docs = order_collection.find().sort("created_at", -1)
     else:
-        user_id = str(getattr(user, "id", None) or getattr(user, "_id", None))
-        docs = order_collection.find({"user.id": user_id})
-    return [serialize_order(d) for d in docs]
+        user_id = _principal_user_id(principal)
+        docs = order_collection.find({"user.id": user_id}).sort("created_at", -1)
+    return [_order_serialize(d) for d in docs]
 
 
 @router.get("/orders/{order_id}", response_model=Dict[str, Any], tags=["Orders"])
-async def get_order(order_id: str, user: User = Depends(get_current_user)):
+async def get_order(order_id: str, principal: Principal = Depends(get_current_principal)):
     """
-    Get a single order. User can see own orders, admin sees all.
+    Get a single order. User can see own orders; admin sees all.
     """
-    order = order_collection.find_one({"_id": oid(order_id)})
-    if not order:
+    doc = order_collection.find_one({"_id": oid(order_id)})
+    if not doc:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    if user.role != "admin":
-        user_id = str(getattr(user, "id", None) or getattr(user, "_id", None))
-        if order.get("user", {}).get("id") != user_id:
+    role = (principal.get("role") or "user").lower()
+    if role != "admin":
+        user_id = _principal_user_id(principal)
+        if doc.get("user", {}).get("id") != user_id:
             raise HTTPException(status_code=403, detail="Not allowed to view this order.")
-
-    return serialize_order(order)
+    return _order_serialize(doc)
 
 
 @router.patch("/orders/{order_id}", response_model=Dict[str, Any], tags=["Orders"])
 async def update_order_status(
     order_id: str,
     status: str = Query(..., description="New status (confirmed/shipped/delivered/canceled)"),
-    user: User = Depends(get_current_user),
+    principal: Principal = Depends(get_current_principal),
 ):
     """
     Admin can update order status.
     """
-    if user.role != "admin":
+    role = (principal.get("role") or "user").lower()
+    if role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required.")
 
     updated = order_collection.find_one_and_update(
@@ -926,7 +1263,7 @@ async def update_order_status(
     if not updated:
         raise HTTPException(status_code=404, detail="Order not found")
 
-    return serialize_order(updated)
+    return _order_serialize(updated)
 
 
 # ----------------------------- CART -----------------------------
