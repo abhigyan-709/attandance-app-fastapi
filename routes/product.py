@@ -37,6 +37,7 @@ database = client[db.db_name]
 product_collection = database["products"]
 vendor_collection = database["vendors"]
 order_collection = database["orders"]
+cart_collection = database["carts"]
 
 
 # ---------- S3 SETUP ----------
@@ -134,6 +135,15 @@ def ensure_indexes() -> None:
 ensure_indexes()
 
 
+def ensure_cart_indexes() -> None:
+    # one cart doc per user
+    cart_collection.create_index("user.id", unique=True)
+    cart_collection.create_index("vendor_id")
+    cart_collection.create_index("updated_at")
+
+ensure_cart_indexes()
+
+
 #-----------------Order Serialization-----------------#
 def serialize_order(doc: Dict[str, Any]) -> Dict[str, Any]:
     if not doc:
@@ -171,6 +181,68 @@ def ensure_order_indexes() -> None:
     order_collection.create_index("status")
 
 ensure_order_indexes()
+
+def serialize_cart(doc: Dict[str, Any]) -> Dict[str, Any]:
+    if not doc:
+        return doc
+    d = dict(doc)
+    d["id"] = str(d["_id"])
+    d.pop("_id", None)
+    # normalize ObjectId-like vendor_id to str
+    if "vendor_id" in d and d["vendor_id"] is not None:
+        d["vendor_id"] = str(d["vendor_id"])
+    # items: product_id always as string, quantity as int
+    d["items"] = [{"product_id": str(it["product_id"]), "quantity": int(it["quantity"])} for it in d.get("items", [])]
+    return serialize_id(d)
+
+def _get_or_create_cart_for_user(user: User) -> Dict[str, Any]:
+    user_id = _user_id_str(user)
+    doc = cart_collection.find_one({"user.id": user_id})
+    if doc:
+        return doc
+    # create new empty cart
+    payload = {
+        "user": {
+            "id": user_id,
+            "username": _u(user, "username") or _u(user, "email"),
+            "email": _u(user, "email"),
+        },
+        "items": [],
+        "vendor_id": None,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+    }
+    res = cart_collection.insert_one(payload)
+    return cart_collection.find_one({"_id": res.inserted_id})
+
+def _hydrate_cart(cart_doc: Dict[str, Any], *, hydrate: bool = True) -> Dict[str, Any]:
+    base = serialize_cart(cart_doc)
+    if not hydrate:
+        return base
+
+    items_out: List[Dict[str, Any]] = []
+    for it in base.get("items", []):
+        p = product_collection.find_one({"_id": oid(it["product_id"])})
+        if not p:
+            # product was deleted – skip it from output (and you may clean later)
+            continue
+        items_out.append({
+            **it,
+            "product": serialize_product(p)
+        })
+
+    base["items"] = items_out
+    return base
+
+def _enforce_single_vendor(cart_doc: Dict[str, Any], product: Dict[str, Any]) -> None:
+    """Raise 400 if cart has items from a different vendor."""
+    existing_vendor = cart_doc.get("vendor_id")
+    new_vendor = product.get("vendor_id")
+    if existing_vendor is None:
+        return
+    if existing_vendor and new_vendor and str(existing_vendor) != str(new_vendor):
+        raise HTTPException(status_code=400, detail="Cart can only contain products from one vendor.")
+
 #------------------------------------------------------#
 
 @router.post("/products", response_model=Product, tags=["Products"])
@@ -577,42 +649,6 @@ async def delete_vendor(
 
 #---------------------------Search Endpoint---------------------------#
 
-# @router.get("/search", tags=["Search"])
-# async def search(
-#     q: str = Query(..., description="Search term for products/vendors"),
-#     region: Optional[str] = Query(None, description="Filter by GI region"),
-#     category: Optional[str] = Query(None, description="Filter by product category"),
-#     subcategory: Optional[str] = Query(None, description="Filter by product subcategory"),  # ✅ NEW FIELD
-#     limit: int = Query(20, ge=1, le=100),
-# ):
-#     product_filter: Dict[str, Any] = {"$text": {"$search": q}}
-#     if region:
-#         product_filter["region"] = region
-#     if category:
-#         product_filter["category"] = category
-#     if subcategory:
-#         product_filter["subcategory"] = subcategory  # ✅ NEW FILTER
-
-#     product_cursor = (
-#         product_collection.find(product_filter, {"score": {"$meta": "textScore"}})
-#         .sort([("score", {"$meta": "textScore"})])
-#         .limit(limit)
-#     )
-#     products = [serialize_product(p) for p in product_cursor]
-
-#     vendor_filter: Dict[str, Any] = {"$text": {"$search": q}}
-#     if region:
-#         vendor_filter["region"] = region
-
-#     vendor_cursor = (
-#         vendor_collection.find(vendor_filter, {"score": {"$meta": "textScore"}})
-#         .sort([("score", {"$meta": "textScore"})])
-#         .limit(limit)
-#     )
-#     vendors = [serialize_vendor(v) for v in vendor_cursor]
-
-#     return {"products": products, "vendors": vendors}
-
 @router.get("/search", tags=["Search"])
 async def search(
     q: Optional[str] = Query(None, description="Search term for products/vendors"),
@@ -884,3 +920,140 @@ async def update_order_status(
         raise HTTPException(status_code=404, detail="Order not found")
 
     return serialize_order(updated)
+
+
+# ----------------------------- CART -----------------------------
+
+@router.get("/cart", tags=["Cart"])
+async def get_my_cart(
+    hydrate: bool = Query(True, description="Include product details for each item"),
+    user: User = Depends(get_current_user),
+):
+    """
+    Return the current user's cart. Creates an empty cart if none exists.
+    """
+    cart_doc = _get_or_create_cart_for_user(user)
+    return _hydrate_cart(cart_doc, hydrate=hydrate)
+
+
+@router.post("/cart/items", tags=["Cart"])
+async def cart_add_item(
+    item: CartItemIn,
+    user: User = Depends(get_current_user),
+):
+    """
+    Add an item to the cart (or increase its quantity). Enforces single-vendor cart.
+    Quantity cannot exceed current product stock.
+    """
+    cart_doc = _get_or_create_cart_for_user(user)
+    product = product_collection.find_one({"_id": oid(item.product_id)})
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    _enforce_single_vendor(cart_doc, product)
+
+    # find existing
+    items = cart_doc.get("items", [])
+    idx = next((i for i, it in enumerate(items) if str(it["product_id"]) == str(product["_id"])), -1)
+    new_qty = item.quantity
+    if idx != -1:
+        new_qty = int(items[idx]["quantity"]) + item.quantity
+
+    stock = int(product.get("stock", 0))
+    if new_qty > stock:
+        raise HTTPException(status_code=400, detail="Cannot exceed available stock")
+
+    if idx == -1:
+        items.append({"product_id": str(product["_id"]), "quantity": item.quantity})
+    else:
+        items[idx]["quantity"] = new_qty
+
+    # set vendor if empty
+    vendor_id = cart_doc.get("vendor_id")
+    if vendor_id is None:
+        vendor_id = product.get("vendor_id")
+
+    updated = cart_collection.find_one_and_update(
+        {"_id": cart_doc["_id"]},
+        {"$set": {"items": items, "vendor_id": vendor_id, "updated_at": datetime.utcnow()}},
+        return_document=ReturnDocument.AFTER,
+    )
+    return _hydrate_cart(updated, hydrate=True)
+
+
+@router.patch("/cart/items/{product_id}", tags=["Cart"])
+async def cart_update_quantity(
+    product_id: str,
+    payload: CartQtyUpdate,
+    user: User = Depends(get_current_user),
+):
+    """
+    Set quantity for a product already in the cart.
+    If quantity==0, the item is removed.
+    """
+    cart_doc = _get_or_create_cart_for_user(user)
+    items = cart_doc.get("items", [])
+
+    idx = next((i for i, it in enumerate(items) if str(it["product_id"]) == str(product_id)), -1)
+    if idx == -1:
+        raise HTTPException(status_code=404, detail="Item not in cart")
+
+    if payload.quantity == 0:
+        items.pop(idx)
+    else:
+        # stock check
+        product = product_collection.find_one({"_id": oid(product_id)})
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        stock = int(product.get("stock", 0))
+        if payload.quantity > stock:
+            raise HTTPException(status_code=400, detail="Cannot exceed available stock")
+        items[idx]["quantity"] = payload.quantity
+
+    # reset vendor if cart becomes empty
+    vendor_id = cart_doc.get("vendor_id")
+    if not items:
+        vendor_id = None
+
+    updated = cart_collection.find_one_and_update(
+        {"_id": cart_doc["_id"]},
+        {"$set": {"items": items, "vendor_id": vendor_id, "updated_at": datetime.utcnow()}},
+        return_document=ReturnDocument.AFTER,
+    )
+    return _hydrate_cart(updated, hydrate=True)
+
+
+@router.delete("/cart/items/{product_id}", tags=["Cart"])
+async def cart_remove_item(
+    product_id: str,
+    user: User = Depends(get_current_user),
+):
+    """
+    Remove a product from the cart.
+    """
+    cart_doc = _get_or_create_cart_for_user(user)
+    items = [it for it in cart_doc.get("items", []) if str(it["product_id"]) != str(product_id)]
+    vendor_id = cart_doc.get("vendor_id")
+    if not items:
+        vendor_id = None
+
+    updated = cart_collection.find_one_and_update(
+        {"_id": cart_doc["_id"]},
+        {"$set": {"items": items, "vendor_id": vendor_id, "updated_at": datetime.utcnow()}},
+        return_document=ReturnDocument.AFTER,
+    )
+    return _hydrate_cart(updated, hydrate=True)
+
+
+@router.delete("/cart", tags=["Cart"])
+async def cart_clear(user: User = Depends(get_current_user)):
+    """
+    Clear the entire cart for the current user.
+    """
+    cart_doc = _get_or_create_cart_for_user(user)
+    updated = cart_collection.find_one_and_update(
+        {"_id": cart_doc["_id"]},
+        {"$set": {"items": [], "vendor_id": None, "updated_at": datetime.utcnow()}},
+        return_document=ReturnDocument.AFTER,
+    )
+    return _hydrate_cart(updated, hydrate=True)

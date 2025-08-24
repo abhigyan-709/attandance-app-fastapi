@@ -151,3 +151,18 @@ class Order(OrderBase):
     updated_at: datetime
     payment: Payment
     status: str = "pending"  # pending, confirmed, shipped, delivered, canceled
+
+
+# --- CART MODELS (add near your other models imports) ---
+
+class CartItemIn(BaseModel):
+    product_id: str
+    quantity: int = Field(..., gt=0)
+
+class CartQtyUpdate(BaseModel):
+    quantity: int = Field(..., gt=0)
+
+class CartCheckoutRequest(BaseModel):
+    delivery_address: str
+    contact_phone: str
+    payment_method: str  # "card", "upi", "wallet", "cod"
