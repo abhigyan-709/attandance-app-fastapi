@@ -1,10 +1,11 @@
+# authentication/auth.py
 from passlib.context import CryptContext
 from datetime import datetime, timedelta
 from jose import jwt
 
 SECRET_KEY = "your_secret_key"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 120
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 def get_password_hash(password):
