@@ -126,12 +126,13 @@
 #     fm = FastMail(conf)
 #     await fm.send_message(message)
 
-
 from fastapi_mail import FastMail, MessageSchema
 from models.email_config import conf
 
+# -------------------------
+# Registration (VoloBlink)
+# -------------------------
 async def send_registration_email(email: str, first_name: str, last_name: str):
-    # Subject line for user account registration
     subject = "Welcome to VoloBlink – Your Account is Ready!"
 
     body = f"""
@@ -216,7 +217,6 @@ async def send_registration_email(email: str, first_name: str, last_name: str):
                 </tr>
               </table>
 
-              <!-- tiny footer -->
               <div style="max-width:600px;color:#888888;font-size:11px;margin:12px auto 0 auto;text-align:center;">
                 You received this email because you registered for a VoloBlink account. 
                 If this wasn’t you, please ignore this email.
@@ -231,9 +231,86 @@ async def send_registration_email(email: str, first_name: str, last_name: str):
     message = MessageSchema(
         subject=subject,
         recipients=[email],
-        cc=["projectdevops709@gmail.com"],  # unchanged
+        cc=["projectdevops709@gmail.com"],
         body=body,
         subtype="html",
+    )
+
+    fm = FastMail(conf)
+    await fm.send_message(message)
+
+# -------------------------
+# Password Reset (unchanged)
+# -------------------------
+async def send_password_reset_email(email: str, reset_link: str):
+    subject = "Password Reset Request for Project DevOps"
+
+    body = f"""
+    <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+                <h2 style="color: #1A237E; text-align: center;">Password Reset Request</h2>
+                <p>Hello,</p>
+                <p>We received a request to reset your password for your Project DevOps account. Click the button below to set a new password:</p>
+
+                <p style="text-align: center;">
+                    <a href="{reset_link}" style="display: inline-block; padding: 10px 20px; color: white; background-color: #FF5722; text-decoration: none; border-radius: 5px;">
+                        Reset Password
+                    </a>
+                </p>
+
+                <p>If you did not request a password reset, please ignore this email.</p>
+                <p>This link will expire in 15 minutes.</p>
+
+                <p>Best regards,<br><b>Project DevOps Team</b></p>
+            </div>
+        </body>
+    </html>
+    """
+
+    message = MessageSchema(
+        subject=subject,
+        recipients=[email],
+        cc=["projectdevops709@gmail.com"],
+        body=body,
+        subtype="html"
+    )
+
+    fm = FastMail(conf)
+    await fm.send_message(message)
+
+# --------------------------------
+# Username Recovery (unchanged)
+# --------------------------------
+async def send_username_recovery_email(email: str, username: str):
+    subject = "Username Recovery for Project DevOps"
+
+    formatted_username = f'"{username}"'
+
+    body = f"""
+    <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <div style="max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
+                <h2 style="color: #1A237E; text-align: center;">Username Recovery Request</h2>
+                <p>Hello,</p>
+                <p>We received a request to recover your username for your Project DevOps account.</p>
+
+                <p><b>Your Username:</b> <span style="color: #FF5722; font-size: 18px;">{formatted_username}</span></p>
+
+                <p>If you did not request this, please ignore this email.</p>
+
+                <p>Best regards,<br><b>Project DevOps Team</b></p>
+            </div>
+        </body>
+    </html>
+    """
+
+    message = MessageSchema(
+        subject=subject,
+        recipients=[email],
+        cc=["projectdevops709@gmail.com"],
+        body=body,
+        subtype="html"
     )
 
     fm = FastMail(conf)
