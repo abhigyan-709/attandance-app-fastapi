@@ -18,7 +18,8 @@ from routes.user import get_current_user
 from models.user import User
 from models.product import Product, ProductCreate, ProductUpdate
 from models.product import Vendor, VendorCreate, VendorUpdate
-from models.product import Order, OrderCreate, PaymentBreakdown, Payment, OrderItem
+from models.product import Order 
+from models.product import OrderLine, PaymentBreakdown, Payment, OrderFromCartCreate
 from models.product import CartQtyUpdate, CartItemIn, CartCheckoutRequest
 
 # ✅ Customer models & unified principal (so Google + local both work)
