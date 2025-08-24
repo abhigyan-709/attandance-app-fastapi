@@ -22,8 +22,10 @@ from models.product import Order, OrderCreate, PaymentBreakdown, Payment, OrderI
 from models.product import CartQtyUpdate, CartItemIn, CartCheckoutRequest
 
 # ✅ Customer models & unified principal (so Google + local both work)
-from models.customer_details import CustomerDetails, Address
+# from models.customer_details import CustomerDetails, Address
 from authentication.deps import get_current_principal, Principal
+from models.customer_details import CustomerDetailsOut, CustomerDetailsUpsert, Address
+
 
 # NEW: AWS S3 config
 import uuid
@@ -1073,67 +1075,109 @@ def _serialize_customer(doc: Dict[str, Any]) -> Dict[str, Any]:
     if not doc:
         return doc
     d = dict(doc)
+
+    # id
     if "_id" in d:
-        d["id"] = str(d["_id"])
-        d.pop("_id", None)
+        d["id"] = str(d.pop("_id"))
 
-    # Normalize timestamps
-    if isinstance(d.get("created_at"), datetime):
-        d["created_at"] = d["created_at"].isoformat()
-    if isinstance(d.get("updated_at"), datetime):
-        d["updated_at"] = d["updated_at"].isoformat()
+    # phone_number should be Optional[str]
+    if "phone_number" in d and d["phone_number"] is not None:
+        d["phone_number"] = str(d["phone_number"])
 
-    # Normalize address timestamps if any
+    # timestamps
+    for k in ("created_at", "updated_at"):
+        if isinstance(d.get(k), datetime):
+            d[k] = d[k].isoformat()
+
+    # addresses
     addrs = d.get("addresses") or []
     norm = []
     for a in addrs:
         aa = dict(a)
-        if isinstance(aa.get("created_at"), datetime):
-            aa["created_at"] = aa["created_at"].isoformat()
-        if isinstance(aa.get("updated_at"), datetime):
-            aa["updated_at"] = aa["updated_at"].isoformat()
+        for k in ("created_at", "updated_at"):
+            if isinstance(aa.get(k), datetime):
+                aa[k] = aa[k].isoformat()
         norm.append(aa)
     d["addresses"] = norm
+
     return d
 
-@router.get("/customer/details", response_model=CustomerDetails, tags=["Customer"])
+
+# @router.get("/customer/details", response_model=CustomerDetails, tags=["Customer"])
+# async def get_customer_details(principal: Principal = Depends(get_current_principal)):
+#     """
+#     Return the customer's profile for the current authenticated principal.
+#     Selector: username == principal.username (for Google => email).
+#     """
+#     username = principal["username"]
+#     doc = customer_details_collection.find_one({"username": username})
+#     if not doc:
+#         raise HTTPException(status_code=404, detail="Customer details not found")
+#     return _serialize_customer(doc)
+
+# @router.post("/customer/details", response_model=CustomerDetails, tags=["Customer"])
+# async def upsert_customer_details(payload: CustomerDetails, principal: Principal = Depends(get_current_principal)):
+#     """
+#     Create or update the customer's profile. Payload is your CustomerDetails model.
+#     Server enforces username/email from the authenticated principal.
+#     """
+#     username = principal["username"]
+#     email = principal.get("email")
+
+#     data = payload.dict()
+#     data["username"] = username
+#     if email:
+#         data["email"] = email
+
+#     existing = customer_details_collection.find_one({"username": username})
+#     if not existing:
+#         data["created_at"] = _now_iso()
+#     data["updated_at"] = _now_iso()
+
+#     customer_details_collection.update_one(
+#         {"username": username},
+#         {"$set": data},
+#         upsert=True
+#     )
+#     saved = customer_details_collection.find_one({"username": username})
+#     return _serialize_customer(saved)
+
+@router.get("/customer/details", response_model=CustomerDetailsOut, tags=["Customer"])
 async def get_customer_details(principal: Principal = Depends(get_current_principal)):
-    """
-    Return the customer's profile for the current authenticated principal.
-    Selector: username == principal.username (for Google => email).
-    """
     username = principal["username"]
     doc = customer_details_collection.find_one({"username": username})
     if not doc:
         raise HTTPException(status_code=404, detail="Customer details not found")
     return _serialize_customer(doc)
 
-@router.post("/customer/details", response_model=CustomerDetails, tags=["Customer"])
-async def upsert_customer_details(payload: CustomerDetails, principal: Principal = Depends(get_current_principal)):
-    """
-    Create or update the customer's profile. Payload is your CustomerDetails model.
-    Server enforces username/email from the authenticated principal.
-    """
+@router.post("/customer/details", response_model=CustomerDetailsOut, tags=["Customer"])
+async def upsert_customer_details(
+    payload: CustomerDetailsUpsert,
+    principal: Principal = Depends(get_current_principal),
+):
     username = principal["username"]
     email = principal.get("email")
+    now = datetime.utcnow().isoformat()
 
-    data = payload.dict()
-    data["username"] = username
+    set_data = {"username": username, "updated_at": now}
     if email:
-        data["email"] = email
-
-    existing = customer_details_collection.find_one({"username": username})
-    if not existing:
-        data["created_at"] = _now_iso()
-    data["updated_at"] = _now_iso()
+        set_data["email"] = email
+    if payload.name is not None:
+        set_data["name"] = payload.name
+    if payload.phone_number is not None:
+        set_data["phone_number"] = payload.phone_number
+    if payload.addresses is not None:
+        set_data["addresses"] = [a.dict() for a in payload.addresses]
 
     customer_details_collection.update_one(
         {"username": username},
-        {"$set": data},
-        upsert=True
+        {"$setOnInsert": {"created_at": now}, "$set": set_data},
+        upsert=True,
     )
     saved = customer_details_collection.find_one({"username": username})
     return _serialize_customer(saved)
+
+
 
 @router.post("/customer/address", tags=["Customer"])
 async def add_customer_address(address: Address, principal: Principal = Depends(get_current_principal)):
