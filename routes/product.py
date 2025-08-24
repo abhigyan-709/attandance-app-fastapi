@@ -575,41 +575,147 @@ async def delete_vendor(
 
     return {"message": "Vendor deleted"}
 
+#---------------------------Search Endpoint---------------------------#
+
+# @router.get("/search", tags=["Search"])
+# async def search(
+#     q: str = Query(..., description="Search term for products/vendors"),
+#     region: Optional[str] = Query(None, description="Filter by GI region"),
+#     category: Optional[str] = Query(None, description="Filter by product category"),
+#     subcategory: Optional[str] = Query(None, description="Filter by product subcategory"),  # ✅ NEW FIELD
+#     limit: int = Query(20, ge=1, le=100),
+# ):
+#     product_filter: Dict[str, Any] = {"$text": {"$search": q}}
+#     if region:
+#         product_filter["region"] = region
+#     if category:
+#         product_filter["category"] = category
+#     if subcategory:
+#         product_filter["subcategory"] = subcategory  # ✅ NEW FILTER
+
+#     product_cursor = (
+#         product_collection.find(product_filter, {"score": {"$meta": "textScore"}})
+#         .sort([("score", {"$meta": "textScore"})])
+#         .limit(limit)
+#     )
+#     products = [serialize_product(p) for p in product_cursor]
+
+#     vendor_filter: Dict[str, Any] = {"$text": {"$search": q}}
+#     if region:
+#         vendor_filter["region"] = region
+
+#     vendor_cursor = (
+#         vendor_collection.find(vendor_filter, {"score": {"$meta": "textScore"}})
+#         .sort([("score", {"$meta": "textScore"})])
+#         .limit(limit)
+#     )
+#     vendors = [serialize_vendor(v) for v in vendor_cursor]
+
+#     return {"products": products, "vendors": vendors}
+
 @router.get("/search", tags=["Search"])
 async def search(
-    q: str = Query(..., description="Search term for products/vendors"),
+    q: Optional[str] = Query(None, description="Search term for products/vendors"),
     region: Optional[str] = Query(None, description="Filter by GI region"),
     category: Optional[str] = Query(None, description="Filter by product category"),
-    subcategory: Optional[str] = Query(None, description="Filter by product subcategory"),  # ✅ NEW FIELD
+    subcategory: Optional[str] = Query(None, description="Filter by product subcategory"),
     limit: int = Query(20, ge=1, le=100),
 ):
-    product_filter: Dict[str, Any] = {"$text": {"$search": q}}
-    if region:
-        product_filter["region"] = region
-    if category:
-        product_filter["category"] = category
-    if subcategory:
-        product_filter["subcategory"] = subcategory  # ✅ NEW FILTER
+    """
+    Enhanced flexible search:
+    - If q is provided:
+        * First try category/subcategory match (case-insensitive)
+        * Then text search for relevance
+        * Then partial regex match for related keywords
+    - If q is not provided: return all products/vendors (with filters if applied)
+    """
+    products = []
+    vendors = []
 
-    product_cursor = (
-        product_collection.find(product_filter, {"score": {"$meta": "textScore"}})
-        .sort([("score", {"$meta": "textScore"})])
-        .limit(limit)
-    )
-    products = [serialize_product(p) for p in product_cursor]
+    if q:
+        q_normalized = q.strip()
 
-    vendor_filter: Dict[str, Any] = {"$text": {"$search": q}}
-    if region:
-        vendor_filter["region"] = region
+        # 1️⃣ Exact category match
+        products = [
+            serialize_product(p) for p in product_collection.find(
+                {"category": {"$regex": f"^{q_normalized}$", "$options": "i"}}
+            )
+        ]
 
-    vendor_cursor = (
-        vendor_collection.find(vendor_filter, {"score": {"$meta": "textScore"}})
-        .sort([("score", {"$meta": "textScore"})])
-        .limit(limit)
-    )
-    vendors = [serialize_vendor(v) for v in vendor_cursor]
+        # 2️⃣ Exact subcategory match
+        if not products:
+            products = [
+                serialize_product(p) for p in product_collection.find(
+                    {"subcategory": {"$regex": f"^{q_normalized}$", "$options": "i"}}
+                )
+            ]
+
+        # 3️⃣ MongoDB text search (if text index exists)
+        if not products:
+            product_filter: Dict[str, Any] = {"$text": {"$search": q_normalized}}
+            if region:
+                product_filter["region"] = region
+            if category:
+                product_filter["category"] = category
+            if subcategory:
+                product_filter["subcategory"] = subcategory
+
+            product_cursor = (
+                product_collection.find(product_filter, {"score": {"$meta": "textScore"}})
+                .sort([("score", {"$meta": "textScore"})])
+                .limit(limit)
+            )
+            products = [serialize_product(p) for p in product_cursor]
+
+        # 4️⃣ Partial regex match (related keywords, fallback)
+        if not products:
+            products = [
+                serialize_product(p) for p in product_collection.find(
+                    {"$or": [
+                        {"name": {"$regex": q_normalized, "$options": "i"}},
+                        {"description": {"$regex": q_normalized, "$options": "i"}},
+                        {"subcategory": {"$regex": q_normalized, "$options": "i"}},
+                        {"category": {"$regex": q_normalized, "$options": "i"}},
+                    ]}
+                ).limit(limit)
+            ]
+
+        # 5️⃣ Vendor search (exact + text + partial regex)
+        vendor_filter = {"$or": [
+            {"name": {"$regex": q_normalized, "$options": "i"}},
+            {"$text": {"$search": q_normalized}},
+        ]}
+        if region:
+            vendor_filter["region"] = region
+
+        vendor_cursor = vendor_collection.find(vendor_filter).limit(limit)
+        vendors = [serialize_vendor(v) for v in vendor_cursor]
+
+    else:
+        # If no query, just return everything (with filters if applied)
+        product_filter: Dict[str, Any] = {}
+        if region:
+            product_filter["region"] = region
+        if category:
+            product_filter["category"] = category
+        if subcategory:
+            product_filter["subcategory"] = subcategory
+
+        product_cursor = product_collection.find(product_filter).limit(limit)
+        products = [serialize_product(p) for p in product_cursor]
+
+        vendor_filter: Dict[str, Any] = {}
+        if region:
+            vendor_filter["region"] = region
+
+        vendor_cursor = vendor_collection.find(vendor_filter).limit(limit)
+        vendors = [serialize_vendor(v) for v in vendor_cursor]
 
     return {"products": products, "vendors": vendors}
+
+
+
+#-----------------------------Orders-----------------------------
 
 @router.post("/orders", response_model=Dict[str, Any], tags=["Orders"])
 async def create_order(order: OrderCreate, user: User = Depends(get_current_user)):
