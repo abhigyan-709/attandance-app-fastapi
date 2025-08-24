@@ -21,10 +21,6 @@ from models.product import Vendor, VendorCreate, VendorUpdate
 from models.product import Order, OrderCreate, PaymentBreakdown, Payment, OrderItem
 from models.product import CartQtyUpdate, CartItemIn, CartCheckoutRequest
 
-# ✅ Customer models & unified principal (so Google + local both work)
-from models.customer_details import CustomerDetails, Address
-from authentication.deps import get_current_principal, Principal
-
 # NEW: AWS S3 config
 import uuid
 import boto3
@@ -43,7 +39,7 @@ product_collection = database["products"]
 vendor_collection = database["vendors"]
 order_collection = database["orders"]
 cart_collection = database["carts"]
-customer_details_collection = database["customer_details"]  # ✅ added
+
 
 # ---------- S3 SETUP ----------
 AWS_BUCKET_NAME = "projectdevops-blogs-new"  # same bucket you mentioned
@@ -74,7 +70,7 @@ def extract_key_from_url(url: str) -> Optional[str]:
     try:
         prefix = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/"
         if url.startswith(prefix):
-            return url[len(prefix):]
+            return url[len(prefix) :]
         return None
     except Exception:
         return None
@@ -1062,118 +1058,3 @@ async def cart_clear(user: User = Depends(get_current_user)):
         return_document=ReturnDocument.AFTER,
     )
     return _hydrate_cart(updated, hydrate=True)
-
-
-# ============================ CUSTOMER ROUTES (Unified: local + Google) ============================
-
-def _now_iso() -> str:
-    return datetime.utcnow().isoformat()
-
-def _serialize_customer(doc: Dict[str, Any]) -> Dict[str, Any]:
-    if not doc:
-        return doc
-    d = dict(doc)
-    if "_id" in d:
-        d["id"] = str(d["_id"])
-        d.pop("_id", None)
-
-    # Normalize timestamps
-    if isinstance(d.get("created_at"), datetime):
-        d["created_at"] = d["created_at"].isoformat()
-    if isinstance(d.get("updated_at"), datetime):
-        d["updated_at"] = d["updated_at"].isoformat()
-
-    # Normalize address timestamps if any
-    addrs = d.get("addresses") or []
-    norm = []
-    for a in addrs:
-        aa = dict(a)
-        if isinstance(aa.get("created_at"), datetime):
-            aa["created_at"] = aa["created_at"].isoformat()
-        if isinstance(aa.get("updated_at"), datetime):
-            aa["updated_at"] = aa["updated_at"].isoformat()
-        norm.append(aa)
-    d["addresses"] = norm
-    return d
-
-@router.get("/customer/details", response_model=CustomerDetails, tags=["Customer"])
-async def get_customer_details(principal: Principal = Depends(get_current_principal)):
-    """
-    Return the customer's profile for the current authenticated principal.
-    Selector: username == principal.username (for Google => email).
-    """
-    username = principal["username"]
-    doc = customer_details_collection.find_one({"username": username})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Customer details not found")
-    return _serialize_customer(doc)
-
-@router.post("/customer/details", response_model=CustomerDetails, tags=["Customer"])
-async def upsert_customer_details(payload: CustomerDetails, principal: Principal = Depends(get_current_principal)):
-    """
-    Create or update the customer's profile. Payload is your CustomerDetails model.
-    Server enforces username/email from the authenticated principal.
-    """
-    username = principal["username"]
-    email = principal.get("email")
-
-    data = payload.dict()
-    data["username"] = username
-    if email:
-        data["email"] = email
-
-    existing = customer_details_collection.find_one({"username": username})
-    if not existing:
-        data["created_at"] = _now_iso()
-    data["updated_at"] = _now_iso()
-
-    customer_details_collection.update_one(
-        {"username": username},
-        {"$set": data},
-        upsert=True
-    )
-    saved = customer_details_collection.find_one({"username": username})
-    return _serialize_customer(saved)
-
-@router.post("/customer/address", tags=["Customer"])
-async def add_customer_address(address: Address, principal: Principal = Depends(get_current_principal)):
-    """
-    Add a new address for the authenticated user.
-    """
-    username = principal["username"]
-    now = _now_iso()
-
-    a = address.dict()
-    # ensure ID and timestamps
-    a["address_id"] = a.get("address_id") or f"addr_{int(datetime.utcnow().timestamp())}"
-    a["created_at"] = a.get("created_at") or now
-    a["updated_at"] = now
-
-    customer_details_collection.update_one(
-        {"username": username},
-        {"$push": {"addresses": a}, "$set": {"updated_at": now}},
-        upsert=True
-    )
-    saved = customer_details_collection.find_one({"username": username})
-    return _serialize_customer(saved)
-
-@router.put("/customer/address/{address_id}", tags=["Customer"])
-async def update_customer_address(address_id: str, address: Address, principal: Principal = Depends(get_current_principal)):
-    """
-    Update an existing address by address_id for the authenticated user.
-    """
-    username = principal["username"]
-    now = _now_iso()
-    data = address.dict(exclude_unset=True)
-    data["updated_at"] = now
-
-    # positional operator update
-    result = customer_details_collection.update_one(
-        {"username": username, "addresses.address_id": address_id},
-        {"$set": {f"addresses.$.{k}": v for k, v in data.items()}}
-    )
-    if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Address not found")
-
-    saved = customer_details_collection.find_one({"username": username})
-    return _serialize_customer(saved)
