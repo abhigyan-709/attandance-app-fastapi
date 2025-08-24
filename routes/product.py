@@ -19,6 +19,7 @@ from models.user import User
 from models.product import Product, ProductCreate, ProductUpdate
 from models.product import Vendor, VendorCreate, VendorUpdate
 from models.product import Order, OrderCreate, PaymentBreakdown, Payment, OrderItem
+from models.product import CartQtyUpdate, CartItemIn, CartCheckoutRequest
 
 # NEW: AWS S3 config
 import uuid
