@@ -774,284 +774,6 @@ async def search(
 from authentication.deps import get_current_principal, Principal
 
 # --- static charges (kept server-side) ---
-
-# DELIVERY_CHARGE_FLAT = 50.0
-# HANDLING_FEE_FLAT = 10.0
-# DISCOUNT_AMOUNT_FLAT = 0.0  # reserved for future promos
-
-# def _principal_user_id(p: Principal) -> str:
-#     uid = p.get("id") or p.get("_id")
-#     if not uid:
-#         # Some principals come with "user_id"
-#         uid = p.get("user_id")
-#     if not uid:
-#         raise HTTPException(status_code=400, detail="Authenticated user is missing id/_id")
-#     return str(uid)
-
-# def _principal_username(p: Principal) -> Optional[str]:
-#     return p.get("username") or p.get("email")
-
-# def _principal_email(p: Principal) -> Optional[str]:
-#     return p.get("email")
-
-# def _compute_order_totals(items_rows: List[Dict[str, Any]]) -> Dict[str, float]:
-#     """
-#     items_rows: each with keys [unit_price, quantity, gst_percent]
-#     Returns product_total, gst_total, delivery_charge, handling_fee, discount_amount, final_amount
-#     """
-#     product_total = 0.0
-#     gst_total = 0.0
-#     for r in items_rows:
-#         subtotal = float(r["unit_price"]) * int(r["quantity"])
-#         gst_amount = subtotal * float(r.get("gst_percent", 0.0)) / 100.0
-#         product_total += subtotal
-#         gst_total += gst_amount
-
-#     delivery_charge = DELIVERY_CHARGE_FLAT
-#     handling_fee   = HANDLING_FEE_FLAT
-#     discount_amount = DISCOUNT_AMOUNT_FLAT
-
-#     final_amount = product_total + gst_total + delivery_charge + handling_fee - discount_amount
-#     return {
-#         "product_total": round(product_total, 2),
-#         "gst_total": round(gst_total, 2),
-#         "delivery_charge": round(delivery_charge, 2),
-#         "handling_fee": round(handling_fee, 2),
-#         "discount_amount": round(discount_amount, 2),
-#         "final_amount": round(final_amount, 2),
-#     }
-
-# def _order_serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
-#     return serialize_order(doc)
-
-# # ----- NEW: checkout directly from the user's server-side cart -----
-
-# @router.post("/cart/checkout", response_model=Dict[str, Any], tags=["Orders"])
-# async def checkout_from_cart(
-#     payload: CartCheckoutRequest,                # delivery_address, contact_phone, payment_method (e.g. "cod")
-#     principal: Principal = Depends(get_current_principal),
-# ):
-#     """
-#     Create an order from the authenticated user's cart.
-#     - Validates stock
-#     - Computes GST and static delivery/handling fees server-side
-#     - Enforces one-vendor-per-cart
-#     - Decrements product stock
-#     - Clears cart after success
-#     """
-#     # 1) Fetch the user's cart
-#     cart_doc = _get_or_create_cart_for_user(principal)
-#     items = cart_doc.get("items", [])
-#     if not items:
-#         raise HTTPException(status_code=400, detail="Cart is empty")
-
-#     # 2) Build order lines from cart, validate vendor and stock
-#     user_id = _principal_user_id(principal)
-#     username = _principal_username(principal)
-#     email = _principal_email(principal)
-
-#     order_items: List[Dict[str, Any]] = []
-#     vendor_id: Optional[ObjectId] = cart_doc.get("vendor_id")
-#     vendor_details: Optional[Dict[str, Any]] = None
-
-#     if vendor_id:
-#         vendor_details = vendor_collection.find_one({"_id": vendor_id})
-#         if not vendor_details:
-#             raise HTTPException(status_code=400, detail="Vendor not found for the cart")
-
-#     # Iterate each cart item and validate against current product state
-#     for it in items:
-#         pid = it["product_id"]
-#         qty = int(it["quantity"])
-#         product = product_collection.find_one({"_id": oid(pid)})
-#         if not product:
-#             raise HTTPException(status_code=404, detail=f"Product not found: {pid}")
-
-#         # Enforce single-vendor (belt & suspenders; cart already enforces this)
-#         if vendor_id is None:
-#             vendor_id = product.get("vendor_id")
-#             vendor_details = vendor_collection.find_one({"_id": vendor_id}) if vendor_id else None
-#         elif str(vendor_id) != str(product.get("vendor_id")):
-#             raise HTTPException(status_code=400, detail="Cart can only contain products from one vendor.")
-
-#         # Stock check
-#         if int(product.get("stock", 0)) < qty:
-#             raise HTTPException(status_code=400, detail=f"Insufficient stock for {product['name']}")
-
-#         unit_price = float(product["price"])
-#         subtotal = unit_price * qty
-#         gst_percent = float(product.get("gst", 0.0))
-#         gst_amount = subtotal * gst_percent / 100.0
-
-#         order_items.append({
-#             "product_id": str(product["_id"]),
-#             "name": product["name"],
-#             "unit_price": unit_price,
-#             "quantity": qty,
-#             "subtotal": round(subtotal, 2),
-#             "gst_percent": gst_percent,
-#             "gst_amount": round(gst_amount, 2),
-#         })
-
-#     if not vendor_details:
-#         raise HTTPException(status_code=400, detail="Vendor not found for order.")
-
-#     # 3) Compute totals
-#     totals = _compute_order_totals(order_items)
-
-#     payment = {
-#         "payment_method": payload.payment_method,
-#         "status": "pending",
-#         "breakdown": totals,
-#     }
-
-#     # 4) Create order document
-#     order_doc = {
-#         "user": {
-#             "id": user_id,
-#             "username": username,
-#             "email": email,
-#         },
-#         "items": order_items,
-#         "vendor": serialize_vendor(vendor_details),
-#         "delivery_address": payload.delivery_address,
-#         "contact_phone": payload.contact_phone,
-#         "payment": payment,
-#         "status": "pending",
-#         "created_at": datetime.utcnow(),
-#         "updated_at": datetime.utcnow(),
-#     }
-
-#     # 5) Decrement stock (now that we know everything is valid)
-#     for row in order_items:
-#         p_id = oid(row["product_id"])
-#         qty = int(row["quantity"])
-#         prod = product_collection.find_one({"_id": p_id})
-#         # Double-check stock to be safe before update
-#         if prod is None or int(prod.get("stock", 0)) < qty:
-#             raise HTTPException(status_code=409, detail=f"Stock changed for {row['name']}, please retry")
-
-#         product_collection.update_one(
-#             {"_id": p_id},
-#             {"$inc": {"stock": -qty}, "$set": {"updated_at": datetime.utcnow()}}
-#         )
-
-#     # 6) Persist order
-#     result = order_collection.insert_one(order_doc)
-#     created = order_collection.find_one({"_id": result.inserted_id})
-
-#     # 7) Clear the user's cart
-#     cart_collection.update_one(
-#         {"_id": cart_doc["_id"]},
-#         {"$set": {"items": [], "vendor_id": None, "updated_at": datetime.utcnow()}}
-#     )
-
-#     return _order_serialize(created)
-
-
-# # ----- (Optional) legacy creation by explicit items payload -----
-# # Keep this for admin tools or scripts if you want; now uses Principal as well.
-# @router.post("/orders", response_model=Dict[str, Any], tags=["Orders"])
-# async def create_order_legacy(
-#     order: Dict[str, Any],                       # expects keys similar to your previous OrderCreate
-#     principal: Principal = Depends(get_current_principal),
-# ):
-#     """
-#     Legacy endpoint to create an order by passing items explicitly.
-#     Prefer /cart/checkout for the app.
-#     """
-#     role = (principal.get("role") or "user").lower()
-#     if role not in ["user", "admin"]:
-#         raise HTTPException(status_code=403, detail="Only users/admins can place orders.")
-
-#     user_id = _principal_user_id(principal)
-#     username = _principal_username(principal)
-#     email = _principal_email(principal)
-
-#     req_items = order.get("items") or []
-#     if not isinstance(req_items, list) or not req_items:
-#         raise HTTPException(status_code=400, detail="items is required and must be non-empty")
-
-#     delivery_address = order.get("delivery_address") or ""
-#     contact_phone = order.get("contact_phone") or ""
-#     payment_method = order.get("payment_method") or "cod"
-
-#     order_items: List[Dict[str, Any]] = []
-#     vendor_id: Optional[ObjectId] = None
-#     vendor_details: Optional[Dict[str, Any]] = None
-
-#     for it in req_items:
-#         pid = it.get("product_id")
-#         qty = int(it.get("quantity", 0))
-#         if not pid or qty <= 0:
-#             raise HTTPException(status_code=400, detail="Each item requires product_id and quantity>0")
-
-#         product = product_collection.find_one({"_id": oid(pid)})
-#         if not product:
-#             raise HTTPException(status_code=404, detail=f"Product not found: {pid}")
-#         if int(product.get("stock", 0)) < qty:
-#             raise HTTPException(status_code=400, detail=f"Insufficient stock for {product['name']}")
-
-#         if vendor_id is None:
-#             vendor_id = product.get("vendor_id")
-#             vendor_details = vendor_collection.find_one({"_id": vendor_id}) if vendor_id else None
-#         elif str(vendor_id) != str(product.get("vendor_id")):
-#             raise HTTPException(status_code=400, detail="Order can only contain products from one vendor.")
-
-#         unit_price = float(product["price"])
-#         subtotal = unit_price * qty
-#         gst_percent = float(product.get("gst", 0.0))
-#         gst_amount = subtotal * gst_percent / 100.0
-
-#         order_items.append({
-#             "product_id": str(product["_id"]),
-#             "name": product["name"],
-#             "unit_price": unit_price,
-#             "quantity": qty,
-#             "subtotal": round(subtotal, 2),
-#             "gst_percent": gst_percent,
-#             "gst_amount": round(gst_amount, 2),
-#         })
-
-#     if not vendor_details:
-#         raise HTTPException(status_code=400, detail="Vendor not found for order.")
-
-#     totals = _compute_order_totals(order_items)
-#     payment = {
-#         "payment_method": payment_method,
-#         "status": "pending",
-#         "breakdown": totals,
-#     }
-
-#     order_doc = {
-#         "user": {"id": user_id, "username": username, "email": email},
-#         "items": order_items,
-#         "vendor": serialize_vendor(vendor_details),
-#         "delivery_address": delivery_address,
-#         "contact_phone": contact_phone,
-#         "payment": payment,
-#         "status": "pending",
-#         "created_at": datetime.utcnow(),
-#         "updated_at": datetime.utcnow(),
-#     }
-
-#     # decrement stock
-#     for row in order_items:
-#         p_id = oid(row["product_id"])
-#         qty = int(row["quantity"])
-#         prod = product_collection.find_one({"_id": p_id})
-#         if prod is None or int(prod.get("stock", 0)) < qty:
-#             raise HTTPException(status_code=409, detail=f"Stock changed for {row['name']}, please retry")
-#         product_collection.update_one(
-#             {"_id": p_id},
-#             {"$inc": {"stock": -qty}, "$set": {"updated_at": datetime.utcnow()}}
-#         )
-
-#     result = order_collection.insert_one(order_doc)
-#     created = order_collection.find_one({"_id": result.inserted_id})
-#     return _order_serialize(created)
-
-# --- static charges (kept server-side) ---
 DELIVERY_CHARGE_FLAT = 50.0
 HANDLING_FEE_FLAT = 10.0
 DISCOUNT_AMOUNT_FLAT = 0.0  # reserved for future promos
@@ -1658,3 +1380,75 @@ async def update_customer_address(address_id: str, address: Address, principal: 
 
     saved = customer_details_collection.find_one({"username": username})
     return _serialize_customer(saved)
+
+# --- NEW: Admin endpoints to fetch customers from the collection ---
+
+@router.get("/customers", response_model=Dict[str, Any], tags=["Customer"])
+async def list_customers(
+    q: Optional[str] = None,                     # search across username/email/name/phone_number
+    only_with_addresses: bool = True,            # default: only users who actually added details (have at least one address)
+    page: int = 1,
+    page_size: int = 25,
+    principal: Principal = Depends(get_current_principal),
+):
+    """
+    List customers from `customer_details_collection`.
+
+    - Admin-only
+    - Optional text search: `q` matches username/email/name/phone_number (case-insensitive)
+    - `only_with_addresses` = True returns users who have at least one saved address
+    - Pagination with `page` and `page_size` (max 100)
+    """
+    role = (principal.get("role") or "user").lower()
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admins only")
+
+    page = max(page, 1)
+    page_size = max(1, min(page_size, 100))
+
+    filt: Dict[str, Any] = {}
+    if q:
+        regex = {"$regex": q, "$options": "i"}
+        filt["$or"] = [
+            {"username": regex},
+            {"email": regex},
+            {"name": regex},
+            {"phone_number": regex},
+        ]
+    if only_with_addresses:
+        # users who have at least one address
+        filt["addresses.0"] = {"$exists": True}
+
+    total = customer_details_collection.count_documents(filt)
+    cursor = (
+        customer_details_collection
+        .find(filt)
+        .sort("updated_at", -1)              # ISO strings sort correctly lexicographically
+        .skip((page - 1) * page_size)
+        .limit(page_size)
+    )
+    items = [_serialize_customer(doc) for doc in cursor]
+
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    }
+
+@router.get("/customers/{username}", response_model=CustomerDetailsOut, tags=["Customer"])
+async def get_customer_by_username(
+    username: str,
+    principal: Principal = Depends(get_current_principal),
+):
+    """
+    Fetch any customer's details by username (Admin-only).
+    """
+    role = (principal.get("role") or "user").lower()
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admins only")
+
+    doc = customer_details_collection.find_one({"username": username})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    return _serialize_customer(doc)
