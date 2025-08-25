@@ -29,6 +29,7 @@ from models.customer_details import CustomerDetailsOut, CustomerDetailsUpsert, A
 # imports (add BackgroundTasks + the email function)
 from fastapi import BackgroundTasks
 from routes.send_email import send_order_confirmation_email
+from uuid import uuid4
 
 
 
