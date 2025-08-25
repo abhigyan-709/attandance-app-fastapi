@@ -1267,6 +1267,40 @@ async def cart_clear(principal: Principal = Depends(get_current_principal)):
 
 # ============================ CUSTOMER ROUTES (Unified: local + Google) ============================
 
+# def _now_iso() -> str:
+#     return datetime.utcnow().isoformat()
+
+# def _serialize_customer(doc: Dict[str, Any]) -> Dict[str, Any]:
+#     if not doc:
+#         return doc
+#     d = dict(doc)
+
+#     # id
+#     if "_id" in d:
+#         d["id"] = str(d.pop("_id"))
+
+#     # phone_number should be Optional[str]
+#     if "phone_number" in d and d["phone_number"] is not None:
+#         d["phone_number"] = str(d["phone_number"])
+
+#     # timestamps
+#     for k in ("created_at", "updated_at"):
+#         if isinstance(d.get(k), datetime):
+#             d[k] = d[k].isoformat()
+
+#     # addresses
+#     addrs = d.get("addresses") or []
+#     norm = []
+#     for a in addrs:
+#         aa = dict(a)
+#         for k in ("created_at", "updated_at"):
+#             if isinstance(aa.get(k), datetime):
+#                 aa[k] = aa[k].isoformat()
+#         norm.append(aa)
+#     d["addresses"] = norm
+
+#     return d
+
 def _now_iso() -> str:
     return datetime.utcnow().isoformat()
 
@@ -1288,37 +1322,73 @@ def _serialize_customer(doc: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(d.get(k), datetime):
             d[k] = d[k].isoformat()
 
-    # addresses
-    addrs = d.get("addresses") or []
+    # addresses (including nested location)
     norm = []
-    for a in addrs:
+    for a in d.get("addresses") or []:
         aa = dict(a)
         for k in ("created_at", "updated_at"):
             if isinstance(aa.get(k), datetime):
                 aa[k] = aa[k].isoformat()
+        # nothing special needed for aa["location"]—Pydantic already ensures shape
         norm.append(aa)
     d["addresses"] = norm
 
     return d
 
+
+# @router.get("/customer/details", response_model=CustomerDetailsOut, tags=["Customer"])
+# async def get_customer_details(principal: Principal = Depends(get_current_principal)):
+#     username = principal["username"]
+#     doc = customer_details_collection.find_one({"username": username})
+#     if not doc:
+#         raise HTTPException(status_code=404, detail="Customer details not found")
+#     return _serialize_customer(doc)
+
 @router.get("/customer/details", response_model=CustomerDetailsOut, tags=["Customer"])
-async def get_customer_details(principal: Principal = Depends(get_current_principal)):
+async def get_customer_details(principal: Dict[str, Any] = Depends(get_current_principal)):
     username = principal["username"]
     doc = customer_details_collection.find_one({"username": username})
     if not doc:
         raise HTTPException(status_code=404, detail="Customer details not found")
     return _serialize_customer(doc)
 
+# @router.post("/customer/details", response_model=CustomerDetailsOut, tags=["Customer"])
+# async def upsert_customer_details(
+#     payload: CustomerDetailsUpsert,
+#     principal: Principal = Depends(get_current_principal),
+# ):
+#     username = principal["username"]
+#     email = principal.get("email")
+#     now = datetime.utcnow().isoformat()
+
+#     set_data = {"username": username, "updated_at": now}
+#     if email:
+#         set_data["email"] = email
+#     if payload.name is not None:
+#         set_data["name"] = payload.name
+#     if payload.phone_number is not None:
+#         set_data["phone_number"] = payload.phone_number
+#     if payload.addresses is not None:
+#         set_data["addresses"] = [a.dict() for a in payload.addresses]
+
+#     customer_details_collection.update_one(
+#         {"username": username},
+#         {"$setOnInsert": {"created_at": now}, "$set": set_data},
+#         upsert=True,
+#     )
+#     saved = customer_details_collection.find_one({"username": username})
+#     return _serialize_customer(saved)
+
 @router.post("/customer/details", response_model=CustomerDetailsOut, tags=["Customer"])
 async def upsert_customer_details(
     payload: CustomerDetailsUpsert,
-    principal: Principal = Depends(get_current_principal),
+    principal: Dict[str, Any] = Depends(get_current_principal),
 ):
     username = principal["username"]
     email = principal.get("email")
-    now = datetime.utcnow().isoformat()
+    now = _now_iso()
 
-    set_data = {"username": username, "updated_at": now}
+    set_data: Dict[str, Any] = {"username": username, "updated_at": now}
     if email:
         set_data["email"] = email
     if payload.name is not None:
@@ -1336,50 +1406,153 @@ async def upsert_customer_details(
     saved = customer_details_collection.find_one({"username": username})
     return _serialize_customer(saved)
 
+#-----------------------New Block------------------------------
+def _ensure_single_default(username: str, active_id: str) -> None:
+    """
+    Ensure only the address with `active_id` remains default for this user.
+    Requires MongoDB 3.6+ for $[] operator.
+    """
+    # First set all to False
+    customer_details_collection.update_one(
+        {"username": username},
+        {"$set": {"addresses.$[].is_default": False}},
+    )
+    # Then set the chosen one to True
+    customer_details_collection.update_one(
+        {"username": username, "addresses.address_id": active_id},
+        {"$set": {"addresses.$.is_default": True}},
+    )
+#-------------------------Above till New Block can be removed-----
 
 
-@router.post("/customer/address", tags=["Customer"])
-async def add_customer_address(address: Address, principal: Principal = Depends(get_current_principal)):
+# @router.post("/customer/address", tags=["Customer"])
+# async def add_customer_address(address: Address, principal: Principal = Depends(get_current_principal)):
+#     """
+#     Add a new address for the authenticated user.
+#     """
+#     username = principal["username"]
+#     now = _now_iso()
+
+#     a = address.dict()
+#     # ensure ID and timestamps
+#     a["address_id"] = a.get("address_id") or f"addr_{int(datetime.utcnow().timestamp())}"
+#     a["created_at"] = a.get("created_at") or now
+#     a["updated_at"] = now
+
+#     customer_details_collection.update_one(
+#         {"username": username},
+#         {"$push": {"addresses": a}, "$set": {"updated_at": now}},
+#         upsert=True
+#     )
+#     saved = customer_details_collection.find_one({"username": username})
+#     return _serialize_customer(saved)
+
+@router.post("/customer/address", response_model=CustomerDetailsOut, tags=["Customer"])
+async def add_customer_address(
+    address: Address,
+    principal: Dict[str, Any] = Depends(get_current_principal),
+):
     """
     Add a new address for the authenticated user.
+    Supports nested 'location' and 'driver_note'.
     """
     username = principal["username"]
     now = _now_iso()
 
-    a = address.dict()
-    # ensure ID and timestamps
-    a["address_id"] = a.get("address_id") or f"addr_{int(datetime.utcnow().timestamp())}"
+    a = address.dict(exclude_unset=True)
+    a["address_id"] = a.get("address_id") or f"addr_{uuid4().hex}"
     a["created_at"] = a.get("created_at") or now
     a["updated_at"] = now
 
     customer_details_collection.update_one(
         {"username": username},
         {"$push": {"addresses": a}, "$set": {"updated_at": now}},
-        upsert=True
+        upsert=True,
     )
+
+    # If marked default, make it the only default
+    if a.get("is_default"):
+        _ensure_single_default(username, a["address_id"])
+
     saved = customer_details_collection.find_one({"username": username})
     return _serialize_customer(saved)
 
-@router.put("/customer/address/{address_id}", tags=["Customer"])
-async def update_customer_address(address_id: str, address: Address, principal: Principal = Depends(get_current_principal)):
+# @router.put("/customer/address/{address_id}", tags=["Customer"])
+# async def update_customer_address(address_id: str, address: Address, principal: Principal = Depends(get_current_principal)):
+#     """
+#     Update an existing address by address_id for the authenticated user.
+#     """
+#     username = principal["username"]
+#     now = _now_iso()
+#     data = address.dict(exclude_unset=True)
+#     data["updated_at"] = now
+
+#     # positional operator update
+#     result = customer_details_collection.update_one(
+#         {"username": username, "addresses.address_id": address_id},
+#         {"$set": {f"addresses.$.{k}": v for k, v in data.items()}}
+#     )
+#     if result.matched_count == 0:
+#         raise HTTPException(status_code=404, detail="Address not found")
+
+#     saved = customer_details_collection.find_one({"username": username})
+#     return _serialize_customer(saved)
+
+@router.put("/customer/address/{address_id}", response_model=CustomerDetailsOut, tags=["Customer"])
+async def update_customer_address(
+    address_id: str,
+    address: Address,
+    principal: Dict[str, Any] = Depends(get_current_principal),
+):
     """
     Update an existing address by address_id for the authenticated user.
+    Supports nested 'location' and 'driver_note'.
     """
     username = principal["username"]
     now = _now_iso()
     data = address.dict(exclude_unset=True)
     data["updated_at"] = now
+    # Never overwrite the ID with a different value
+    data.pop("address_id", None)
 
-    # positional operator update
     result = customer_details_collection.update_one(
         {"username": username, "addresses.address_id": address_id},
-        {"$set": {f"addresses.$.{k}": v for k, v in data.items()}}
+        {"$set": {f"addresses.$.{k}": v for k, v in data.items()}},
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Address not found")
 
+    # If this update made it default, ensure uniqueness
+    if data.get("is_default"):
+        _ensure_single_default(username, address_id)
+
     saved = customer_details_collection.find_one({"username": username})
     return _serialize_customer(saved)
+
+
+# -------------------Optional below ---------------------------------
+@router.put("/customer/address/{address_id}/default", tags=["Customer"])
+async def set_default_address(
+    address_id: str,
+    principal: Dict[str, Any] = Depends(get_current_principal),
+):
+    username = principal["username"]
+    # Make sure the address exists
+    doc = customer_details_collection.find_one(
+        {"username": username, "addresses.address_id": address_id},
+        {"addresses.$": 1}
+    )
+    if not doc or not doc.get("addresses"):
+        raise HTTPException(status_code=404, detail="Address not found")
+
+    _ensure_single_default(username, address_id)
+    customer_details_collection.update_one(
+        {"username": username},
+        {"$set": {"updated_at": _now_iso()}},
+    )
+    saved = customer_details_collection.find_one({"username": username})
+    return _serialize_customer(saved)
+
 
 # --- NEW: Admin endpoints to fetch customers from the collection ---
 
