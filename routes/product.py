@@ -1846,3 +1846,46 @@ async def vendor_metrics(principal: Principal = Depends(get_current_principal)):
         "cancelledOrders": counts.get("canceled", 0) + counts.get("cancelled", 0),
         "completedOrders": counts.get("delivered", 0),
     }
+
+
+# Place near other Vendor Orders routes
+
+@router.post("/vendor/orders/{order_id}/cancel", response_model=Dict[str, Any], tags=["Vendor Orders"])
+async def vendor_cancel_order(
+    order_id: str,
+    principal: Principal = Depends(get_current_principal),
+):
+    """
+    Allow the vendor to cancel an order that belongs to them if it's still pending/confirmed.
+    Restores product stock accordingly.
+    """
+    vendor = _require_vendor_and_get_by_email(principal)
+    vid = str(vendor["_id"])
+
+    doc = order_collection.find_one({"_id": oid(order_id), "vendor.id": vid})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    status = (doc.get("status") or "").lower()
+    if status in ["shipped", "delivered", "canceled", "cancelled"]:
+        raise HTTPException(status_code=400, detail=f"Order already {status}; cannot cancel")
+
+    # Only allow cancel from early states
+    if status not in ["pending", "confirmed"]:
+        raise HTTPException(status_code=400, detail=f"Cannot cancel order in state {status}")
+
+    # Restore stock
+    for line in doc.get("items", []):
+        p_id = oid(line["product_id"])
+        qty = int(line.get("quantity", 0))
+        product_collection.update_one(
+            {"_id": p_id},
+            {"$inc": {"stock": qty}, "$set": {"updated_at": datetime.utcnow()}}
+        )
+
+    updated = order_collection.find_one_and_update(
+        {"_id": doc["_id"]},
+        {"$set": {"status": "canceled", "updated_at": datetime.utcnow()}},
+        return_document=ReturnDocument.AFTER,
+    )
+    return _order_serialize(updated)
