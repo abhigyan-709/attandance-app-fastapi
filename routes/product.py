@@ -1559,3 +1559,290 @@ async def get_customer_by_username(
     if not doc:
         raise HTTPException(status_code=404, detail="Customer not found")
     return _serialize_customer(doc)
+
+
+#----------------Vendor Dashboard-------------------------------------------------------------If anything fails remove the below code---------------------------------------------
+# --- ADD under existing helpers (near _principal_email / _principal_user_id) ---
+def _principal_role(p: Principal) -> str:
+    return (p.get("role") or "user").lower()
+
+def _require_vendor_and_get_by_email(principal: Principal) -> Dict[str, Any]:
+    """
+    Ensure the authenticated principal is a vendor and find the vendor doc by email.
+    """
+    role = _principal_role(principal)
+    if role != "vendor":
+        raise HTTPException(status_code=403, detail="Vendor access required.")
+
+    email = _principal_email(principal)
+    if not email:
+        raise HTTPException(status_code=400, detail="Authenticated principal missing email")
+
+    vendor = vendor_collection.find_one({"email": email})
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor profile not found for your email")
+    return vendor
+
+
+# -------------------- VENDOR: SELF PROFILE -------------------- #
+@router.get("/vendors/me", response_model=Vendor, tags=["Vendors"])
+async def get_my_vendor(principal: Principal = Depends(get_current_principal)):
+    """
+    Return the vendor profile for the logged-in vendor.
+    Matches principal.email with vendors.email.
+    """
+    vendor = _require_vendor_and_get_by_email(principal)
+    return serialize_vendor(vendor)
+
+# -------------------- VENDOR: MY PRODUCTS (LIST) -------------------- #
+@router.get("/vendor/products", response_model=List[Product], tags=["Vendor Products"])
+async def list_my_products(principal: Principal = Depends(get_current_principal)):
+    """
+    List products that belong to the logged-in vendor (by email match).
+    """
+    vendor = _require_vendor_and_get_by_email(principal)
+    docs = product_collection.find({"vendor_id": vendor["_id"]}).sort("created_at", -1)
+    return [serialize_product(d) for d in docs]
+
+
+# -------------------- VENDOR: CREATE PRODUCT -------------------- #
+@router.post("/vendor/products", response_model=Product, tags=["Vendor Products"])
+async def create_my_product(
+    name: str = Form(...),
+    description: str = Form(...),
+    price: float = Form(...),
+    gst: float = Form(...),
+    unit: Optional[str] = Form(None),
+    region: str = Form(...),
+    sku: str = Form(...),
+    category: Optional[str] = Form(None),
+    subcategory: Optional[str] = Form(None),
+    stock: int = Form(...),
+    files: List[UploadFile] = File([], description="Optional product images"),
+    principal: Principal = Depends(get_current_principal),
+):
+    """
+    Vendor creates a product for themselves.
+    - Derives vendor_id by matching principal.email to vendors.email
+    - Optional image upload to S3
+    """
+    vendor = _require_vendor_and_get_by_email(principal)
+    v_id = vendor["_id"]
+
+    # Upload images (optional)
+    image_urls: List[str] = []
+    for f in files:
+        if not f:
+            continue
+        content_type = f.content_type or mimetypes.guess_type(f.filename)[0] or ""
+        if content_type.lower() not in ALLOWED_IMAGE_MIMES:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type for {f.filename}: {content_type}")
+        data = await f.read()
+        if len(data) > MAX_IMAGE_BYTES:
+            raise HTTPException(status_code=400, detail=f"File too large: {f.filename}")
+
+        key = s3_key_for_product(str(v_id), f.filename)
+        s3_client.put_object(
+            Bucket=AWS_BUCKET_NAME,
+            Key=key,
+            Body=data,
+            ContentType=content_type,
+        )
+        image_urls.append(s3_url(AWS_BUCKET_NAME, AWS_REGION, key))
+
+    # Build product document
+    payload = {
+        "name": name,
+        "description": description,
+        "price": price,
+        "gst": gst,
+        "unit": unit,
+        "region": region,
+        "sku": sku,
+        "category": category,
+        "subcategory": subcategory,
+        "stock": stock,
+        "vendor_id": v_id,
+        "images": image_urls or [],
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+    }
+
+    result = product_collection.insert_one(payload)
+    product_id = result.inserted_id
+
+    vendor_collection.update_one({"_id": v_id}, {"$push": {"products": product_id}})
+
+    created = product_collection.find_one({"_id": product_id})
+    return serialize_product(created)
+
+
+# -------------------- VENDOR: UPDATE OWN PRODUCT (PRICE / STOCK) -------------------- #
+@router.patch("/vendor/products/{product_id}", response_model=Product, tags=["Vendor Products"])
+async def update_my_product(
+    product_id: str,
+    price: Optional[float] = Form(None),
+    stock: Optional[int] = Form(None),
+    principal: Principal = Depends(get_current_principal),
+):
+    """
+    Vendor can update *only their own* product. Limited to price/stock for now.
+    """
+    vendor = _require_vendor_and_get_by_email(principal)
+
+    existing = product_collection.find_one({"_id": oid(product_id)})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    # Ownership check
+    if str(existing.get("vendor_id")) != str(vendor["_id"]):
+        raise HTTPException(status_code=403, detail="You can only update your own products")
+
+    update_data: Dict[str, Any] = {}
+    if price is not None:
+        update_data["price"] = float(price)
+    if stock is not None:
+        update_data["stock"] = int(stock)
+
+    if not update_data:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+
+    update_data["updated_at"] = datetime.utcnow()
+
+    updated = product_collection.find_one_and_update(
+        {"_id": existing["_id"]},
+        {"$set": update_data},
+        return_document=ReturnDocument.AFTER,
+    )
+    return serialize_product(updated)
+
+# Helpers (place near your other Principal helpers)
+def _principal_role(p: Principal) -> str:
+    return (p.get("role") or "user").lower()
+
+def _require_vendor_and_get_by_email(principal: Principal) -> Dict[str, Any]:
+    role = _principal_role(principal)
+    if role != "vendor":
+        raise HTTPException(status_code=403, detail="Vendor access required.")
+    email = _principal_email(principal)
+    if not email:
+        raise HTTPException(status_code=400, detail="Authenticated principal missing email")
+    vendor = vendor_collection.find_one({"email": email})
+    if not vendor:
+        raise HTTPException(status_code=404, detail="Vendor profile not found for your email")
+    return vendor
+
+
+# -------------------- VENDOR: ORDERS (LIST) -------------------- #
+@router.get("/vendor/orders", response_model=List[Dict[str, Any]], tags=["Vendor Orders"])
+async def list_my_vendor_orders(
+    status: Optional[str] = Query(None, description="Filter by status"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(25, ge=1, le=100),
+    principal: Principal = Depends(get_current_principal),
+):
+    """
+    Vendors see only orders placed for *their* vendor id (matched via email).
+    """
+    vendor = _require_vendor_and_get_by_email(principal)
+    vendor_id_str = str(vendor["_id"])
+
+    filt: Dict[str, Any] = {"vendor.id": vendor_id_str}
+    if status:
+        filt["status"] = status.lower()
+
+    cursor = (
+        order_collection
+        .find(filt)
+        .sort("created_at", -1)
+        .skip((page - 1) * page_size)
+        .limit(page_size)
+    )
+
+    return [_order_serialize(d) for d in cursor]
+
+
+# -------------------- VENDOR: ORDER (GET ONE) -------------------- #
+@router.get("/vendor/orders/{order_id}", response_model=Dict[str, Any], tags=["Vendor Orders"])
+async def get_my_vendor_order(
+    order_id: str,
+    principal: Principal = Depends(get_current_principal),
+):
+    vendor = _require_vendor_and_get_by_email(principal)
+    vendor_id_str = str(vendor["_id"])
+
+    doc = order_collection.find_one({"_id": oid(order_id), "vendor.id": vendor_id_str})
+    if not doc:
+        # Either not found or not owned by this vendor
+        raise HTTPException(status_code=404, detail="Order not found")
+    return _order_serialize(doc)
+
+
+# -------------------- VENDOR: ORDER STATUS UPDATE -------------------- #
+ALLOWED_VENDOR_STATUS_UPDATES = {"confirmed", "shipped", "delivered"}
+_STATUS_RANK = {"pending": 0, "confirmed": 1, "shipped": 2, "delivered": 3, "canceled": -1, "cancelled": -1}
+
+@router.patch("/vendor/orders/{order_id}/status", response_model=Dict[str, Any], tags=["Vendor Orders"])
+async def vendor_update_order_status(
+    order_id: str,
+    new_status: str = Query(..., description="confirmed|shipped|delivered"),
+    principal: Principal = Depends(get_current_principal),
+):
+    """
+    Vendors may advance their own orders forward only:
+      pending -> confirmed -> shipped -> delivered
+    They cannot cancel, nor revert a state.
+    """
+    vendor = _require_vendor_and_get_by_email(principal)
+    vendor_id_str = str(vendor["_id"])
+
+    ns = (new_status or "").lower().strip()
+    if ns not in ALLOWED_VENDOR_STATUS_UPDATES:
+        raise HTTPException(status_code=400, detail=f"Invalid status for vendor: {new_status}")
+
+    doc = order_collection.find_one({"_id": oid(order_id), "vendor.id": vendor_id_str})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    cur = (doc.get("status") or "").lower()
+    if cur in ("canceled", "cancelled", "delivered"):
+        raise HTTPException(status_code=400, detail=f"Order already {cur}; cannot update")
+
+    # forward-only progression
+    cur_rank = _STATUS_RANK.get(cur, -2)
+    new_rank = _STATUS_RANK.get(ns, -2)
+    if new_rank <= cur_rank:
+        raise HTTPException(status_code=400, detail=f"Cannot move from {cur} to {ns} (not forward)")
+
+    updated = order_collection.find_one_and_update(
+        {"_id": doc["_id"]},
+        {"$set": {"status": ns, "updated_at": datetime.utcnow()}},
+        return_document=ReturnDocument.AFTER,
+    )
+    return _order_serialize(updated)
+
+
+@router.get("/vendor/metrics", tags=["Vendor Orders"])
+async def vendor_metrics(principal: Principal = Depends(get_current_principal)):
+    v = _require_vendor_and_get_by_email(principal)
+    vid = str(v["_id"])
+
+    total_products = product_collection.count_documents({"vendor_id": v["_id"]})
+    agg = list(order_collection.aggregate([
+        {"$match": {"vendor.id": vid}},
+        {"$group": {
+            "_id": "$status",
+            "count": {"$sum": 1}
+        }}
+    ]))
+
+    counts = {row["_id"]: row["count"] for row in agg}
+    return {
+        "totalProducts": total_products,
+        "pendingOrders": counts.get("pending", 0) + counts.get("confirmed", 0) + counts.get("processing", 0),
+        "fulfilledToday": 0,  # fill if you track per-day shipments
+        "revenueThisMonth": 0,  # fill with monthly sum if needed
+        "shippedOrders": counts.get("shipped", 0),
+        "cancelledOrders": counts.get("canceled", 0) + counts.get("cancelled", 0),
+        "completedOrders": counts.get("delivered", 0),
+    }
