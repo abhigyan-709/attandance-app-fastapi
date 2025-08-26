@@ -1585,7 +1585,7 @@ def _require_vendor_and_get_by_email(principal: Principal) -> Dict[str, Any]:
 
 
 # -------------------- VENDOR: SELF PROFILE -------------------- #
-@router.get("/vendors/me", response_model=Vendor, tags=["Vendors"])
+@router.get("/vendor/me", response_model=Vendor, tags=["Vendor Products"])
 async def get_my_vendor(principal: Principal = Depends(get_current_principal)):
     """
     Return the vendor profile for the logged-in vendor.
