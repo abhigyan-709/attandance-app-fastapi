@@ -30,7 +30,8 @@ from models.customer_details import CustomerDetailsOut, CustomerDetailsUpsert, A
 from fastapi import BackgroundTasks
 from routes.send_email import send_order_confirmation_email
 from uuid import uuid4
-
+from datetime import datetime, timedelta
+from fastapi import HTTPException
 
 
 # NEW: AWS S3 config
@@ -52,6 +53,7 @@ vendor_collection = database["vendors"]
 order_collection = database["orders"]
 cart_collection = database["carts"]
 customer_details_collection = database["customer_details"]  # ✅ added
+CANCEL_WINDOW_MINUTES = 3
 
 # ---------- S3 SETUP ----------
 AWS_BUCKET_NAME = "projectdevops-blogs-new"  # same bucket you mentioned
@@ -192,6 +194,7 @@ def ensure_order_indexes() -> None:
     order_collection.create_index("user_id")
     order_collection.create_index("vendor.id")
     order_collection.create_index("status")
+    order_collection.create_index("created_at") #if not worked remove
 
 ensure_order_indexes()
 
@@ -1128,6 +1131,50 @@ async def update_order_status(
 
     return _order_serialize(updated)
 
+@router.post("/orders/{order_id}/cancel", tags=["Orders"])
+async def cancel_my_order(order_id: str, principal: Principal = Depends(get_current_principal)):
+    """
+    Allow the authenticated user to cancel their own order within 3 minutes of creation.
+    - Only for orders in pending/confirmed
+    - Restores stock
+    """
+    user_id = _principal_user_id(principal)
+
+    # Fetch order
+    doc = order_collection.find_one({"_id": oid(order_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Order not found")
+
+    # Ownership check (non-admin path)
+    if doc.get("user", {}).get("id") != user_id:
+        raise HTTPException(status_code=403, detail="Not your order")
+
+    status = (doc.get("status") or "").lower()
+    if status in ["shipped", "delivered", "canceled", "cancelled"]:
+        raise HTTPException(status_code=400, detail=f"Order already {status}")
+
+    created_at: datetime = doc.get("created_at") or datetime.utcnow()
+    if datetime.utcnow() > created_at + timedelta(minutes=CANCEL_WINDOW_MINUTES):
+        raise HTTPException(status_code=400, detail="Cancellation window expired")
+
+    # Roll back stock for each line
+    for line in doc.get("items", []):
+        p_id = oid(line["product_id"])
+        qty = int(line.get("quantity", 0))
+        product_collection.update_one(
+            {"_id": p_id},
+            {"$inc": {"stock": qty}, "$set": {"updated_at": datetime.utcnow()}}
+        )
+
+    # Set status = canceled
+    updated = order_collection.find_one_and_update(
+        {"_id": oid(order_id)},
+        {"$set": {"status": "canceled", "updated_at": datetime.utcnow()}},
+        return_document=ReturnDocument.AFTER,
+    )
+    return _order_serialize(updated)
+
+
 
 # ----------------------------- CART -----------------------------
 
@@ -1268,40 +1315,6 @@ async def cart_clear(principal: Principal = Depends(get_current_principal)):
 
 # ============================ CUSTOMER ROUTES (Unified: local + Google) ============================
 
-# def _now_iso() -> str:
-#     return datetime.utcnow().isoformat()
-
-# def _serialize_customer(doc: Dict[str, Any]) -> Dict[str, Any]:
-#     if not doc:
-#         return doc
-#     d = dict(doc)
-
-#     # id
-#     if "_id" in d:
-#         d["id"] = str(d.pop("_id"))
-
-#     # phone_number should be Optional[str]
-#     if "phone_number" in d and d["phone_number"] is not None:
-#         d["phone_number"] = str(d["phone_number"])
-
-#     # timestamps
-#     for k in ("created_at", "updated_at"):
-#         if isinstance(d.get(k), datetime):
-#             d[k] = d[k].isoformat()
-
-#     # addresses
-#     addrs = d.get("addresses") or []
-#     norm = []
-#     for a in addrs:
-#         aa = dict(a)
-#         for k in ("created_at", "updated_at"):
-#             if isinstance(aa.get(k), datetime):
-#                 aa[k] = aa[k].isoformat()
-#         norm.append(aa)
-#     d["addresses"] = norm
-
-#     return d
-
 def _now_iso() -> str:
     return datetime.utcnow().isoformat()
 
@@ -1336,15 +1349,6 @@ def _serialize_customer(doc: Dict[str, Any]) -> Dict[str, Any]:
 
     return d
 
-
-# @router.get("/customer/details", response_model=CustomerDetailsOut, tags=["Customer"])
-# async def get_customer_details(principal: Principal = Depends(get_current_principal)):
-#     username = principal["username"]
-#     doc = customer_details_collection.find_one({"username": username})
-#     if not doc:
-#         raise HTTPException(status_code=404, detail="Customer details not found")
-#     return _serialize_customer(doc)
-
 @router.get("/customer/details", response_model=CustomerDetailsOut, tags=["Customer"])
 async def get_customer_details(principal: Dict[str, Any] = Depends(get_current_principal)):
     username = principal["username"]
@@ -1352,33 +1356,6 @@ async def get_customer_details(principal: Dict[str, Any] = Depends(get_current_p
     if not doc:
         raise HTTPException(status_code=404, detail="Customer details not found")
     return _serialize_customer(doc)
-
-# @router.post("/customer/details", response_model=CustomerDetailsOut, tags=["Customer"])
-# async def upsert_customer_details(
-#     payload: CustomerDetailsUpsert,
-#     principal: Principal = Depends(get_current_principal),
-# ):
-#     username = principal["username"]
-#     email = principal.get("email")
-#     now = datetime.utcnow().isoformat()
-
-#     set_data = {"username": username, "updated_at": now}
-#     if email:
-#         set_data["email"] = email
-#     if payload.name is not None:
-#         set_data["name"] = payload.name
-#     if payload.phone_number is not None:
-#         set_data["phone_number"] = payload.phone_number
-#     if payload.addresses is not None:
-#         set_data["addresses"] = [a.dict() for a in payload.addresses]
-
-#     customer_details_collection.update_one(
-#         {"username": username},
-#         {"$setOnInsert": {"created_at": now}, "$set": set_data},
-#         upsert=True,
-#     )
-#     saved = customer_details_collection.find_one({"username": username})
-#     return _serialize_customer(saved)
 
 @router.post("/customer/details", response_model=CustomerDetailsOut, tags=["Customer"])
 async def upsert_customer_details(
@@ -1425,29 +1402,6 @@ def _ensure_single_default(username: str, active_id: str) -> None:
     )
 #-------------------------Above till New Block can be removed-----
 
-
-# @router.post("/customer/address", tags=["Customer"])
-# async def add_customer_address(address: Address, principal: Principal = Depends(get_current_principal)):
-#     """
-#     Add a new address for the authenticated user.
-#     """
-#     username = principal["username"]
-#     now = _now_iso()
-
-#     a = address.dict()
-#     # ensure ID and timestamps
-#     a["address_id"] = a.get("address_id") or f"addr_{int(datetime.utcnow().timestamp())}"
-#     a["created_at"] = a.get("created_at") or now
-#     a["updated_at"] = now
-
-#     customer_details_collection.update_one(
-#         {"username": username},
-#         {"$push": {"addresses": a}, "$set": {"updated_at": now}},
-#         upsert=True
-#     )
-#     saved = customer_details_collection.find_one({"username": username})
-#     return _serialize_customer(saved)
-
 @router.post("/customer/address", response_model=CustomerDetailsOut, tags=["Customer"])
 async def add_customer_address(
     address: Address,
@@ -1477,27 +1431,6 @@ async def add_customer_address(
 
     saved = customer_details_collection.find_one({"username": username})
     return _serialize_customer(saved)
-
-# @router.put("/customer/address/{address_id}", tags=["Customer"])
-# async def update_customer_address(address_id: str, address: Address, principal: Principal = Depends(get_current_principal)):
-#     """
-#     Update an existing address by address_id for the authenticated user.
-#     """
-#     username = principal["username"]
-#     now = _now_iso()
-#     data = address.dict(exclude_unset=True)
-#     data["updated_at"] = now
-
-#     # positional operator update
-#     result = customer_details_collection.update_one(
-#         {"username": username, "addresses.address_id": address_id},
-#         {"$set": {f"addresses.$.{k}": v for k, v in data.items()}}
-#     )
-#     if result.matched_count == 0:
-#         raise HTTPException(status_code=404, detail="Address not found")
-
-#     saved = customer_details_collection.find_one({"username": username})
-#     return _serialize_customer(saved)
 
 @router.put("/customer/address/{address_id}", response_model=CustomerDetailsOut, tags=["Customer"])
 async def update_customer_address(
