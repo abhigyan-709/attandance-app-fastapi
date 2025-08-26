@@ -3,7 +3,7 @@ name: Deploy FastAPI to EC2 (Staging)
 on:
   push:
     branches:
-      - staging-api  # Deploy only when pushing to the staging branch
+      - staging-api  # Deploy only when pushing to the staging branch test
 
 jobs:
   build-and-deploy-staging:
