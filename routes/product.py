@@ -22,7 +22,7 @@ from models.product import Order
 from models.product import OrderLine, PaymentBreakdown, Payment, OrderFromCartCreate
 from models.product import CartQtyUpdate, CartItemIn, CartCheckoutRequest
 
-# ✅ Customer models & unified principal (so Google + local both work)
+# ✅ Customer models & unified principal (so Google + local both work) new
 # from models.customer_details import CustomerDetails, Address
 from authentication.deps import get_current_principal, Principal
 from models.customer_details import CustomerDetailsOut, CustomerDetailsUpsert, Address
