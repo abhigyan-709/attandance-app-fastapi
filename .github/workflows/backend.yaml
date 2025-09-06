@@ -116,8 +116,7 @@ name: Deploy FastAPI to EC2
 
 on:
   push:
-    branches:
-      - Abhigyans-Code
+    branches: [ Abhigyans-Code ]
 
 jobs:
   build-and-deploy:
@@ -153,29 +152,54 @@ jobs:
         run: |
           docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
 
-      # --- NEW: write SA JSON to a local file and copy to EC2 safely ---
       - name: Prepare SSH key
         run: |
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > private_key.pem
           chmod 600 private_key.pem
 
-      - name: Create service-account file locally
+      # --- write files LOCALLY, then scp to EC2 ---
+
+      - name: Write firebase service account JSON locally
         run: |
-          # Write the JSON exactly as stored in the secret
           cat > sa.json <<'JSON'
           ${{ secrets.FIREBASE_SA_JSON }}
           JSON
 
-      - name: Copy service-account to EC2
+      - name: Write app.env locally (clean file)
         run: |
-          scp -o StrictHostKeyChecking=no -i private_key.pem sa.json ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/firebase-sa.json
+          cat > app.env <<'ENV'
+          MONGO_URI=${{ secrets.MONGO_URI }}
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION=${{ secrets.AWS_REGION }}
+          AWS_BUCKET_NAME=${{ secrets.AWS_BUCKET_NAME }}
+          MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}
+          MAIL_FROM=${{ secrets.MAIL_FROM }}
+          MAIL_PORT=${{ secrets.MAIL_PORT }}
+          MAIL_SERVER=${{ secrets.MAIL_SERVER }}
+          MAIL_STARTTLS=${{ secrets.MAIL_STARTTLS }}
+          MAIL_SSL_TLS=${{ secrets.MAIL_SSL_TLS }}
+          MAIL_FROM_NAME=${{ secrets.MAIL_FROM_NAME }}
+          REDIS_HOST=${{ secrets.REDIS_HOST }}
+          REDIS_PORT=${{ secrets.REDIS_PORT }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+          FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
+          # Our code reads SA via FIREBASE_SA_PATH:
+          FIREBASE_SA_PATH=/run/secrets/firebase-sa.json
+          ENV
+
+      - name: Copy files to EC2
+        run: |
+          scp -o StrictHostKeyChecking=no -i private_key.pem sa.json  ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/firebase-sa.json
+          scp -o StrictHostKeyChecking=no -i private_key.pem app.env  ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/home/${{ secrets.EC2_USER }}/app.env
 
       - name: Deploy on EC2
         run: |
           ssh -o StrictHostKeyChecking=no -i private_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
             set -e
 
-            # Ensure Docker & AWS CLI
+            # Ensure Docker & AWS CLI exist
             if ! command -v docker >/dev/null 2>&1; then
               sudo apt-get update -y
               sudo apt-get install -y docker.io
@@ -184,7 +208,7 @@ jobs:
             if ! command -v aws >/dev/null 2>&1; then
               sudo apt-get update -y
               sudo apt-get install -y curl unzip
-              curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+              curl -sS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
               unzip -q awscliv2.zip
               sudo ./aws/install
             fi
@@ -193,46 +217,25 @@ jobs:
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
               docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
 
-            # Permissions for SA file
-            sudo chown $USER:$USER /home/$USER/firebase-sa.json
-            chmod 600 /home/$USER/firebase-sa.json
+            # Secure file perms
+            sudo chown $USER:$USER /home/$USER/firebase-sa.json /home/$USER/app.env
+            chmod 600 /home/$USER/firebase-sa.json /home/$USER/app.env
 
             # Pull latest image
             docker pull ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
 
-            # Stop/remove old container
+            # Stop & remove any old container
             docker rm -f attendance-app || true
 
-            # Write a CLEAN env file each deploy
-            cat > /home/$USER/app.env <<'ENV'
-            MONGO_URI=${{ secrets.MONGO_URI }}
-            AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
-            AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            AWS_REGION=${{ secrets.AWS_REGION }}
-            AWS_BUCKET_NAME=${{ secrets.AWS_BUCKET_NAME }}
-            MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}
-            MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}
-            MAIL_FROM=${{ secrets.MAIL_FROM }}
-            MAIL_PORT=${{ secrets.MAIL_PORT }}
-            MAIL_SERVER=${{ secrets.MAIL_SERVER }}
-            MAIL_STARTTLS=${{ secrets.MAIL_STARTTLS }}
-            MAIL_SSL_TLS=${{ secrets.MAIL_SSL_TLS }}
-            MAIL_FROM_NAME=${{ secrets.MAIL_FROM_NAME }}
-            REDIS_HOST=${{ secrets.REDIS_HOST }}
-            REDIS_PORT=${{ secrets.REDIS_PORT }}
-            REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-            FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
-            FIREBASE_SA_PATH=/run/secrets/firebase-sa.json
-            ENV
-
-            # Run container: mount SA file read-only and pass env file
+            # Run new container
             docker run -d --name attendance-app -p 8000:8000 \
               --env-file /home/$USER/app.env \
+              -v /home/$USER/app.env:/app/.env:ro \
               -v /home/$USER/firebase-sa.json:/run/secrets/firebase-sa.json:ro \
               --add-host=host.docker.internal:host-gateway \
               ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
 
-            echo "Container started. Logs (tail):"
+            echo "Container started. Tail logs:"
             sleep 2
             docker logs --tail 100 attendance-app || true
           EOF
