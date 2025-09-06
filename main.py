@@ -16,10 +16,13 @@ from routes.blogs import blog_router
 from routes.subscription import route21
 from routes.testimonial import route5
 from routes import product
-# from routes import customer_details
+from routes.push import push_router 
 from routes.google_auth import router31
 from fastapi.middleware.cors import CORSMiddleware
 from routes.google_refresh import router as google_refresh_router
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+
 
 
 
@@ -44,11 +47,16 @@ app.openapi_version = "3.0.2"
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://familiesfuel.com", "http://localhost:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.mount("/static", StaticFiles(directory="static"), name="static")
+@app.get("/firebase-messaging-sw.js", include_in_schema=False)
+def sw():
+    return FileResponse("static/firebase-messaging-sw.js", media_type="text/javascript")
 
 app.include_router(route21)
 app.include_router(blog_router)
@@ -66,6 +74,7 @@ app.include_router(product.router)
 # app.include_router(customer_details.route)
 app.include_router(router31)
 app.include_router(google_refresh_router)
+app.include_router(push_router)
 
 if __name__ == "__main__":
     import uvicorn
