@@ -53,10 +53,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-@app.get("/firebase-messaging-sw.js", include_in_schema=False)
-def sw():
-    return FileResponse("static/firebase-messaging-sw.js", media_type="text/javascript")
 
 app.include_router(route21)
 app.include_router(blog_router)
