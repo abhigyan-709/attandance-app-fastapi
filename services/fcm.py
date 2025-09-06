@@ -1,92 +1,81 @@
-import os, json, time, hashlib
-from firebase_admin import credentials, initialize_app, messaging
-from pymongo.database import Database as MongoDB
+# services/fcm.py
+import json
+import os
+from typing import List, Dict, Any
 
-_firebase_app = None
+import requests
+from google.oauth2 import service_account
+from google.auth.transport.requests import Request
 
-def _ensure_firebase():
-    global _firebase_app
-    if _firebase_app:
-        return _firebase_app
-    cred_json = os.getenv("FIREBASE_CREDENTIALS_JSON")
-    cred_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    if cred_json:
-        cred = credentials.Certificate(json.loads(cred_json))
-    elif cred_path:
-        cred = credentials.Certificate(cred_path)
+_SCOPES = ["https://www.googleapis.com/auth/firebase.messaging"]
+_FCM_V1_URL = "https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
+
+
+def _load_sa_credentials():
+    """
+    Load service-account credentials from either:
+      - FIREBASE_SA_PATH (path to JSON file inside container), or
+      - FIREBASE_SA_JSON (raw JSON string in env var).
+    """
+    sa_path = os.getenv("FIREBASE_SA_PATH")
+    sa_json = os.getenv("FIREBASE_SA_JSON")
+
+    if sa_path and os.path.exists(sa_path):
+        with open(sa_path, "r", encoding="utf-8") as f:
+            info = json.load(f)
+    elif sa_json:
+        info = json.loads(sa_json)
     else:
-        raise RuntimeError("Set FIREBASE_CREDENTIALS_JSON or GOOGLE_APPLICATION_CREDENTIALS")
-    _firebase_app = initialize_app(cred)
-    return _firebase_app
+        raise RuntimeError("Missing service account: set FIREBASE_SA_PATH or FIREBASE_SA_JSON")
 
-def vendor_topic(email: str) -> str:
-    # topic-safe deterministic id from email
-    digest = hashlib.sha256(email.strip().lower().encode()).hexdigest()[:24]
-    return f"vendor_{digest}"
+    return service_account.Credentials.from_service_account_info(info, scopes=_SCOPES)
 
-def _ensure_indexes(db: MongoDB):
-    db.push_tokens.create_index("token", unique=True)
-    db.push_tokens.create_index("email")
-    db.push_tokens.create_index("last_seen")
 
-def register_token(
-    db: MongoDB, *,
-    email: str,
-    token: str,
-    platform: str,     # 'web' | 'android' | 'ios'
-    user_type: str,    # 'vendor' | 'customer' | 'admin'
-    user_agent: str | None = None,
-) -> str | None:
-    _ensure_firebase()
-    _ensure_indexes(db)
+def _get_access_token(creds):
+    """
+    Get an OAuth2 access token for the FCM scope.
+    """
+    creds = creds.with_scopes(_SCOPES)
+    creds.refresh(Request())
+    return creds.token
 
-    db.push_tokens.update_one(
-        {"token": token},
-        {"$set": {
-            "email": email.strip().lower(),
-            "platform": platform,
-            "user_type": user_type,
-            "user_agent": user_agent,
-            "last_seen": int(time.time()),
-        }},
-        upsert=True,
-    )
 
-    topic = None
-    if user_type == "vendor":
-        topic = vendor_topic(email)
-        messaging.subscribe_to_topic([token], topic)  # idempotent
-    return topic
+def send_fcm(tokens: List[str], title: str, body: str, data: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Send push notifications via FCM HTTP v1.
+    We send one HTTP call per token (simple & reliable).
+    """
+    project_id = os.getenv("FIREBASE_PROJECT_ID")
+    if not project_id:
+        raise RuntimeError("FIREBASE_PROJECT_ID not set")
 
-def unregister_token(db: MongoDB, token: str):
-    db.push_tokens.delete_one({"token": token})
+    creds = _load_sa_credentials()
+    access_token = _get_access_token(creds)
 
-def send_vendor_order_created(
-    vendor_email: str, *,
-    order_id: str,
-    amount: float,
-    customer_name: str = "",
-):
-    _ensure_firebase()
-    topic = vendor_topic(vendor_email)
+    url = _FCM_V1_URL.format(project_id=project_id)
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json; charset=UTF-8",
+    }
 
-    message = messaging.Message(
-        topic=topic,
-        notification=messaging.Notification(
-            title="New Order Received",
-            body=f"#{order_id} • ₹{amount:.0f}" + (f" from {customer_name}" if customer_name else ""),
-        ),
-        data={
-            "type": "order_created",
-            "orderId": str(order_id),
-            "amount": str(amount),
-            "customerName": customer_name or "",
-            "link": f"/orders/{order_id}",
-        },
-        webpush=messaging.WebpushConfig(
-            headers={"TTL": "60"},
-            fcm_options=messaging.WebpushFCMOptions(link=f"/orders/{order_id}"),
-        ),
-        android=messaging.AndroidConfig(priority="high"),
-    )
-    return messaging.send(message)
+    results = []
+    # v1 supports topic/condition too; here we fan out per token
+    for t in tokens:
+        payload = {
+            "message": {
+                "token": t,
+                "notification": {"title": title, "body": body},
+                # FCM v1 expects all data values to be strings
+                "data": {k: str(v) for k, v in (data or {}).items()},
+                "android": {"priority": "HIGH"},
+                "apns": {"headers": {"apns-priority": "10"}},
+                "webpush": {"headers": {"Urgency": "high"}},
+            }
+        }
+        r = requests.post(url, headers=headers, json=payload, timeout=15)
+        try:
+            results.append(r.json())
+        except Exception:
+            results.append({"status_code": r.status_code, "text": r.text})
+
+    return results

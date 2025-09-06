@@ -1,42 +1,84 @@
-from fastapi import APIRouter
-from pydantic import BaseModel, Field, EmailStr
+# routes/push.py
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, EmailStr, Field
+from typing import Literal, Optional, Dict, Any, List
+from datetime import datetime, timezone
 
-# use your Database class EXACTLY as-is
-from database.db import Database
-from services.fcm import register_token, unregister_token
+from database.db import db
+from services.fcm import send_fcm  # defined below
 
-push_router = APIRouter(prefix="/push", tags=["Push"])
+push_router = APIRouter(prefix="/push", tags=["Push Notifications"])
 
-def _get_db():
-    _db = Database()
-    client = _db.get_client()
-    return client[_db.db_name]
+
+def _tokens_collection():
+    """
+    Use existing db.py without modifying it.
+    """
+    client = db.get_client()
+    return client[db.db_name]["push_tokens"]  # collection name: push_tokens
+
 
 class RegisterBody(BaseModel):
-    email: EmailStr
-    token: str = Field(..., min_length=20)
-    platform: str = Field(..., regex="^(web|android|ios)$")
-    user_type: str = Field("vendor", regex="^(vendor|customer|admin)$")
-    user_agent: str | None = None
+    vendor_email: EmailStr
+    token: str = Field(..., min_length=10)
+    # Cleanest validation with Literal (no regex/pattern needed)
+    platform: Literal["web", "android", "ios"]
+
 
 @push_router.post("/register")
-def register(body: RegisterBody):
-    db = _get_db()
-    topic = register_token(
-        db,
-        email=str(body.email),
-        token=body.token,
-        platform=body.platform,
-        user_type=body.user_type,
-        user_agent=body.user_agent,
+def register_token(body: RegisterBody):
+    """
+    Upsert an FCM token for a vendor.
+    Deduplicates on (vendor_email, token, platform).
+    """
+    col = _tokens_collection()
+    now = datetime.now(timezone.utc)
+
+    result = col.update_one(
+        {
+            "vendor_email": body.vendor_email,
+            "token": body.token,
+            "platform": body.platform,
+        },
+        {
+            "$set": {
+                "vendor_email": body.vendor_email,
+                "token": body.token,
+                "platform": body.platform,
+                "updated_at": now,
+            },
+            "$setOnInsert": {"created_at": now},
+        },
+        upsert=True,
     )
-    return {"ok": True, "topic": topic}
 
-class UnregisterBody(BaseModel):
-    token: str
+    return {
+        "status": "ok",
+        "upserted": bool(result.upserted_id),
+        "matched_count": result.matched_count,
+        "modified_count": result.modified_count,
+    }
 
-@push_router.post("/unregister")
-def unregister(body: UnregisterBody):
-    db = _get_db()
-    unregister_token(db, token=body.token)
-    return {"ok": True}
+
+class SendBody(BaseModel):
+    vendor_email: EmailStr
+    title: str = "New order"
+    body: str = "You have a new order"
+    data: Optional[Dict[str, Any]] = None  # e.g., {"order_id": "abc123"}
+
+
+@push_router.post("/send")
+def send_to_vendor(body: SendBody):
+    """
+    Sends a push notification to all tokens registered for this vendor_email.
+    Works for web & mobile tokens.
+    """
+    col = _tokens_collection()
+    docs = list(col.find({"vendor_email": body.vendor_email}, {"token": 1, "_id": 0}))
+    tokens: List[str] = [d["token"] for d in docs if d.get("token")]
+
+    if not tokens:
+        raise HTTPException(status_code=404, detail="No tokens registered for this vendor")
+
+    resp = send_fcm(tokens=tokens, title=body.title, body=body.body, data=body.data or {})
+    return {"status": "sent", "results": resp}
