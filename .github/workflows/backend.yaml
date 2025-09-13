@@ -118,5 +118,5 @@ jobs:
             -v /home/ubuntu/firebase-sa.json:/run/secrets/firebase-sa.json:ro \
             --restart unless-stopped \
             --add-host=host.docker.internal:host-gateway \
-            948862614653.dkr.ecr.ap-south-1.amazonaws.com/fastapi-app:latest
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
         EOF
