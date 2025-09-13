@@ -110,4 +110,13 @@ jobs:
             -v /home/$USER/.env:/app/.env \
             --add-host=host.docker.internal:host-gateway \
             ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/${{ secrets.ECR_REPOSITORY }}:latest
+
+          docker rm -f attendance-app || true
+
+          docker run -d --name attendance-app -p 8000:8000 \
+            --env-file /home/ubuntu/app.env \
+            -v /home/ubuntu/firebase-sa.json:/run/secrets/firebase-sa.json:ro \
+            --restart unless-stopped \
+            --add-host=host.docker.internal:host-gateway \
+            948862614653.dkr.ecr.ap-south-1.amazonaws.com/fastapi-app:latest
         EOF

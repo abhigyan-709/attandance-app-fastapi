@@ -30,13 +30,6 @@ from pydantic import BaseModel, Field
 from typing import List, Optional
 from datetime import datetime
 
-# class Comment(BaseModel):
-#     id: Optional[str] = Field(default=None, alias="_id")
-#     blog_id: str  # Reference to BlogPost
-#     username: str  # Storing username instead of user ID
-#     content: str
-#     created_at: datetime = Field(default_factory=datetime.utcnow)
-#     new code deployment test
 
 class Comment(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
