@@ -1,7 +1,7 @@
 # routes/dockerfile.py
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import PlainTextResponse
-from models.dockerfile import DockerfileRequest, DockerfileResponse
+from models.dockerfile_gen import DockerfileRequest, DockerfileResponse
 from services.dockerfile_gen import generate_dockerfile
 
 dockerfile_router = APIRouter(prefix="/dockerfile", tags=["Gemini: Dockerfile"])
