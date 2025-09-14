@@ -83,7 +83,6 @@ def render_twitter(theme: str, display_name: str, username: str, verified: bool,
     bg = (255,255,255) if theme == "light" else (21,24,28)
     fg = (15,20,25) if theme == "light" else (231,233,234)
     sub = (83,100,113) if theme == "light" else (139,152,165)
-    link = (29,161,242)
 
     # measure text to compute height
     temp = Image.new("RGB", (width, 600), bg)
@@ -93,7 +92,7 @@ def render_twitter(theme: str, display_name: str, username: str, verified: bool,
     text_height = sum(d.textbbox((0,0), line, font=FONT_REG)[3] for line in lines) + (len(lines)-1)*6
 
     height = padding*2 + 60 + text_height + 24 + 28 + 20
-    im = Image.new("RGB", (width, height), bg)
+    im = Image.new("RGBA", (width, height), bg + (255,))
     draw = ImageDraw.Draw(im)
 
     # avatar
@@ -125,7 +124,8 @@ def render_twitter(theme: str, display_name: str, username: str, verified: bool,
 
     # border
     draw.rectangle([0,0,width-1,height-1], outline=(230,236,240) if theme=="light" else (47,51,54))
-    return im
+
+    return im.convert("RGB")
 
 def render_instagram(theme: str, username: str, text: str, avatar_url: str | None,
                      likes: int, minutes_ago: int, location: str | None) -> Image.Image:
@@ -144,7 +144,7 @@ def render_instagram(theme: str, username: str, text: str, avatar_url: str | Non
     # a post header + fake photo slot + caption + footer
     photo_h = 500
     height = padding + 50 + photo_h + 16 + text_height + 24 + padding
-    im = Image.new("RGB", (width, height), bg)
+    im = Image.new("RGBA", (width, height), bg + (255,))
     draw = ImageDraw.Draw(im)
 
     # header
@@ -180,7 +180,9 @@ def render_instagram(theme: str, username: str, text: str, avatar_url: str | Non
     draw.text((padding, y+2), f"{minutes_ago} minutes ago", fill=sub, font=FONT_SMALL)
 
     draw.rectangle([0,0,width-1,height-1], outline=(219,219,219) if theme=="light" else (54,54,54))
-    return im
+    # Convert back to RGB for saving (no transparency needed)
+    return im.convert("RGB")
+
 
 def render_image_to_data_url(img: Image.Image) -> str:
     buf = BytesIO()
