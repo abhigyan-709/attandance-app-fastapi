@@ -13,7 +13,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Install DejaVu fonts for better font support in Pillow
 RUN apt-get update && apt-get install -y --no-install-recommends fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
 
-
 # Copy the rest of the application code to the container
 COPY . .
 
