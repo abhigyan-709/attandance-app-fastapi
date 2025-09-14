@@ -3,7 +3,7 @@ import os
 import re
 from typing import List, Tuple
 import google.generativeai as genai
-from models.dockerfile import DockerfileRequest, DockerfileResponse
+from models.dockerfile_gen import DockerfileRequest, DockerfileResponse
 
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
