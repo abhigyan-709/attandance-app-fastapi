@@ -25,6 +25,7 @@ from fastapi.responses import FileResponse
 from routes.fun import fun_router
 from routes.social import social_router
 from routes.password import router as password_router
+from routes.dockerfile_gen import dockerfile_router
 
 
 
@@ -76,6 +77,7 @@ app.include_router(push_router)
 app.include_router(fun_router) 
 app.include_router(social_router, prefix="/api", tags=["Social Mock"])
 app.include_router(password_router)
+app.include_router(dockerfile_router, prefix="/api", tags=["Dockerfile Generation"])
 
 if __name__ == "__main__":
     import uvicorn
