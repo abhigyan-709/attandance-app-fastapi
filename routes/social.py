@@ -1,8 +1,7 @@
-# routes/social.py
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import StreamingResponse  # <-- add this import
 from io import BytesIO
 import traceback
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
 from models.social import ListResponse, SocialRenderRequest, SocialRenderResponse
 from services.social_card import (
@@ -42,6 +41,8 @@ def render_card(req: SocialRenderRequest):
                 likes=req.likes or 0,
                 minutes_ago=req.minutes_ago or 5,
                 location=req.location,
+                photo_url=req.photo_url,
+                width=req.width or 900,
             )
         return SocialRenderResponse(image_data_url=render_image_to_data_url(img))
     except Exception as e:
@@ -73,12 +74,13 @@ def render_card_png(req: SocialRenderRequest):
                 likes=req.likes or 0,
                 minutes_ago=req.minutes_ago or 5,
                 location=req.location,
+                photo_url=req.photo_url,
+                width=req.width or 900,
             )
 
         buf = BytesIO()
         img.save(buf, format="PNG")
-        buf.seek(0)  # important for streaming
-
+        buf.seek(0)
         return StreamingResponse(
             buf,
             media_type="image/png",
