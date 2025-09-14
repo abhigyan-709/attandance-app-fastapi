@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from routes.fun import fun_router
 from routes.social import social_router
-from routes.password import password
+from routes.password import router as password_router
 
 
 
@@ -75,7 +75,7 @@ app.include_router(google_refresh_router)
 app.include_router(push_router)
 app.include_router(fun_router) 
 app.include_router(social_router, prefix="/api", tags=["Social Mock"])
-app.include_router(password.router)
+app.include_router(password_router)
 
 if __name__ == "__main__":
     import uvicorn

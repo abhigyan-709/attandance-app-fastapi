@@ -7,12 +7,13 @@ from services.strength import analyze_strength
 from services.breach import check_breach
 from services.generator import generate_password
 
-router = APIRouter(prefix="/api/password", tags=["password"])
+router = APIRouter(prefix="/api/password", tags=["Password"])
 
 @router.post("/check", response_model=PasswordCheckResponse)
-async def check_password(data: PasswordCheckRequest):
-    strength = analyze_strength(data.password)
-    breached, count = await check_breach(data.password)
+async def check_password(payload: PasswordCheckRequest):
+    # DO NOT log the password anywhere
+    strength = analyze_strength(payload.password)
+    breached, count = await check_breach(payload.password)
 
     return PasswordCheckResponse(
         strength_score=strength["strength_score"],
