@@ -16,6 +16,7 @@ cffi==1.17.1
 chardet==5.2.0
 charset-normalizer==3.3.2
 click==8.1.7
+colorama==0.4.6
 cryptography==42.0.2
 cssselect2==0.7.0
 dnspython==2.5.0
@@ -26,6 +27,7 @@ fastapi==0.109.2
 fastapi-mail==1.4.2
 firebase-admin==6.5.0
 fonttools==4.56.0
+google-ai-generativelanguage==0.6.15
 google-api-core==2.25.1
 google-api-python-client==2.181.0
 google-auth==2.40.3
@@ -34,13 +36,16 @@ google-cloud-core==2.4.3
 google-cloud-firestore==2.21.0
 google-cloud-storage==3.3.1
 google-crc32c==1.7.1
+google-generativeai==0.8.5
 google-resumable-media==2.7.2
 googleapis-common-protos==1.70.0
 grpcio==1.74.0
-grpcio-status==1.74.0
-h11
+grpcio-status==1.71.2
+h11==0.16.0
+httpcore==1.0.9
 httplib2==0.30.0
 httptools==0.6.4
+httpx==0.28.1
 idna==3.6
 Jinja2==3.1.5
 jmespath==1.0.1
@@ -53,7 +58,7 @@ pathspec==0.12.1
 pillow==11.1.0
 platformdirs==4.3.8
 proto-plus==1.26.1
-protobuf==6.32.0
+protobuf==5.29.5
 pyasn1==0.6.1
 pyasn1_modules==0.4.2
 pycparser==2.21
@@ -64,6 +69,7 @@ pydyf==0.11.0
 PyJWT==2.10.1
 pymongo==4.11.1
 pyparsing==3.2.3
+pyperclip==1.9.0
 pyphen==0.17.2
 python-dateutil==2.9.0.post0
 python-dotenv==1.0.1
@@ -84,6 +90,8 @@ soupsieve==2.6
 starlette==0.36.3
 tinycss2==1.4.0
 tinyhtml5==2.0.0
+tqdm==4.67.1
+typing-inspection==0.4.1
 typing_extensions==4.12.2
 uritemplate==4.2.0
 urllib3==2.3.0
@@ -95,9 +103,4 @@ webencodings==0.5.1
 websockets==14.2
 wheel==0.45.1
 zopfli==0.2.3.post1
-Pillow>=10.4.0
-httpx
-httpcore
-zxcvbn>=4.4.28
-google-generativeai
-
+zxcvbn==4.5.0
