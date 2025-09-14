@@ -25,20 +25,24 @@ def _fetch_avatar(avatar_url: str | None, initials: str, size: int, theme: str) 
     fg = (29, 161, 242) if theme == "light" else (255, 255, 255)
     im = Image.new("RGB", (size, size), bg)
     draw = ImageDraw.Draw(im)
-    # Try network image
-    if avatar_url:
+
+    # Only try HTTP(S) URLs
+    if avatar_url and avatar_url.lower().startswith(("http://", "https://")):
         try:
             r = requests.get(avatar_url, timeout=4)
             r.raise_for_status()
             av = Image.open(BytesIO(r.content)).convert("RGB").resize((size, size))
             return ImageOps.fit(av, (size, size), centering=(0.5, 0.5))
-        except:
-            pass
-    # initials avatar
+        except Exception:
+            pass  # fall back to initials
+
+    # initials avatar fallback
     draw.ellipse([0,0,size,size], fill=fg)
-    w,h = draw.textbbox((0,0), initials, font=_load_font(int(size*0.45)))[2:]
-    draw.text(((size-w)/2,(size-h)/2), initials, fill=(255,255,255), font=_load_font(int(size*0.45)))
+    f = _load_font(int(size*0.45))
+    w,h = draw.textbbox((0,0), initials, font=f)[2:]
+    draw.text(((size-w)/2,(size-h)/2), initials, fill=(255,255,255), font=f)
     return im
+
 
 def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.FreeTypeFont, max_width: int) -> list[str]:
     words = text.split()
