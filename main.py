@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from routes.google_refresh import router as google_refresh_router
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-
+from routes.fun import fun_router
 
 
 
@@ -71,6 +71,7 @@ app.include_router(product.router)
 app.include_router(router31)
 app.include_router(google_refresh_router)
 app.include_router(push_router)
+app.include_router(fun_router) 
 
 if __name__ == "__main__":
     import uvicorn
