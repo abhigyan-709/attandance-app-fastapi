@@ -83,7 +83,7 @@ jobs:
           docker stop attendance-app || true
           docker rm attendance-app || true
 
-          # Ensure .env file exists
+          # Ensure /home/$USER/.env exists and has runtime vars
           if [ ! -f "/home/$USER/.env" ]; then
             echo "Creating .env file..."
             echo "MONGO_URI=${{ secrets.MONGO_URI }}" > /home/$USER/.env
@@ -104,7 +104,11 @@ jobs:
             echo "REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}" >> /home/$USER/.env
           fi
 
-          # Run the new container
+          # + Add Gemini vars to /home/$USER/.env
+          echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> /home/$USER/.env
+          echo "GEMINI_MODEL=${{ secrets.GEMINI_MODEL }}" >> /home/$USER/.env
+
+          # First run (you had this)
           docker run -d --name attendance-app -p 8000:8000 \
             --env-file /home/$USER/.env \
             -v /home/$USER/.env:/app/.env \
@@ -113,6 +117,19 @@ jobs:
 
           docker rm -f attendance-app || true
 
+          # Ensure /home/ubuntu/app.env has everything too (since you use it for the final run)
+          if [ ! -f "/home/ubuntu/app.env" ]; then
+            touch /home/ubuntu/app.env
+          fi
+          # + Add Gemini vars to /home/ubuntu/app.env
+          grep -q '^GEMINI_API_KEY=' /home/ubuntu/app.env && \
+            sed -i 's|^GEMINI_API_KEY=.*|GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}|' /home/ubuntu/app.env || \
+            echo "GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}" >> /home/ubuntu/app.env
+          grep -q '^GEMINI_MODEL=' /home/ubuntu/app.env && \
+            sed -i 's|^GEMINI_MODEL=.*|GEMINI_MODEL=${{ secrets.GEMINI_MODEL }}|' /home/ubuntu/app.env || \
+            echo "GEMINI_MODEL=${{ secrets.GEMINI_MODEL }}" >> /home/ubuntu/app.env
+
+          # Final run (your current container that stays up)
           docker run -d --name attendance-app -p 8000:8000 \
             --env-file /home/ubuntu/app.env \
             -v /home/ubuntu/firebase-sa.json:/run/secrets/firebase-sa.json:ro \
