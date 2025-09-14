@@ -98,4 +98,5 @@ zopfli==0.2.3.post1
 Pillow>=10.4.0
 httpx>=0.27
 zxcvbn>=4.4.28
+google-generativeai>=0.8.0
 
