@@ -1,7 +1,7 @@
-# routes/social.py
 from fastapi import APIRouter, HTTPException
 from models.social import ListResponse, SocialRenderRequest, SocialRenderResponse
 from services.social_card import render_twitter, render_instagram, render_image_to_data_url
+import traceback
 
 social_router = APIRouter(prefix="/social", tags=["Social Mock"])
 
@@ -19,7 +19,7 @@ def render_card(req: SocialRenderRequest):
                 username=req.username.lstrip("@"),
                 verified=req.verified,
                 text=req.text,
-                avatar_url=str(req.avatar_url) if req.avatar_url else None,
+                avatar_url=req.avatar_url,
                 comments=req.comments or 0,
                 reposts=req.reposts or 0,
                 likes=req.likes or 0,
@@ -28,13 +28,15 @@ def render_card(req: SocialRenderRequest):
         else:
             img = render_instagram(
                 theme=req.theme,
-                username=req.username,
+                username=req.username.lstrip("@"),
                 text=req.text,
-                avatar_url=str(req.avatar_url) if req.avatar_url else None,
+                avatar_url=req.avatar_url,
                 likes=req.likes or 0,
                 minutes_ago=req.minutes_ago or 5,
                 location=req.location,
             )
         return SocialRenderResponse(image_data_url=render_image_to_data_url(img))
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Render failed: {e}")
+        # log stack (optional) and surface readable error
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Render failed: {e!s}")
