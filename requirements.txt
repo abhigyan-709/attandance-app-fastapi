@@ -38,7 +38,7 @@ google-resumable-media==2.7.2
 googleapis-common-protos==1.70.0
 grpcio==1.74.0
 grpcio-status==1.74.0
-h11==0.14.0
+h11>=0.16,<0.18
 httplib2==0.30.0
 httptools==0.6.4
 idna==3.6
@@ -96,7 +96,8 @@ websockets==14.2
 wheel==0.45.1
 zopfli==0.2.3.post1
 Pillow>=10.4.0
-httpx>=0.27
+httpx>=0.27,<0.29
+httpcore>=1.0,<1.1
 zxcvbn>=4.4.28
 google-generativeai>=0.8.0
 
