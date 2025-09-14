@@ -1,3 +1,4 @@
+# routes/social.py
 from fastapi import APIRouter, HTTPException
 from models.social import ListResponse, SocialRenderRequest, SocialRenderResponse
 from services.social_card import render_twitter, render_instagram, render_image_to_data_url
@@ -37,6 +38,5 @@ def render_card(req: SocialRenderRequest):
             )
         return SocialRenderResponse(image_data_url=render_image_to_data_url(img))
     except Exception as e:
-        # log stack (optional) and surface readable error
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Render failed: {e!s}")
+        raise HTTPException(status_code=500, detail=f"Render failed: {e}")
