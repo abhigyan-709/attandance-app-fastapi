@@ -26,6 +26,7 @@ from routes.fun import fun_router
 from routes.social import social_router
 from routes.password import router as password_router
 from routes.dockerfile_gen import dockerfile_router
+from routes import sql_gen
 
 
 
@@ -70,7 +71,6 @@ app.include_router(router17)
 app.include_router(router18)
 app.include_router(router)
 app.include_router(product.router)
-# app.include_router(customer_details.route)
 app.include_router(router31)
 app.include_router(google_refresh_router)
 app.include_router(push_router)
@@ -78,6 +78,7 @@ app.include_router(fun_router)
 app.include_router(social_router, prefix="/api", tags=["Social Mock"])
 app.include_router(password_router)
 app.include_router(dockerfile_router, prefix="/api", tags=["Dockerfile Generation"])
+app.include_router(sql_gen.sql_router)
 
 if __name__ == "__main__":
     import uvicorn
