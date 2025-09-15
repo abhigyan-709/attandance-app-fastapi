@@ -1,7 +1,9 @@
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, Response
 from models.diagram_gen import DiagramRequest, DiagramResponse
 from services.diagram_gen import generate_diagram
+from services.diagram_render import render_with_kroki
+from models.diagram_gen import DiagramRequest, DiagramResponse, DiagramRenderRequest
 
 diagram_router = APIRouter(prefix="/diagram", tags=["Gemini: Diagram"])
 
@@ -19,5 +21,18 @@ def gen_raw(req: DiagramRequest):
         return PlainTextResponse(res.code, media_type="text/plain; charset=utf-8", headers={
             "Content-Disposition": f'attachment; filename="{res.filename}"'
         })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@diagram_router.post("/render")
+def render(req: DiagramRenderRequest):
+    try:
+        data = render_with_kroki(req.style, req.format, req.code)
+        ctype = "image/svg+xml" if req.format == "svg" else "image/png"
+        fname = "diagram.svg" if req.format == "svg" else "diagram.png"
+        return Response(
+            content=data, media_type=ctype,
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'}
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

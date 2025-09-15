@@ -29,3 +29,9 @@ class DiagramResponse(BaseModel):
     code: str
     notes: List[str] = Field(default_factory=list)
     filename: str = "diagram.mmd"
+
+class DiagramRenderRequest(BaseModel):
+    style: Literal["mermaid", "plantuml"]
+    format: Literal["svg", "png"] = "svg"
+    code: str
+    
