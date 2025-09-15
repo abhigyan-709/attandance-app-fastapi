@@ -44,7 +44,7 @@ Generate a {platform} pipeline that:
 - Uses tag strategy: {tag_strategy}; multi-arch: {multi_arch}; cache: {cache}.
 - Triggers: push={push}, pr={pr}, tags={tags}, schedules={schedules}, branches={branches}.
 - Runs tests: {tests}; commands={test_cmds}; coverage={coverage}.
-- Deployment target: {deploy_target}; env stages: {[e.name for e in envs]}.
+- Deployment target: {deploy_target}; env stages: {env_stage_names}.
 - Notifications: {notify}; Concurrency: group='{concurrency_group}', cancel_in_progress={cancel_in_progress}.
 - Registry: {registry} (host={reg_host}); registry auth/secrets present where provided.
 
@@ -88,6 +88,10 @@ def generate_cicd(req: CICDRequest) -> CICDResponse:
     )
 
     s = req.spec
+
+    # Compute env stage label safely (avoid braces in template)
+    env_stage_names = ", ".join([e.name for e in s.environments]) if s.environments else "none"
+
     prompt = PROMPT_TEMPLATE.format(
         desc=req.description,
         spec=s.model_dump(),
@@ -107,7 +111,7 @@ def generate_cicd(req: CICDRequest) -> CICDResponse:
         test_cmds=", ".join(s.tests.commands),
         coverage=(s.tests.coverage_threshold if s.tests.coverage_threshold is not None else "none"),
         deploy_target=s.deploy.target,
-        envs=s.environments,
+        env_stage_names=env_stage_names,
         notify=(s.notifications.provider or "none"),
         concurrency_group=s.concurrency.group,
         cancel_in_progress=s.concurrency.cancel_in_progress,
@@ -122,8 +126,8 @@ def generate_cicd(req: CICDRequest) -> CICDResponse:
 
     # tiny sanity checks
     if s.platform == "github_actions" and "jobs:" not in pipeline:
-        notes.insert(0, "Generated workflow missing 'jobs:'—please review.")
+        notes.insert(0, "Generated workflow missing 'jobs:' — please review.")
     if s.platform == "jenkins" and "pipeline {" not in pipeline and "node {" not in pipeline:
-        notes.insert(0, "Generated Jenkinsfile missing a valid pipeline block—please review.")
+        notes.insert(0, "Generated Jenkinsfile missing a valid pipeline block — please review.")
 
     return CICDResponse(pipeline=pipeline, notes=notes, filename=filename)
