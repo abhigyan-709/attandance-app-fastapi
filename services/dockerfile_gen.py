@@ -1,67 +1,68 @@
-# services/diagram_gen.py
-import os, re
+# services/dockerfile_gen.py
+import os
+import re
 from typing import List, Tuple
 import google.generativeai as genai
-from models.diagram_gen import DiagramRequest, DiagramResponse, DiagramSpec
+from models.dockerfile_gen import DockerfileRequest, DockerfileResponse
 
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-SYSTEM_INSTRUCTIONS = """You generate diagrams in PlantUML or Mermaid syntax.
+SYSTEM_INSTRUCTIONS = """You generate production-ready Dockerfiles from a structured spec.
 Rules:
-- Output ONLY one code block:
-  - PlantUML → ```plantuml
-  - Mermaid → ```mermaid
-- After the code block, output a ```notes block with 3–8 concise bullets.
-- Respect given nodes, edges, colors, and layout if provided.
-- Do not invent extra components beyond description + spec.
-- Syntax must be valid PlantUML or Mermaid.
-"""
+- Prefer minimal, secure images. Support multistage when requested.
+- Respect OS and package manager choices.
+- Only install what is required; clean caches.
+- Set WORKDIR, copy only necessary files (leverage requirements files before full copy).
+- If nonroot_user=true, create and switch to a non-root user.
+- If add_healthcheck=true, add a reasonable HEALTHCHECK for the stack.
+- Use EXPOSE for provided ports.
+- If entrypoint/start_cmd present, use CMD/ENTRYPOINT accordingly.
+- Output ONLY a Dockerfile inside a ```dockerfile code fence```.
+- After the Dockerfile, list 3-8 bullet notes (no more) inside a ```notes code fence``` explaining choices."""
 
-PROMPT_TEMPLATE = """System description:
+PROMPT_TEMPLATE = """Project description:
 {desc}
 
-Structured spec:
+Structured spec (JSON-like):
 {spec}
 
-Generate a {style} diagram.
-Use layout: {layout}; theme: {theme}.
-Include nodes and edges with given attributes if provided.
+Generate:
+- A single Dockerfile (```dockerfile ... ```)
+- Then short rationale bullets (```notes ... ```).
 """
 
 def _extract_blocks(text: str) -> Tuple[str, List[str]]:
-    code, notes = "", []
-    m = re.search(r"```(?:mermaid|plantuml)\s+([\s\S]*?)```", text, re.IGNORECASE)
-    if m:
-        code = m.group(1).strip()
-    else:
-        m2 = re.search(r"```[\w]*\s+([\s\S]*?)```", text)
-        code = m2.group(1).strip() if m2 else text.strip()
+    """
+    Parse ```dockerfile ...``` and ```notes ...``` blocks.
+    """
+    dockerfile = ""
+    notes: List[str] = []
 
+    # dockerfile block
+    m = re.search(r"```dockerfile\s+([\s\S]*?)```", text, re.IGNORECASE)
+    if m:
+        dockerfile = m.group(1).strip()
+    else:
+        # fallback: any fenced code
+        m2 = re.search(r"```[\w]*\s+([\s\S]*?)```", text)
+        if m2:
+            dockerfile = m2.group(1).strip()
+        else:
+            dockerfile = text.strip()
+
+    # notes block
     n = re.search(r"```notes\s+([\s\S]*?)```", text, re.IGNORECASE)
     if n:
-        for line in n.group(1).strip().splitlines():
-            line = line.strip("-*•\t ")
+        raw = n.group(1).strip()
+        for line in raw.splitlines():
+            line = line.strip("-•* \t")
             if line:
                 notes.append(line)
-    return code, notes
 
-def _default_filename(spec: DiagramSpec) -> str:
-    return "diagram.puml" if spec.style == "plantuml" else "diagram.mmd"
+    return dockerfile, notes
 
-# --- NEW: minimal Mermaid cleanup to avoid 11.x parser bombs
-_MMD_EMPTY_SUBGRAPH = re.compile(r"\bsubgraph\s+(['\"])\1\s*$", re.IGNORECASE | re.MULTILINE)
-
-def _sanitize_mermaid(code: str, layout: str) -> str:
-    code = code.strip()
-    # Replace empty subgraph titles: subgraph ""
-    code = _MMD_EMPTY_SUBGRAPH.sub("subgraph Group", code)
-    # Ensure the diagram actually starts with a graph directive
-    if not re.match(r"^\s*graph\s+\w+", code):
-        code = f"graph {layout or 'LR'}\n{code}"
-    return code
-
-def generate_diagram(req: DiagramRequest) -> DiagramResponse:
+def generate_dockerfile(req: DockerfileRequest) -> DockerfileResponse:
     if not GEMINI_API_KEY:
         raise RuntimeError("GEMINI_API_KEY not configured")
 
@@ -70,26 +71,13 @@ def generate_diagram(req: DiagramRequest) -> DiagramResponse:
         model_name=GEMINI_MODEL,
         system_instruction=SYSTEM_INSTRUCTIONS,
     )
-
-    s = req.spec
-    prompt = PROMPT_TEMPLATE.format(
-        desc=req.description,
-        spec=s.model_dump(),
-        style=s.style,
-        layout=s.layout or "LR",
-        theme=s.theme or "default",
-    )
+    prompt = PROMPT_TEMPLATE.format(desc=req.description, spec=req.spec.model_dump())
 
     resp = model.generate_content(prompt)
     text = resp.text or ""
-    code, notes = _extract_blocks(text)
+    dockerfile, notes = _extract_blocks(text)
 
-    # sanitize Mermaid so the client preview doesn't error
-    if s.style == "mermaid":
-        code = _sanitize_mermaid(code, s.layout or "LR")
-
-    return DiagramResponse(
-        code=code,
-        notes=notes,
-        filename=_default_filename(s)
-    )
+    # small sanity: ensure it starts with FROM
+    if "FROM " not in dockerfile.upper():
+        notes.insert(0, "Model did not start with a FROM. Please review output.")
+    return DockerfileResponse(dockerfile=dockerfile, notes=notes)
