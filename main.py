@@ -27,7 +27,7 @@ from routes.social import social_router
 from routes.password import router as password_router
 from routes.dockerfile_gen import dockerfile_router
 from routes import sql_gen
-
+from routes.cicd_gen import cicd_router
 
 
 app = FastAPI(title="OpenSource Enterprise API",
@@ -79,6 +79,7 @@ app.include_router(social_router, prefix="/api", tags=["Social Mock"])
 app.include_router(password_router)
 app.include_router(dockerfile_router, prefix="/api", tags=["Dockerfile Generation"])
 app.include_router(sql_gen.sql_router)
+app.include_router(cicd_router, prefix="/api", tags=["CI/CD"])
 
 if __name__ == "__main__":
     import uvicorn
