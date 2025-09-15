@@ -1,5 +1,4 @@
 from fastapi import FastAPI, Depends
-# from routes.item import route as item_router  # Correct import
 from database.db import db
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.middleware.cors import CORSMiddleware
