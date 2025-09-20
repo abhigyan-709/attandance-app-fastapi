@@ -52,7 +52,10 @@ app.openapi_version = "3.0.2"
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://familiesfuel.com", "http://localhost:5173", "http://localhost:3000", "https://projectdevops.in", "https://www.projectdevops.in", "https://tools.projectdevops.in", "https://www.tools.projectdevops.in"],
+    allow_origins=["https://familiesfuel.com", "http://localhost:5173", "http://localhost:3000", 
+                   "https://projectdevops.in", "https://www.projectdevops.in", 
+                   "https://tools.projectdevops.in", "https://www.tools.projectdevops.in",
+                   "https://blogs.projectdevops.in", "https://www.blogs.projectdevops.in"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
