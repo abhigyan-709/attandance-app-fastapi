@@ -58,7 +58,7 @@ app.add_middleware(
                    "https://blogs.projectdevops.in", "https://www.blogs.projectdevops.in"],
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*", "x-admin-token"],
 )
 
 
