@@ -132,6 +132,18 @@ jobs:
           grep -q '^GEMINI_MODEL=' /home/ubuntu/app.env && \
             sed -i 's|^GEMINI_MODEL=.*|GEMINI_MODEL=${{ secrets.GEMINI_MODEL }}|' /home/ubuntu/app.env || \
             echo "GEMINI_MODEL=${{ secrets.GEMINI_MODEL }}" >> /home/ubuntu/app.env
+          grep -q '^ADMIN_API_TOKEN=' /home/ubuntu/app.env && \
+            sed -i 's|^ADMIN_API_TOKEN=.*|ADMIN_API_TOKEN=${{ secrets.ADMIN_API_TOKEN }}|' /home/ubuntu.app.env || \
+            echo "ADMIN_API_TOKEN=${{ secrets.ADMIN_API_TOKEN }}" >> /home/ubuntu/app.env
+          grep -q '^VAPID_PUBLIC_KEY=' /home/ubuntu/app.env && \
+            sed -i 's|^VAPID_PUBLIC_KEY=.*|VAPID_PUBLIC_KEY=${{ secrets.VAPID_PUBLIC_KEY }}|' /home/ubuntu/app.env || \
+            echo "VAPID_PUBLIC_KEY=${{ secrets.VAPID_PUBLIC_KEY }}" >> /home/ubuntu/app.env
+          grep -q '^VAPID_PRIVATE_KEY=' /home/ubuntu/app.env && \
+            sed -i 's|^VAPID_PRIVATE_KEY=.*|VAPID_PRIVATE_KEY=${{ secrets.VAPID_PRIVATE_KEY }}|' /home/ubuntu/app.env || \
+            echo "VAPID_PRIVATE_KEY=${{ secrets.VAPID_PRIVATE_KEY }}" >> /home/ubuntu/app.env
+          grep -q '^VAPID_SUBJECT=' /home/ubuntu/app.env && \
+            sed -i 's|^VAPID_SUBJECT=.*|VAPID_SUBJECT=${{ secrets.VAPID_SUBJECT }}|' /home/ubuntu/app.env || \
+            echo "VAPID_SUBJECT=${{ secrets.VAPID_SUBJECT }}" >> /home/ubuntu/app.env
 
           # Final run (your current container that stays up)
           docker run -d --name attendance-app -p 8000:8000 \
