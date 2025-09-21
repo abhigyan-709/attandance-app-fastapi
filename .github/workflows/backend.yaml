@@ -102,6 +102,10 @@ jobs:
             echo "REDIS_HOST=${{ secrets.REDIS_HOST }}" >> /home/$USER/.env
             echo "REDIS_PORT=${{ secrets.REDIS_PORT }}" >> /home/$USER/.env
             echo "REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}" >> /home/$USER/.env
+            echo "VAPID_PUBLIC_KEY=${{ secrets.VAPID_PUBLIC_KEY }}" >> /home/ubuntu/app.env
+            echo "VAPID_PRIVATE_KEY=${{ secrets.VAPID_PRIVATE_KEY }}" >> /home/ubuntu/app.env
+            echo "VAPID_SUBJECT=${{ secrets.VAPID_SUBJECT }}" >> /home/ubuntu/app.env
+            echo "ADMIN_API_TOKEN=${{ secrets.ADMIN_API_TOKEN }}" >> /home/ubuntu/app.env
           fi
 
           # + Add Gemini vars to /home/$USER/.env
