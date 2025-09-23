@@ -1,6 +1,6 @@
 # # added ---RBAC
 
-# from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form, Request
+# from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form, Request, BackgroundTasks
 # from fastapi.responses import HTMLResponse
 # from pymongo import MongoClient, DESCENDING
 # from models.blogs import BlogPost, Comment, Category
@@ -16,6 +16,11 @@
 # import logging
 # from bs4 import BeautifulSoup
 
+# # --- new imports for web-push notify helper ---
+# import os
+# import re
+# import requests
+
 # logging.basicConfig(level=logging.INFO)
 # logger = logging.getLogger(__name__)
 
@@ -30,17 +35,55 @@
 #     region_name=AWS_REGION,
 # )
 
+# # --- web-push notify plumbing (uses your /push/notify-new-blog) ---
+# PUBLIC_API_BASE = os.getenv("PUBLIC_API_BASE", "http://localhost:8000")  # container-local default
+# ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN")  # you already put this in app.env
+# BLOG_BASE_URL = os.getenv("BLOG_BASE_URL", "https://blogs.projectdevops.in")
+
+
+# def _slugify(s: str) -> str:
+#     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
+
+
+# def _notify_new_blog_async(title: str, url: str, image: Optional[str] = None):
+#     """Fire-and-forget POST to /push/notify-new-blog (runs in BackgroundTasks)."""
+#     try:
+#         payload = {
+#             "title": title,
+#             "body": "New post just landed! Tap to read.",
+#             "url": url,
+#             "image": image,
+#             "tag": "new-blog",
+#         }
+#         headers = {"Content-Type": "application/json"}
+#         if ADMIN_API_TOKEN:
+#             headers["x-admin-token"] = ADMIN_API_TOKEN
+#         requests.post(
+#             f"{PUBLIC_API_BASE}/push/notify-new-blog",
+#             json=payload,
+#             headers=headers,
+#             timeout=5,
+#         )
+#     except Exception as e:
+#         logger.warning(f"notify_new_blog failed: {e}")
+
+
 # # New dependency for admin or author
 # def get_current_author_or_admin_user(current_user: User = Depends(get_current_user)):
 #     if current_user.role not in ["admin", "author"]:
-#         raise HTTPException(status_code=403, detail="Not authorized to perform this action. Requires admin or author role.")
+#         raise HTTPException(
+#             status_code=403,
+#             detail="Not authorized to perform this action. Requires admin or author role.",
+#         )
 #     return current_user
+
 
 # # Keep this for admin-only actions if needed
 # def get_current_admin_user(current_user: User = Depends(get_current_user)):
 #     if current_user.role != "admin":
 #         raise HTTPException(status_code=403, detail="Not authorized to perform this action")
 #     return current_user
+
 
 # @blog_router.post("/blogs", response_model=BlogPost, tags=["Blogs"])
 # async def create_blog(
@@ -50,8 +93,9 @@
 #     tags: List[str] = Form([]),
 #     published: bool = Form(True),
 #     file: UploadFile = File(...),
+#     background_tasks: BackgroundTasks = None,  # IMPORTANT: no Depends(), FastAPI injects it
 #     current_user: User = Depends(get_current_author_or_admin_user),
-#     db_client: MongoClient = Depends(db.get_client)
+#     db_client: MongoClient = Depends(db.get_client),
 # ):
 #     file_extension = file.filename.split(".")[-1]
 #     unique_filename = f"blogs/{uuid.uuid4()}.{file_extension}"
@@ -61,7 +105,7 @@
 #             file.file,
 #             AWS_BUCKET_NAME,
 #             unique_filename,
-#             ExtraArgs={"ContentType": file.content_type}
+#             ExtraArgs={"ContentType": file.content_type},
 #         )
 #         image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"
 #     except Exception as e:
@@ -84,9 +128,17 @@
 #     }
 
 #     inserted_blog = db_client[db.db_name]["blogs"].insert_one(blog_data)
-#     blog_data["_id"] = str(inserted_blog.inserted_id)
-    
+#     blog_id = str(inserted_blog.inserted_id)
+#     blog_data["_id"] = blog_id
+
+#     # 🔔 Notify subscribers (fire-and-forget) only if published
+#     if published and background_tasks is not None:
+#         slug = _slugify(title)
+#         canonical_url = f"{BLOG_BASE_URL}/b/{blog_id}-{slug}"
+#         background_tasks.add_task(_notify_new_blog_async, title, canonical_url, image_url)
+
 #     return blog_data
+
 
 # @blog_router.get("/blogs/tags/{tag}", response_model=List[BlogPost], tags=["Blogs"])
 # async def get_blogs_by_tag(tag: str, db_client: MongoClient = Depends(db.get_client)):
@@ -97,14 +149,15 @@
 #         blog["comments"] = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
 #         for comment in blog["comments"]:
 #             comment["_id"] = str(comment["_id"])
-    
+
 #     return blogs
+
 
 # @blog_router.get("/blogs/filter", response_model=List[BlogPost], tags=["Blogs"])
 # async def get_blogs_by_category_and_tags(
 #     category: Optional[str] = None,
 #     tag: Optional[str] = None,
-#     db_client: MongoClient = Depends(db.get_client)
+#     db_client: MongoClient = Depends(db.get_client),
 # ):
 #     query = {}
 #     if category:
@@ -122,15 +175,16 @@
 
 #     return blogs
 
+
 # @blog_router.get("/blogs/tags", response_model=List[str], tags=["Blogs"])
 # async def get_all_tags(db_client: MongoClient = Depends(db.get_client)):
-#     tags_cursor = db_client[db.db_name]["blogs"].aggregate([
-#         {"$unwind": "$tags"},
-#         {"$group": {"_id": "$tags"}}
-#     ])
+#     tags_cursor = db_client[db.db_name]["blogs"].aggregate(
+#         [{"$unwind": "$tags"}, {"$group": {"_id": "$tags"}}]
+#     )
 
 #     tags = [tag["_id"] for tag in tags_cursor]
 #     return tags
+
 
 # @blog_router.get("/blogs", response_model=List[BlogPost], tags=["Blogs"])
 # async def get_blogs(db_client: MongoClient = Depends(db.get_client)):
@@ -141,8 +195,9 @@
 #         blog["comments"] = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
 #         for comment in blog["comments"]:
 #             comment["_id"] = str(comment["_id"])
-    
+
 #     return blogs
+
 
 # @blog_router.get("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
 # async def get_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
@@ -162,19 +217,20 @@
 
 #     return blog
 
+
 # @blog_router.post("/blogs/{blog_id}/views", response_model=dict, tags=["Blogs"])
 # async def increment_blog_views(
 #     blog_id: str,
 #     request: Request,
-#     db_client: MongoClient = Depends(db.get_client)
+#     db_client: MongoClient = Depends(db.get_client),
 # ):
 #     blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
 #     if not blog:
 #         raise HTTPException(status_code=404, detail="Blog not found")
 
 #     client_ip = request.headers.get("X-Forwarded-For", request.client.host)
-#     if client_ip and ',' in client_ip:
-#         client_ip = client_ip.split(',')[0].strip()
+#     if client_ip and "," in client_ip:
+#         client_ip = client_ip.split(",")[0].strip()
 #     if not client_ip:
 #         logger.warning("No valid client IP detected for views")
 #         client_ip = "unknown"
@@ -189,25 +245,26 @@
 #         current_views += 1
 #         db_client[db.db_name]["blogs"].update_one(
 #             {"_id": ObjectId(blog_id)},
-#             {"$set": {"viewed_ips": viewed_ips, "views": current_views}}
+#             {"$set": {"viewed_ips": viewed_ips, "views": current_views}},
 #         )
 #         logger.info(f"Updated - New Views: {current_views}, Added IP: {client_ip}")
 
 #     return {"views": current_views}
 
+
 # @blog_router.post("/blogs/{blog_id}/likes", response_model=dict, tags=["Blogs"])
 # async def increment_blog_likes(
 #     blog_id: str,
 #     request: Request,
-#     db_client: MongoClient = Depends(db.get_client)
+#     db_client: MongoClient = Depends(db.get_client),
 # ):
 #     blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
 #     if not blog:
 #         raise HTTPException(status_code=404, detail="Blog not found")
 
 #     client_ip = request.headers.get("X-Forwarded-For", request.client.host)
-#     if client_ip and ',' in client_ip:
-#         client_ip = client_ip.split(',')[0].strip()
+#     if client_ip and "," in client_ip:
+#         client_ip = client_ip.split(",")[0].strip()
 #     if not client_ip:
 #         logger.warning("No valid client IP detected for likes")
 #         client_ip = "unknown"
@@ -222,11 +279,12 @@
 #         current_likes += 1
 #         db_client[db.db_name]["blogs"].update_one(
 #             {"_id": ObjectId(blog_id)},
-#             {"$set": {"liked_ips": liked_ips, "likes": current_likes}}
+#             {"$set": {"liked_ips": liked_ips, "likes": current_likes}},
 #         )
 #         logger.info(f"Updated - New Likes: {current_likes}, Added IP: {client_ip}")
 
 #     return {"likes": current_likes}
+
 
 # @blog_router.put("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
 # async def update_blog(
@@ -238,14 +296,28 @@
 #     existing_blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
 #     if not existing_blog:
 #         raise HTTPException(status_code=404, detail="Blog not found")
-    
+
 #     updated_blog.updated_at = datetime.utcnow()
 #     db_client[db.db_name]["blogs"].update_one(
 #         {"_id": ObjectId(blog_id)},
-#         {"$set": updated_blog.dict(by_alias=True, exclude={"id", "author_username", "created_at", "views", "viewed_ips", "likes", "liked_ips"})}
+#         {
+#             "$set": updated_blog.dict(
+#                 by_alias=True,
+#                 exclude={
+#                     "id",
+#                     "author_username",
+#                     "created_at",
+#                     "views",
+#                     "viewed_ips",
+#                     "likes",
+#                     "liked_ips",
+#                 },
+#             )
+#         },
 #     )
 #     updated_blog.id = blog_id
 #     return updated_blog
+
 
 # # @blog_router.put("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
 # # async def update_blog(
@@ -258,20 +330,21 @@
 # #     existing_blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
 # #     if not existing_blog:
 # #         raise HTTPException(status_code=404, detail="Blog not found")
-
+# #
 # #     # Set updated_at timestamp
 # #     update_data = updated_blog.dict(exclude_unset=True)  # Only include fields that were provided
 # #     update_data["updated_at"] = datetime.utcnow()
-
+# #
 # #     # Update the blog in the database
 # #     db_client[db.db_name]["blogs"].update_one(
 # #         {"_id": ObjectId(blog_id)},
 # #         {"$set": update_data}
 # #     )
-
+# #
 # #     # Fetch the updated blog to return
 # #     updated_blog_full = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
 # #     return BlogPost(**updated_blog_full)
+
 
 # @blog_router.delete("/blogs/{blog_id}", tags=["Blogs"])
 # async def delete_blog(
@@ -282,9 +355,10 @@
 #     existing_blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
 #     if not existing_blog:
 #         raise HTTPException(status_code=404, detail="Blog not found")
-    
+
 #     db_client[db.db_name]["blogs"].delete_one({"_id": ObjectId(blog_id)})
 #     return {"message": "Blog deleted successfully"}
+
 
 # @blog_router.post("/blogs/{blog_id}/comments", response_model=Comment, tags=["Blogs"])
 # async def add_comment(
@@ -303,8 +377,9 @@
 #     inserted_comment = db_client[db.db_name]["comments"].insert_one(comment_dict)
 #     comment.id = str(inserted_comment.inserted_id)
 
-#     return comment 
-# # return comment
+#     return comment
+#     # return comment
+
 
 # @blog_router.post("/categories", response_model=Category, tags=["Blogs"])
 # async def create_category(
@@ -317,6 +392,7 @@
 #     category.id = str(inserted_category.inserted_id)
 #     return category
 
+
 # @blog_router.get("/categories", response_model=List[Category], tags=["Blogs"])
 # async def get_categories(
 #     db_client: MongoClient = Depends(db.get_client),
@@ -325,6 +401,7 @@
 #     for category in categories:
 #         category["_id"] = str(category["_id"])
 #     return categories
+
 
 # @blog_router.post("/categories/bulk", response_model=List[Category], tags=["Blogs"])
 # async def create_multiple_categories(
@@ -340,9 +417,16 @@
 
 #     return categories
 
+
 # @blog_router.get("/blogs/category/{category_name}", response_model=List[BlogPost], tags=["Blogs"])
-# async def get_blogs_by_category(category_name: str, db_client: MongoClient = Depends(db.get_client)):
-#     blogs = list(db_client[db.db_name]["blogs"].find({"categories": category_name}).sort("created_at", DESCENDING))
+# async def get_blogs_by_category(
+#     category_name: str, db_client: MongoClient = Depends(db.get_client)
+# ):
+#     blogs = list(
+#         db_client[db.db_name]["blogs"]
+#         .find({"categories": category_name})
+#         .sort("created_at", DESCENDING)
+#     )
 
 #     if not blogs:
 #         raise HTTPException(status_code=404, detail="No blogs found for this category")
@@ -354,6 +438,7 @@
 #             comment["_id"] = str(comment["_id"])
 
 #     return blogs
+
 
 # @blog_router.get("/blogs/{blog_id}/meta", response_class=HTMLResponse, tags=["Blogs"])
 # async def get_blog_meta(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
@@ -390,9 +475,7 @@
 #     return HTMLResponse(content=html_content)
 
 
-# added ---RBAC
-
-from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form, Request, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form, Request, BackgroundTasks, Query
 from fastapi.responses import HTMLResponse
 from pymongo import MongoClient, DESCENDING
 from models.blogs import BlogPost, Comment, Category
@@ -428,8 +511,8 @@ s3_client = boto3.client(
 )
 
 # --- web-push notify plumbing (uses your /push/notify-new-blog) ---
-PUBLIC_API_BASE = os.getenv("PUBLIC_API_BASE", "http://localhost:8000")  # container-local default
-ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN")  # you already put this in app.env
+PUBLIC_API_BASE = os.getenv("PUBLIC_API_BASE", "http://localhost:8000")
+ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN")
 BLOG_BASE_URL = os.getenv("BLOG_BASE_URL", "https://blogs.projectdevops.in")
 
 
@@ -485,7 +568,7 @@ async def create_blog(
     tags: List[str] = Form([]),
     published: bool = Form(True),
     file: UploadFile = File(...),
-    background_tasks: BackgroundTasks = None,  # IMPORTANT: no Depends(), FastAPI injects it
+    background_tasks: BackgroundTasks = None,
     current_user: User = Depends(get_current_author_or_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
@@ -533,15 +616,22 @@ async def create_blog(
 
 
 @blog_router.get("/blogs/tags/{tag}", response_model=List[BlogPost], tags=["Blogs"])
-async def get_blogs_by_tag(tag: str, db_client: MongoClient = Depends(db.get_client)):
-    blogs = list(db_client[db.db_name]["blogs"].find({"tags": tag}))
+async def get_blogs_by_tag(
+    tag: str,
+    published: Optional[bool] = Query(default=None),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    query = {"tags": tag}
+    if published is not None:
+        query["published"] = published
+
+    blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
 
     for blog in blogs:
         blog["_id"] = str(blog["_id"])
         blog["comments"] = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
         for comment in blog["comments"]:
             comment["_id"] = str(comment["_id"])
-
     return blogs
 
 
@@ -549,6 +639,7 @@ async def get_blogs_by_tag(tag: str, db_client: MongoClient = Depends(db.get_cli
 async def get_blogs_by_category_and_tags(
     category: Optional[str] = None,
     tag: Optional[str] = None,
+    published: Optional[bool] = Query(default=None),
     db_client: MongoClient = Depends(db.get_client),
 ):
     query = {}
@@ -556,15 +647,16 @@ async def get_blogs_by_category_and_tags(
         query["categories"] = category
     if tag:
         query["tags"] = tag
+    if published is not None:
+        query["published"] = published
 
-    blogs = list(db_client[db.db_name]["blogs"].find(query))
+    blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
 
     for blog in blogs:
         blog["_id"] = str(blog["_id"])
         blog["comments"] = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
         for comment in blog["comments"]:
             comment["_id"] = str(comment["_id"])
-
     return blogs
 
 
@@ -573,14 +665,20 @@ async def get_all_tags(db_client: MongoClient = Depends(db.get_client)):
     tags_cursor = db_client[db.db_name]["blogs"].aggregate(
         [{"$unwind": "$tags"}, {"$group": {"_id": "$tags"}}]
     )
-
     tags = [tag["_id"] for tag in tags_cursor]
     return tags
 
 
 @blog_router.get("/blogs", response_model=List[BlogPost], tags=["Blogs"])
-async def get_blogs(db_client: MongoClient = Depends(db.get_client)):
-    blogs = list(db_client[db.db_name]["blogs"].find().sort("created_at", DESCENDING))
+async def get_blogs(
+    published: Optional[bool] = Query(default=None),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    query = {}
+    if published is not None:
+        query["published"] = published
+
+    blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
 
     for blog in blogs:
         blog["_id"] = str(blog["_id"])
@@ -630,8 +728,6 @@ async def increment_blog_views(
     viewed_ips = blog.get("viewed_ips", [])
     current_views = blog.get("views", 0)
 
-    logger.info(f"Client IP: {client_ip}, Viewed IPs: {viewed_ips}, Current Views: {current_views}")
-
     if client_ip not in viewed_ips:
         viewed_ips.append(client_ip)
         current_views += 1
@@ -639,7 +735,6 @@ async def increment_blog_views(
             {"_id": ObjectId(blog_id)},
             {"$set": {"viewed_ips": viewed_ips, "views": current_views}},
         )
-        logger.info(f"Updated - New Views: {current_views}, Added IP: {client_ip}")
 
     return {"views": current_views}
 
@@ -664,8 +759,6 @@ async def increment_blog_likes(
     liked_ips = blog.get("liked_ips", [])
     current_likes = blog.get("likes", 0)
 
-    logger.info(f"Client IP: {client_ip}, Liked IPs: {liked_ips}, Current Likes: {current_likes}")
-
     if client_ip not in liked_ips:
         liked_ips.append(client_ip)
         current_likes += 1
@@ -673,7 +766,6 @@ async def increment_blog_likes(
             {"_id": ObjectId(blog_id)},
             {"$set": {"liked_ips": liked_ips, "likes": current_likes}},
         )
-        logger.info(f"Updated - New Likes: {current_likes}, Added IP: {client_ip}")
 
     return {"likes": current_likes}
 
@@ -711,33 +803,6 @@ async def update_blog(
     return updated_blog
 
 
-# @blog_router.put("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
-# async def update_blog(
-#     blog_id: str,
-#     updated_blog: BlogPostUpdate,  # Use the new model here
-#     current_user: User = Depends(get_current_author_or_admin_user),
-#     db_client: MongoClient = Depends(db.get_client),
-# ):
-#     # Check if blog exists
-#     existing_blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
-#     if not existing_blog:
-#         raise HTTPException(status_code=404, detail="Blog not found")
-#
-#     # Set updated_at timestamp
-#     update_data = updated_blog.dict(exclude_unset=True)  # Only include fields that were provided
-#     update_data["updated_at"] = datetime.utcnow()
-#
-#     # Update the blog in the database
-#     db_client[db.db_name]["blogs"].update_one(
-#         {"_id": ObjectId(blog_id)},
-#         {"$set": update_data}
-#     )
-#
-#     # Fetch the updated blog to return
-#     updated_blog_full = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
-#     return BlogPost(**updated_blog_full)
-
-
 @blog_router.delete("/blogs/{blog_id}", tags=["Blogs"])
 async def delete_blog(
     blog_id: str,
@@ -770,7 +835,6 @@ async def add_comment(
     comment.id = str(inserted_comment.inserted_id)
 
     return comment
-    # return comment
 
 
 @blog_router.post("/categories", response_model=Category, tags=["Blogs"])
@@ -812,11 +876,17 @@ async def create_multiple_categories(
 
 @blog_router.get("/blogs/category/{category_name}", response_model=List[BlogPost], tags=["Blogs"])
 async def get_blogs_by_category(
-    category_name: str, db_client: MongoClient = Depends(db.get_client)
+    category_name: str,
+    published: Optional[bool] = Query(default=None),
+    db_client: MongoClient = Depends(db.get_client)
 ):
+    query = {"categories": category_name}
+    if published is not None:
+        query["published"] = published
+
     blogs = list(
         db_client[db.db_name]["blogs"]
-        .find({"categories": category_name})
+        .find(query)
         .sort("created_at", DESCENDING)
     )
 
