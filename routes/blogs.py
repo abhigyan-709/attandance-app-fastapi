@@ -817,9 +817,45 @@ async def get_blogs(
     blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
     return [_normalize_blog(b, db_client) for b in blogs]
 
+@blog_router.get("/blogs/stats", tags=["Blogs"])
+async def blogs_stats(db_client: MongoClient = Depends(db.get_client)):
+    coll = db_client[db.db_name]["blogs"]
+    total = coll.count_documents({})
+    published = coll.count_documents({"published": True})
+    drafts = total - published
+
+    agg = list(
+        coll.aggregate(
+            [{"$group": {"_id": None, "views": {"$sum": {"$ifNull": ["$views", 0]}},
+                                   "likes": {"$sum": {"$ifNull": ["$likes", 0]}}}}]
+        )
+    )
+    views = (agg[0]["views"] if agg else 0) or 0
+    likes = (agg[0]["likes"] if agg else 0) or 0
+
+    top_viewed = list(coll.find({}, {"title": 1, "views": 1}).sort([("views", -1)]).limit(5))
+    top_liked = list(coll.find({}, {"title": 1, "likes": 1}).sort([("likes", -1)]).limit(5))
+    for d in top_viewed: d["_id"] = str(d["_id"])
+    for d in top_liked: d["_id"] = str(d["_id"])
+
+    return {
+        "total": total, "published": published, "drafts": drafts,
+        "views": views, "likes": likes,
+        "top_viewed": top_viewed, "top_liked": top_liked,
+    }
+
+
+# @blog_router.get("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
+# async def get_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
+#     blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
+#     if not blog:
+#         raise HTTPException(status_code=404, detail="Blog not found")
+#     return _normalize_blog(blog, db_client)
 
 @blog_router.get("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
 async def get_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
+    if not ObjectId.is_valid(blog_id):
+        raise HTTPException(status_code=404, detail="Blog not found")
     blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
     if not blog:
         raise HTTPException(status_code=404, detail="Blog not found")
@@ -1504,50 +1540,50 @@ async def related_blogs(
 
 
 # ------------------------- Simple stats for dashboard -------------------------
-@blog_router.get("/blogs/stats", tags=["Blogs"])
-async def blogs_stats(db_client: MongoClient = Depends(db.get_client)):
-    coll = db_client[db.db_name]["blogs"]
-    total = coll.count_documents({})
-    published = coll.count_documents({"published": True})
-    drafts = total - published
+# @blog_router.get("/blogs/stats", tags=["Blogs"])
+# async def blogs_stats(db_client: MongoClient = Depends(db.get_client)):
+#     coll = db_client[db.db_name]["blogs"]
+#     total = coll.count_documents({})
+#     published = coll.count_documents({"published": True})
+#     drafts = total - published
 
-    agg = list(
-        coll.aggregate(
-            [
-                {
-                    "$group": {
-                        "_id": None,
-                        "views": {"$sum": {"$ifNull": ["$views", 0]}},
-                        "likes": {"$sum": {"$ifNull": ["$likes", 0]}},
-                    }
-                }
-            ]
-        )
-    )
-    views = (agg[0]["views"] if agg else 0) or 0
-    likes = (agg[0]["likes"] if agg else 0) or 0
+#     agg = list(
+#         coll.aggregate(
+#             [
+#                 {
+#                     "$group": {
+#                         "_id": None,
+#                         "views": {"$sum": {"$ifNull": ["$views", 0]}},
+#                         "likes": {"$sum": {"$ifNull": ["$likes", 0]}},
+#                     }
+#                 }
+#             ]
+#         )
+#     )
+#     views = (agg[0]["views"] if agg else 0) or 0
+#     likes = (agg[0]["likes"] if agg else 0) or 0
 
-    top_viewed = list(
-        coll.find({}, {"title": 1, "views": 1})
-        .sort([("views", -1)])
-        .limit(5)
-    )
-    top_liked = list(
-        coll.find({}, {"title": 1, "likes": 1})
-        .sort([("likes", -1)])
-        .limit(5)
-    )
-    for d in top_viewed:
-        d["_id"] = str(d["_id"])
-    for d in top_liked:
-        d["_id"] = str(d["_id"])
+#     top_viewed = list(
+#         coll.find({}, {"title": 1, "views": 1})
+#         .sort([("views", -1)])
+#         .limit(5)
+#     )
+#     top_liked = list(
+#         coll.find({}, {"title": 1, "likes": 1})
+#         .sort([("likes", -1)])
+#         .limit(5)
+#     )
+#     for d in top_viewed:
+#         d["_id"] = str(d["_id"])
+#     for d in top_liked:
+#         d["_id"] = str(d["_id"])
 
-    return {
-        "total": total,
-        "published": published,
-        "drafts": drafts,
-        "views": views,
-        "likes": likes,
-        "top_viewed": top_viewed,
-        "top_liked": top_liked,
-    }
+#     return {
+#         "total": total,
+#         "published": published,
+#         "drafts": drafts,
+#         "views": views,
+#         "likes": likes,
+#         "top_viewed": top_viewed,
+#         "top_liked": top_liked,
+#     }
