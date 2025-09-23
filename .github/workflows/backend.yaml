@@ -133,7 +133,7 @@ jobs:
             sed -i 's|^GEMINI_MODEL=.*|GEMINI_MODEL=${{ secrets.GEMINI_MODEL }}|' /home/ubuntu/app.env || \
             echo "GEMINI_MODEL=${{ secrets.GEMINI_MODEL }}" >> /home/ubuntu/app.env
           grep -q '^ADMIN_API_TOKEN=' /home/ubuntu/app.env && \
-            sed -i 's|^ADMIN_API_TOKEN=.*|ADMIN_API_TOKEN=${{ secrets.ADMIN_API_TOKEN }}|' /home/ubuntu.app.env || \
+            sed -i 's|^ADMIN_API_TOKEN=.*|ADMIN_API_TOKEN=${{ secrets.ADMIN_API_TOKEN }}|' /home/ubuntu/app.env || \
             echo "ADMIN_API_TOKEN=${{ secrets.ADMIN_API_TOKEN }}" >> /home/ubuntu/app.env
           grep -q '^VAPID_PUBLIC_KEY=' /home/ubuntu/app.env && \
             sed -i 's|^VAPID_PUBLIC_KEY=.*|VAPID_PUBLIC_KEY=${{ secrets.VAPID_PUBLIC_KEY }}|' /home/ubuntu/app.env || \
