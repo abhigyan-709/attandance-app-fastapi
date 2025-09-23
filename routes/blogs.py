@@ -1427,3 +1427,37 @@ async def get_blog_meta(blog_id: str, db_client: MongoClient = Depends(db.get_cl
     </html>
     """
     return HTMLResponse(content=html_content)
+
+
+@blog_router.put("/categories/{category_id}", response_model=Category, tags=["Blogs"])
+async def update_category(
+    category_id: str,
+    category: Category,
+    current_admin: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    existing = db_client[db.db_name]["categories"].find_one({"_id": ObjectId(category_id)})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    update_doc = category.dict(by_alias=True, exclude={"id", "_id"})
+    db_client[db.db_name]["categories"].update_one(
+        {"_id": ObjectId(category_id)},
+        {"$set": update_doc},
+    )
+    category.id = category_id
+    return category
+
+
+@blog_router.delete("/categories/{category_id}", tags=["Blogs"])
+async def delete_category(
+    category_id: str,
+    current_admin: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    existing = db_client[db.db_name]["categories"].find_one({"_id": ObjectId(category_id)})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    db_client[db.db_name]["categories"].delete_one({"_id": ObjectId(category_id)})
+    return {"message": "Category deleted successfully"}
