@@ -1,27 +1,35 @@
-# #-----------------------------------------------------v2----------------------------------------------------------------#
-# # routes/blogs.py  (add imports)
-# from fastapi import Query
+# # routes/blogs.py  — drop-in with extra admin & search endpoints (no server-side pagination change)
 # import math
-# from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, Form, Request, BackgroundTasks, Query
-# from fastapi.responses import HTMLResponse
-# from pymongo import MongoClient, DESCENDING
-# from models.blogs import BlogPost, Comment, Category
-# from models.user import User
-# from database.db import db
-# from typing import List, Optional
-# from bson import ObjectId
-# from datetime import datetime
-# import uuid
-# import boto3
-# from routes.user import get_current_user
-# from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
-# import logging
-# from bs4 import BeautifulSoup
-
-# # --- new imports for web-push notify helper ---
 # import os
 # import re
+# import uuid
+# import logging
+# from datetime import datetime
+# from typing import List, Optional, Dict, Any
+
+# import boto3
 # import requests
+# from bs4 import BeautifulSoup
+# from bson import ObjectId
+# from fastapi import (
+#     APIRouter,
+#     BackgroundTasks,
+#     Depends,
+#     File,
+#     Form,
+#     HTTPException,
+#     Query,
+#     Request,
+#     UploadFile,
+# )
+# from fastapi.responses import HTMLResponse
+# from pymongo import MongoClient, DESCENDING
+
+# from database.db import db
+# from models.blogs import BlogPost, Comment, Category
+# from models.user import User
+# from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+# from routes.user import get_current_user
 
 # logging.basicConfig(level=logging.INFO)
 # logger = logging.getLogger(__name__)
@@ -29,7 +37,6 @@
 # blog_router = APIRouter()
 
 # AWS_BUCKET_NAME = "projectdevops-blogs-new"
-
 # s3_client = boto3.client(
 #     "s3",
 #     aws_access_key_id=AWS_ACCESS_KEY_ID,
@@ -70,7 +77,7 @@
 #         logger.warning(f"notify_new_blog failed: {e}")
 
 
-# # New dependency for admin or author
+# # ------------------------- Auth helpers -------------------------
 # def get_current_author_or_admin_user(current_user: User = Depends(get_current_user)):
 #     if current_user.role not in ["admin", "author"]:
 #         raise HTTPException(
@@ -80,7 +87,6 @@
 #     return current_user
 
 
-# # Keep this for admin-only actions if needed
 # def get_current_admin_user(current_user: User = Depends(get_current_user)):
 #     if current_user.role != "admin":
 #         raise HTTPException(status_code=403, detail="Not authorized to perform this action")
@@ -101,11 +107,27 @@
 #     return not bool(auth)
 
 
+# def _normalize_blog(doc: Dict[str, Any], db_client: MongoClient) -> Dict[str, Any]:
+#     doc["_id"] = str(doc["_id"])
+#     # attach comments
+#     comments = list(db_client[db.db_name]["comments"].find({"blog_id": doc["_id"]}))
+#     for c in comments:
+#         c["_id"] = str(c["_id"])
+#     doc["comments"] = comments
+#     # normalize optional counters
+#     doc["views"] = doc.get("views", 0)
+#     doc["viewed_ips"] = doc.get("viewed_ips", [])
+#     doc["likes"] = doc.get("likes", 0)
+#     doc["liked_ips"] = doc.get("liked_ips", [])
+#     return doc
+
+
+# # ------------------------- Create blog -------------------------
 # @blog_router.post("/blogs", response_model=BlogPost, tags=["Blogs"])
 # async def create_blog(
 #     title: str = Form(...),
 #     content: str = Form(...),
-#     categories: str = Form([]),
+#     categories: str = Form(""),
 #     tags: List[str] = Form([]),
 #     published: bool = Form(True),
 #     file: UploadFile = File(...),
@@ -113,7 +135,7 @@
 #     current_user: User = Depends(get_current_author_or_admin_user),
 #     db_client: MongoClient = Depends(db.get_client),
 # ):
-#     file_extension = file.filename.split(".")[-1]
+#     file_extension = (file.filename or "image").split(".")[-1]
 #     unique_filename = f"blogs/{uuid.uuid4()}.{file_extension}"
 
 #     try:
@@ -156,109 +178,68 @@
 #     return blog_data
 
 
-# @blog_router.get("/blogs/tags/{tag}", response_model=List[BlogPost], tags=["Blogs"])
-# async def get_blogs_by_tag(
-#     request: Request,
-#     tag: str,
-#     published: Optional[bool] = Query(default=None),
-#     db_client: MongoClient = Depends(db.get_client)
-# ):
-#     query = {"tags": tag}
-#     if _should_force_published_only(request, published):
-#         query["published"] = True
-#     elif published is not None:
-#         query["published"] = published
-
-#     blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
-
-#     for blog in blogs:
-#         blog["_id"] = str(blog["_id"])
-#         blog["comments"] = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
-#         for comment in blog["comments"]:
-#             comment["_id"] = str(comment["_id"])
-#     return blogs
-
-
-# @blog_router.get("/blogs/filter", response_model=List[BlogPost], tags=["Blogs"])
-# async def get_blogs_by_category_and_tags(
-#     request: Request,
-#     category: Optional[str] = None,
-#     tag: Optional[str] = None,
-#     published: Optional[bool] = Query(default=None),
-#     db_client: MongoClient = Depends(db.get_client),
-# ):
-#     query = {}
-#     if category:
-#         query["categories"] = category
-#     if tag:
-#         query["tags"] = tag
-
-#     if _should_force_published_only(request, published):
-#         query["published"] = True
-#     elif published is not None:
-#         query["published"] = published
-
-#     blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
-
-#     for blog in blogs:
-#         blog["_id"] = str(blog["_id"])
-#         blog["comments"] = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
-#         for comment in blog["comments"]:
-#             comment["_id"] = str(comment["_id"])
-#     return blogs
-
-
-# @blog_router.get("/blogs/tags", response_model=List[str], tags=["Blogs"])
-# async def get_all_tags(db_client: MongoClient = Depends(db.get_client)):
-#     tags_cursor = db_client[db.db_name]["blogs"].aggregate(
-#         [{"$unwind": "$tags"}, {"$group": {"_id": "$tags"}}]
-#     )
-#     tags = [tag["_id"] for tag in tags_cursor]
-#     return tags
-
-
+# # ------------------------- Read blogs -------------------------
 # @blog_router.get("/blogs", response_model=List[BlogPost], tags=["Blogs"])
 # async def get_blogs(
 #     request: Request,
 #     published: Optional[bool] = Query(default=None),
-#     db_client: MongoClient = Depends(db.get_client)
+#     db_client: MongoClient = Depends(db.get_client),
 # ):
-#     query = {}
+#     query: Dict[str, Any] = {}
 #     if _should_force_published_only(request, published):
 #         query["published"] = True
 #     elif published is not None:
 #         query["published"] = published
 
 #     blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
+#     return [_normalize_blog(b, db_client) for b in blogs]
 
-#     for blog in blogs:
-#         blog["_id"] = str(blog["_id"])
-#         blog["comments"] = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
-#         for comment in blog["comments"]:
-#             comment["_id"] = str(comment["_id"])
+# @blog_router.get("/blogs/stats", tags=["Blogs"])
+# async def blogs_stats(db_client: MongoClient = Depends(db.get_client)):
+#     coll = db_client[db.db_name]["blogs"]
+#     total = coll.count_documents({})
+#     published = coll.count_documents({"published": True})
+#     drafts = total - published
 
-#     return blogs
+#     agg = list(
+#         coll.aggregate(
+#             [{"$group": {"_id": None, "views": {"$sum": {"$ifNull": ["$views", 0]}},
+#                                    "likes": {"$sum": {"$ifNull": ["$likes", 0]}}}}]
+#         )
+#     )
+#     views = (agg[0]["views"] if agg else 0) or 0
+#     likes = (agg[0]["likes"] if agg else 0) or 0
 
+#     top_viewed = list(coll.find({}, {"title": 1, "views": 1}).sort([("views", -1)]).limit(5))
+#     top_liked = list(coll.find({}, {"title": 1, "likes": 1}).sort([("likes", -1)]).limit(5))
+#     for d in top_viewed: d["_id"] = str(d["_id"])
+#     for d in top_liked: d["_id"] = str(d["_id"])
+
+#     return {
+#         "total": total, "published": published, "drafts": drafts,
+#         "views": views, "likes": likes,
+#         "top_viewed": top_viewed, "top_liked": top_liked,
+#     }
+
+
+# # @blog_router.get("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
+# # async def get_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
+# #     blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
+# #     if not blog:
+# #         raise HTTPException(status_code=404, detail="Blog not found")
+# #     return _normalize_blog(blog, db_client)
 
 # @blog_router.get("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
 # async def get_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
+#     if not ObjectId.is_valid(blog_id):
+#         raise HTTPException(status_code=404, detail="Blog not found")
 #     blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
 #     if not blog:
 #         raise HTTPException(status_code=404, detail="Blog not found")
-
-#     blog["_id"] = str(blog["_id"])
-#     blog["comments"] = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
-#     for comment in blog["comments"]:
-#         comment["_id"] = str(comment["_id"])
-
-#     blog["views"] = blog.get("views", 0)
-#     blog["viewed_ips"] = blog.get("viewed_ips", [])
-#     blog["likes"] = blog.get("likes", 0)
-#     blog["liked_ips"] = blog.get("liked_ips", [])
-
-#     return blog
+#     return _normalize_blog(blog, db_client)
 
 
+# # ------------------------- Views & Likes -------------------------
 # @blog_router.post("/blogs/{blog_id}/views", response_model=dict, tags=["Blogs"])
 # async def increment_blog_views(
 #     blog_id: str,
@@ -321,6 +302,7 @@
 #     return {"likes": current_likes}
 
 
+# # ------------------------- Update & Delete blog -------------------------
 # @blog_router.put("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
 # async def update_blog(
 #     blog_id: str,
@@ -363,31 +345,187 @@
 #     existing_blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
 #     if not existing_blog:
 #         raise HTTPException(status_code=404, detail="Blog not found")
-
 #     db_client[db.db_name]["blogs"].delete_one({"_id": ObjectId(blog_id)})
 #     return {"message": "Blog deleted successfully"}
 
 
-# @blog_router.post("/blogs/{blog_id}/comments", response_model=Comment, tags=["Blogs"])
-# async def add_comment(
-#     blog_id: str,
-#     comment: Comment,
+# # ------------------------- Filter by tag/category -------------------------
+# @blog_router.get("/blogs/tags/{tag}", response_model=List[BlogPost], tags=["Blogs"])
+# async def get_blogs_by_tag(
+#     request: Request,
+#     tag: str,
+#     published: Optional[bool] = Query(default=None),
 #     db_client: MongoClient = Depends(db.get_client),
 # ):
-#     blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
-#     if not blog:
+#     query: Dict[str, Any] = {"tags": tag}
+#     if _should_force_published_only(request, published):
+#         query["published"] = True
+#     elif published is not None:
+#         query["published"] = published
+
+#     blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
+#     return [_normalize_blog(b, db_client) for b in blogs]
+
+
+# @blog_router.get("/blogs/category/{category_name}", response_model=List[BlogPost], tags=["Blogs"])
+# async def get_blogs_by_category(
+#     request: Request,
+#     category_name: str,
+#     published: Optional[bool] = Query(default=None),
+#     db_client: MongoClient = Depends(db.get_client),
+# ):
+#     query: Dict[str, Any] = {"categories": category_name}
+#     if _should_force_published_only(request, published):
+#         query["published"] = True
+#     elif published is not None:
+#         query["published"] = published
+
+#     blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
+#     if not blogs:
+#         raise HTTPException(status_code=404, detail="No blogs found for this category")
+#     return [_normalize_blog(b, db_client) for b in blogs]
+
+
+# @blog_router.get("/blogs/filter", response_model=List[BlogPost], tags=["Blogs"])
+# async def get_blogs_by_category_and_tags(
+#     request: Request,
+#     category: Optional[str] = None,
+#     tag: Optional[str] = None,
+#     published: Optional[bool] = Query(default=None),
+#     db_client: MongoClient = Depends(db.get_client),
+# ):
+#     query: Dict[str, Any] = {}
+#     if category:
+#         query["categories"] = category
+#     if tag:
+#         query["tags"] = tag
+
+#     if _should_force_published_only(request, published):
+#         query["published"] = True
+#     elif published is not None:
+#         query["published"] = published
+
+#     blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
+#     return [_normalize_blog(b, db_client) for b in blogs]
+
+
+# # ------------------------- Tags: list + admin ops -------------------------
+# @blog_router.get("/blogs/tags", response_model=List[str], tags=["Blogs"])
+# async def get_all_tags(db_client: MongoClient = Depends(db.get_client)):
+#     # Handles: tags as array, single string, or missing
+#     pipeline = [
+#         {"$addFields": {
+#             "tags": {
+#                 "$cond": [
+#                     {"$isArray": "$tags"},
+#                     "$tags",
+#                     {"$cond": [
+#                         {"$and": [{"$ne": ["$tags", None]}, {"$ne": ["$tags", ""]}]},
+#                         ["$tags"],
+#                         []
+#                     ]}
+#                 ]
+#             }
+#         }},
+#         {"$unwind": "$tags"},
+#         {"$group": {"_id": "$tags"}},
+#         {"$sort": {"_id": 1}},
+#     ]
+#     rows = db_client[db.db_name]["blogs"].aggregate(pipeline)
+#     return [r["_id"] for r in rows]
+
+# @blog_router.get("/tags", tags=["Blogs"])
+# async def list_tags_with_counts(db_client: MongoClient = Depends(db.get_client)):
+#     pipeline = [
+#         {"$addFields": {
+#             "tags": {
+#                 "$cond": [
+#                     {"$isArray": "$tags"},
+#                     "$tags",
+#                     {"$cond": [
+#                         {"$and": [{"$ne": ["$tags", None]}, {"$ne": ["$tags", ""]}]},
+#                         ["$tags"],
+#                         []
+#                     ]}
+#                 ]
+#             }
+#         }},
+#         {"$unwind": "$tags"},
+#         {"$group": {"_id": "$tags", "count": {"$sum": 1}}},
+#         {"$sort": {"count": -1, "_id": 1}},
+#     ]
+#     rows = db_client[db.db_name]["blogs"].aggregate(pipeline)
+#     return [{"tag": r["_id"], "count": r["count"]} for r in rows]
+
+
+# @blog_router.post("/blogs/{blog_id}/tags", tags=["Blogs"])
+# async def add_tag_to_blog(
+#     blog_id: str,
+#     payload: Dict[str, str],
+#     current_user: User = Depends(get_current_author_or_admin_user),
+#     db_client: MongoClient = Depends(db.get_client),
+# ):
+#     tag = (payload.get("tag") or "").strip()
+#     if not tag:
+#         raise HTTPException(status_code=400, detail="Missing tag")
+#     res = db_client[db.db_name]["blogs"].update_one(
+#         {"_id": ObjectId(blog_id)},
+#         {"$addToSet": {"tags": tag}},
+#     )
+#     if res.matched_count == 0:
 #         raise HTTPException(status_code=404, detail="Blog not found")
-
-#     comment.blog_id = blog_id
-#     comment.created_at = datetime.utcnow()
-
-#     comment_dict = comment.dict(by_alias=True, exclude={"id"})
-#     inserted_comment = db_client[db.db_name]["comments"].insert_one(comment_dict)
-#     comment.id = str(inserted_comment.inserted_id)
-
-#     return comment
+#     return {"message": "Tag added"}
 
 
+# @blog_router.delete("/blogs/{blog_id}/tags/{tag}", tags=["Blogs"])
+# async def remove_tag_from_blog(
+#     blog_id: str,
+#     tag: str,
+#     current_user: User = Depends(get_current_author_or_admin_user),
+#     db_client: MongoClient = Depends(db.get_client),
+# ):
+#     res = db_client[db.db_name]["blogs"].update_one(
+#         {"_id": ObjectId(blog_id)},
+#         {"$pull": {"tags": tag}},
+#     )
+#     if res.matched_count == 0:
+#         raise HTTPException(status_code=404, detail="Blog not found")
+#     return {"message": "Tag removed"}
+
+
+# @blog_router.put("/blogs/tags/rename", tags=["Blogs"])
+# async def rename_tag_globally(
+#     payload: Dict[str, str],
+#     current_admin: User = Depends(get_current_admin_user),
+#     db_client: MongoClient = Depends(db.get_client),
+# ):
+#     old = (payload.get("old") or "").strip()
+#     new = (payload.get("new") or "").strip()
+#     if not old or not new:
+#         raise HTTPException(status_code=400, detail="old and new are required")
+#     # Replace all occurrences of `old` with `new` across all blogs
+#     res = db_client[db.db_name]["blogs"].update_many(
+#         {"tags": old},
+#         {"$set": {"tags.$[elem]": new}},
+#         array_filters=[{"elem": old}],
+#     )
+#     return {"matched": res.matched_count, "modified": res.modified_count}
+
+
+# @blog_router.delete("/blogs/tags/{tag}", tags=["Blogs"])
+# async def delete_tag_globally(
+#     tag: str,
+#     current_admin: User = Depends(get_current_admin_user),
+#     db_client: MongoClient = Depends(db.get_client),
+# ):
+#     res = db_client[db.db_name]["blogs"].update_many(
+#         {"tags": tag},
+#         {"$pull": {"tags": tag}},
+#     )
+#     return {"matched": res.matched_count, "modified": res.modified_count}
+
+
+# # ------------------------- Categories CRUD -------------------------
 # @blog_router.post("/categories", response_model=Category, tags=["Blogs"])
 # async def create_category(
 #     category: Category,
@@ -401,13 +539,44 @@
 
 
 # @blog_router.get("/categories", response_model=List[Category], tags=["Blogs"])
-# async def get_categories(
+# async def get_categories(db_client: MongoClient = Depends(db.get_client)):
+#     categories = list(db_client[db.db_name]["categories"].find({}).sort("name", 1))
+#     for c in categories:
+#         c["_id"] = str(c["_id"])
+#     return categories
+
+
+# @blog_router.put("/categories/{category_id}", response_model=Category, tags=["Blogs"])
+# async def update_category(
+#     category_id: str,
+#     category: Category,
+#     current_admin: User = Depends(get_current_admin_user),
 #     db_client: MongoClient = Depends(db.get_client),
 # ):
-#     categories = list(db_client[db.db_name]["categories"].find({}))
-#     for category in categories:
-#         category["_id"] = str(category["_id"])
-#     return categories
+#     existing = db_client[db.db_name]["categories"].find_one({"_id": ObjectId(category_id)})
+#     if not existing:
+#         raise HTTPException(status_code=404, detail="Category not found")
+
+#     update_doc = category.dict(by_alias=True, exclude={"id", "_id"})
+#     db_client[db.db_name]["categories"].update_one(
+#         {"_id": ObjectId(category_id)},
+#         {"$set": update_doc},
+#     )
+#     category.id = category_id
+#     return category
+
+
+# @blog_router.delete("/categories/{category_id}", tags=["Blogs"])
+# async def delete_category(
+#     category_id: str,
+#     current_admin: User = Depends(get_current_admin_user),
+#     db_client: MongoClient = Depends(db.get_client),
+# ):
+#     existing = db_client[db.db_name]["categories"].find_one({"_id": ObjectId(category_id)})
+#     if not existing:
+#         raise HTTPException(status_code=404, detail="Category not found")
+#     db_client[db.db_name]["categories"].delete_one({"_id": ObjectId(category_id)})
+#     return {"message": "Category deleted successfully"}
 
 
 # @blog_router.post("/categories/bulk", response_model=List[Category], tags=["Blogs"])
@@ -417,45 +586,56 @@
 #     db_client: MongoClient = Depends(db.get_client),
 # ):
 #     category_dicts = [category.dict(by_alias=True, exclude={"id"}) for category in categories]
-#     inserted_categories = db_client[db.db_name]["categories"].insert_many(category_dicts)
-
+#     inserted = db_client[db.db_name]["categories"].insert_many(category_dicts)
 #     for i, category in enumerate(categories):
-#         category.id = str(inserted_categories.inserted_ids[i])
-
+#         category.id = str(inserted.inserted_ids[i])
 #     return categories
 
 
-# @blog_router.get("/blogs/category/{category_name}", response_model=List[BlogPost], tags=["Blogs"])
-# async def get_blogs_by_category(
-#     request: Request,
-#     category_name: str,
-#     published: Optional[bool] = Query(default=None),
-#     db_client: MongoClient = Depends(db.get_client)
+# # ------------------------- Comments: list/update/delete -------------------------
+# @blog_router.get("/blogs/{blog_id}/comments", response_model=List[Comment], tags=["Blogs"])
+# async def list_comments_for_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
+#     comments = list(db_client[db.db_name]["comments"].find({"blog_id": blog_id}).sort("created_at", DESCENDING))
+#     for c in comments:
+#         c["_id"] = str(c["_id"])
+#     return comments
+
+
+# @blog_router.put("/comments/{comment_id}", response_model=Comment, tags=["Blogs"])
+# async def update_comment(
+#     comment_id: str,
+#     payload: Comment,
+#     current_admin: User = Depends(get_current_author_or_admin_user),
+#     db_client: MongoClient = Depends(db.get_client),
 # ):
-#     query = {"categories": category_name}
-#     if _should_force_published_only(request, published):
-#         query["published"] = True
-#     elif published is not None:
-#         query["published"] = published
+#     existing = db_client[db.db_name]["comments"].find_one({"_id": ObjectId(comment_id)})
+#     if not existing:
+#         raise HTTPException(status_code=404, detail="Comment not found")
 
-#     blogs = list(
-#         db_client[db.db_name]["blogs"]
-#         .find(query)
-#         .sort("created_at", DESCENDING)
+#     update_doc = payload.dict(by_alias=True, exclude={"id", "_id", "blog_id", "created_at"})
+#     db_client[db.db_name]["comments"].update_one(
+#         {"_id": ObjectId(comment_id)},
+#         {"$set": update_doc},
 #     )
-
-#     if not blogs:
-#         raise HTTPException(status_code=404, detail="No blogs found for this category")
-
-#     for blog in blogs:
-#         blog["_id"] = str(blog["_id"])
-#         blog["comments"] = list(db_client[db.db_name]["comments"].find({"blog_id": blog["_id"]}))
-#         for comment in blog["comments"]:
-#             comment["_id"] = str(comment["_id"])
-
-#     return blogs
+#     updated = db_client[db.db_name]["comments"].find_one({"_id": ObjectId(comment_id)})
+#     updated["_id"] = str(updated["_id"])
+#     return updated
 
 
+# @blog_router.delete("/comments/{comment_id}", tags=["Blogs"])
+# async def delete_comment(
+#     comment_id: str,
+#     current_admin: User = Depends(get_current_author_or_admin_user),
+#     db_client: MongoClient = Depends(db.get_client),
+# ):
+#     existing = db_client[db.db_name]["comments"].find_one({"_id": ObjectId(comment_id)})
+#     if not existing:
+#         raise HTTPException(status_code=404, detail="Comment not found")
+#     db_client[db.db_name]["comments"].delete_one({"_id": ObjectId(comment_id)})
+#     return {"message": "Comment deleted successfully"}
+
+
+# # ------------------------- SEO meta -------------------------
 # @blog_router.get("/blogs/{blog_id}/meta", response_class=HTMLResponse, tags=["Blogs"])
 # async def get_blog_meta(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
 #     blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
@@ -491,41 +671,9 @@
 #     return HTMLResponse(content=html_content)
 
 
-# @blog_router.put("/categories/{category_id}", response_model=Category, tags=["Blogs"])
-# async def update_category(
-#     category_id: str,
-#     category: Category,
-#     current_admin: User = Depends(get_current_admin_user),
-#     db_client: MongoClient = Depends(db.get_client),
-# ):
-#     existing = db_client[db.db_name]["categories"].find_one({"_id": ObjectId(category_id)})
-#     if not existing:
-#         raise HTTPException(status_code=404, detail="Category not found")
-
-#     update_doc = category.dict(by_alias=True, exclude={"id", "_id"})
-#     db_client[db.db_name]["categories"].update_one(
-#         {"_id": ObjectId(category_id)},
-#         {"$set": update_doc},
-#     )
-#     category.id = category_id
-#     return category
-
-
-# @blog_router.delete("/categories/{category_id}", tags=["Blogs"])
-# async def delete_category(
-#     category_id: str,
-#     current_admin: User = Depends(get_current_admin_user),
-#     db_client: MongoClient = Depends(db.get_client),
-# ):
-#     existing = db_client[db.db_name]["categories"].find_one({"_id": ObjectId(category_id)})
-#     if not existing:
-#         raise HTTPException(status_code=404, detail="Category not found")
-
-#     db_client[db.db_name]["categories"].delete_one({"_id": ObjectId(category_id)})
-#     return {"message": "Category deleted successfully"}
-
+# # ------------------------- Paginated (kept for compatibility; UI can ignore) -------------------------
 # from pydantic import BaseModel
-# from typing import List
+
 
 # class PageMeta(BaseModel):
 #     total: int
@@ -534,6 +682,7 @@
 #     pages: int
 #     has_next: bool
 #     has_prev: bool
+
 
 # class PagedCategories(BaseModel):
 #     items: List[Category]
@@ -568,6 +717,7 @@
 #         },
 #     }
 
+
 # class PagedBlogs(BaseModel):
 #     items: List[BlogPost]
 #     meta: PageMeta
@@ -582,7 +732,7 @@
 #     per_page: int = Query(10, ge=1, le=50),
 #     db_client: MongoClient = Depends(db.get_client),
 # ):
-#     q = {}
+#     q: Dict[str, Any] = {}
 #     if published is not None:
 #         q["published"] = published
 #     if category:
@@ -596,18 +746,7 @@
 #     skip = (page - 1) * per_page
 
 #     items = list(coll.find(q).sort("created_at", DESCENDING).skip(skip).limit(per_page))
-#     for it in items:
-#         it["_id"] = str(it["_id"])
-#         it["comments"] = list(
-#             db_client[db.db_name]["comments"].find({"blog_id": it["_id"]})
-#         )
-#         for c in it["comments"]:
-#             c["_id"] = str(c["_id"])
-#         # Normalize optional fields
-#         it["views"] = it.get("views", 0)
-#         it["viewed_ips"] = it.get("viewed_ips", [])
-#         it["likes"] = it.get("likes", 0)
-#         it["liked_ips"] = it.get("liked_ips", [])
+#     items = [_normalize_blog(it, db_client) for it in items]
 
 #     return {
 #         "items": items,
@@ -621,7 +760,203 @@
 #         },
 #     }
 
-# routes/blogs.py  — drop-in with extra admin & search endpoints (no server-side pagination change)
+
+# # ------------------------- Search & Suggest (for search bar) -------------------------
+# _TEXT_INDEX_NAME = "blogs_text_idx"
+
+
+# def _ensure_text_index(db_client: MongoClient):
+#     """Create a text index on title/content/tags/categories (idempotent)."""
+#     coll = db_client[db.db_name]["blogs"]
+#     try:
+#         coll.create_index(
+#             [
+#                 ("title", "text"),
+#                 ("content", "text"),
+#                 ("tags", "text"),
+#                 ("categories", "text"),
+#             ],
+#             name=_TEXT_INDEX_NAME,
+#             default_language="english",
+#         )
+#     except Exception as e:
+#         # ignore if exists or any benign error
+#         logger.debug(f"text index create skipped: {e}")
+
+
+# @blog_router.get("/blogs/search", response_model=List[BlogPost], tags=["Blogs"])
+# async def search_blogs(
+#     request: Request,
+#     q: str = Query(..., min_length=1),
+#     published: Optional[bool] = Query(default=None),
+#     limit: int = Query(20, ge=1, le=100),
+#     db_client: MongoClient = Depends(db.get_client),
+# ):
+#     """
+#     Full-text search with regex fallback.
+#     Matches title/content/tags/categories.
+#     """
+#     _ensure_text_index(db_client)
+
+#     base: Dict[str, Any] = {}
+#     if _should_force_published_only(request, published):
+#         base["published"] = True
+#     elif published is not None:
+#         base["published"] = published
+
+#     coll = db_client[db.db_name]["blogs"]
+
+#     # Try text search first
+#     try:
+#         cursor = coll.find({"$text": {"$search": q}, **base}, {"score": {"$meta": "textScore"}})
+#         docs = list(cursor.sort([("score", {"$meta": "textScore"})]).limit(limit))
+#     except Exception:
+#         docs = []
+
+#     # Fallback: case-insensitive regex across fields (OR)
+#     if not docs:
+#         regex = re.compile(re.escape(q), re.IGNORECASE)
+#         docs = list(
+#             coll.find(
+#                 {
+#                     **base,
+#                     "$or": [
+#                         {"title": regex},
+#                         {"content": regex},
+#                         {"tags": regex},
+#                         {"categories": regex},
+#                     ],
+#                 }
+#             )
+#             .sort("created_at", DESCENDING)
+#             .limit(limit)
+#         )
+
+#     return [_normalize_blog(d, db_client) for d in docs]
+
+
+# @blog_router.get("/blogs/suggest", response_model=List[Dict[str, str]], tags=["Blogs"])
+# async def suggest_blogs(
+#     request: Request,
+#     q: str = Query(..., min_length=1),
+#     limit: int = Query(8, ge=1, le=20),
+#     db_client: MongoClient = Depends(db.get_client),
+# ):
+#     """
+#     Lightweight suggestions for a search bar.
+#     Returns [{_id, title}] using a prefix/substring match on title and tags.
+#     """
+#     base: Dict[str, Any] = {}
+#     if _should_force_published_only(request, None):
+#         base["published"] = True
+
+#     regex = re.compile(re.escape(q), re.IGNORECASE)
+#     coll = db_client[db.db_name]["blogs"]
+#     docs = list(
+#         coll.find(
+#             {
+#                 **base,
+#                 "$or": [
+#                     {"title": {"$regex": regex}},
+#                     {"tags": {"$regex": regex}},
+#                     {"categories": {"$regex": regex}},
+#                 ],
+#             },
+#             {"title": 1},
+#         )
+#         .sort("created_at", DESCENDING)
+#         .limit(limit)
+#     )
+#     return [{"_id": str(d["_id"]), "title": d.get("title", "")} for d in docs]
+
+
+# # ------------------------- Bulk admin ops -------------------------
+# @blog_router.post("/blogs/bulk/publish", tags=["Blogs"])
+# async def bulk_publish(
+#     payload: Dict[str, Any],
+#     current_admin: User = Depends(get_current_admin_user),
+#     db_client: MongoClient = Depends(db.get_client),
+# ):
+#     ids: List[str] = payload.get("ids") or []
+#     publish: bool = bool(payload.get("published", True))
+#     if not ids:
+#         raise HTTPException(status_code=400, detail="ids required")
+#     object_ids = [ObjectId(i) for i in ids if ObjectId.is_valid(i)]
+#     res = db_client[db.db_name]["blogs"].update_many(
+#         {"_id": {"$in": object_ids}},
+#         {"$set": {"published": publish, "updated_at": datetime.utcnow()}},
+#     )
+#     return {"matched": res.matched_count, "modified": res.modified_count}
+
+
+# @blog_router.post("/blogs/bulk/tags/add", tags=["Blogs"])
+# async def bulk_add_tag(
+#     payload: Dict[str, Any],
+#     current_admin: User = Depends(get_current_admin_user),
+#     db_client: MongoClient = Depends(db.get_client),
+# ):
+#     ids: List[str] = payload.get("ids") or []
+#     tag: str = (payload.get("tag") or "").strip()
+#     if not ids or not tag:
+#         raise HTTPException(status_code=400, detail="ids and tag required")
+#     object_ids = [ObjectId(i) for i in ids if ObjectId.is_valid(i)]
+#     res = db_client[db.db_name]["blogs"].update_many(
+#         {"_id": {"$in": object_ids}},
+#         {"$addToSet": {"tags": tag}},
+#     )
+#     return {"matched": res.matched_count, "modified": res.modified_count}
+
+
+# @blog_router.post("/blogs/bulk/tags/remove", tags=["Blogs"])
+# async def bulk_remove_tag(
+#     payload: Dict[str, Any],
+#     current_admin: User = Depends(get_current_admin_user),
+#     db_client: MongoClient = Depends(db.get_client),
+# ):
+#     ids: List[str] = payload.get("ids") or []
+#     tag: str = (payload.get("tag") or "").strip()
+#     if not ids or not tag:
+#         raise HTTPException(status_code=400, detail="ids and tag required")
+#     object_ids = [ObjectId(i) for i in ids if ObjectId.is_valid(i)]
+#     res = db_client[db.db_name]["blogs"].update_many(
+#         {"_id": {"$in": object_ids}},
+#         {"$pull": {"tags": tag}},
+#     )
+#     return {"matched": res.matched_count, "modified": res.modified_count}
+
+
+# # ------------------------- Related posts -------------------------
+# @blog_router.get("/blogs/{blog_id}/related", response_model=List[BlogPost], tags=["Blogs"])
+# async def related_blogs(
+#     blog_id: str,
+#     limit: int = Query(3, ge=1, le=10),
+#     db_client: MongoClient = Depends(db.get_client),
+# ):
+#     me = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
+#     if not me:
+#         raise HTTPException(status_code=404, detail="Blog not found")
+
+#     tags = me.get("tags", [])
+#     cat = me.get("categories")
+#     q: Dict[str, Any] = {"_id": {"$ne": me["_id"]}}
+#     ors = []
+#     if tags:
+#         ors.append({"tags": {"$in": tags}})
+#     if cat:
+#         ors.append({"categories": cat})
+#     if ors:
+#         q["$or"] = ors
+
+#     docs = list(
+#         db_client[db.db_name]["blogs"]
+#         .find(q)
+#         .sort("created_at", DESCENDING)
+#         .limit(limit)
+#     )
+#     return [_normalize_blog(d, db_client) for d in docs]
+
+
+# routes/blogs.py — fixed ordering + public/admin split + robust tags + related
 import math
 import os
 import re
@@ -644,6 +979,7 @@ from fastapi import (
     Query,
     Request,
     UploadFile,
+    Body,
 )
 from fastapi.responses import HTMLResponse
 from pymongo import MongoClient, DESCENDING
@@ -653,6 +989,8 @@ from models.blogs import BlogPost, Comment, Category
 from models.user import User
 from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
 from routes.user import get_current_user
+
+from pydantic import BaseModel
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -678,7 +1016,6 @@ def _slugify(s: str) -> str:
 
 
 def _notify_new_blog_async(title: str, url: str, image: Optional[str] = None):
-    """Fire-and-forget POST to /push/notify-new-blog (runs in BackgroundTasks)."""
     try:
         payload = {
             "title": title,
@@ -801,7 +1138,11 @@ async def create_blog(
     return blog_data
 
 
-# ------------------------- Read blogs -------------------------
+# ====================================================================================
+# IMPORTANT: All static /blogs/* endpoints come BEFORE the dynamic /blogs/{blog_id}
+# ====================================================================================
+
+# ------------------------- Read/list (PUBLIC) -------------------------
 @blog_router.get("/blogs", response_model=List[BlogPost], tags=["Blogs"])
 async def get_blogs(
     request: Request,
@@ -816,6 +1157,7 @@ async def get_blogs(
 
     blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
     return [_normalize_blog(b, db_client) for b in blogs]
+
 
 @blog_router.get("/blogs/stats", tags=["Blogs"])
 async def blogs_stats(db_client: MongoClient = Depends(db.get_client)):
@@ -845,30 +1187,237 @@ async def blogs_stats(db_client: MongoClient = Depends(db.get_client)):
     }
 
 
-# @blog_router.get("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
-# async def get_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
-#     blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
-#     if not blog:
-#         raise HTTPException(status_code=404, detail="Blog not found")
-#     return _normalize_blog(blog, db_client)
+# ------------------------- Filters (PUBLIC) -------------------------
+@blog_router.get("/blogs/filter", response_model=List[BlogPost], tags=["Blogs"])
+async def get_blogs_by_category_and_tags(
+    request: Request,
+    category: Optional[str] = None,
+    tag: Optional[str] = None,
+    published: Optional[bool] = Query(default=None),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    query: Dict[str, Any] = {}
+    if category:
+        query["categories"] = category
+    if tag:
+        query["tags"] = tag
 
-@blog_router.get("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
-async def get_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
+    if _should_force_published_only(request, published):
+        query["published"] = True
+    elif published is not None:
+        query["published"] = published
+
+    blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
+    return [_normalize_blog(b, db_client) for b in blogs]
+
+
+@blog_router.get("/blogs/tags", response_model=List[str], tags=["Blogs"])
+async def get_all_tags(db_client: MongoClient = Depends(db.get_client)):
+    """
+    Robust tag list:
+    - works if 'tags' is an array
+    - works if 'tags' is a single string
+    - ignores null/empty
+    """
+    pipeline = [
+        {"$addFields": {
+            "tags": {
+                "$cond": [
+                    {"$isArray": "$tags"},
+                    "$tags",
+                    {"$cond": [
+                        {"$and": [{"$ne": ["$tags", None]}, {"$ne": ["$tags", ""]}]},
+                        ["$tags"],
+                        []
+                    ]}
+                ]
+            }
+        }},
+        {"$unwind": "$tags"},
+        {"$group": {"_id": "$tags"}},
+        {"$sort": {"_id": 1}},
+    ]
+    rows = db_client[db.db_name]["blogs"].aggregate(pipeline)
+    return [r["_id"] for r in rows]
+
+
+@blog_router.get("/blogs/category/{category_name}", response_model=List[BlogPost], tags=["Blogs"])
+async def get_blogs_by_category(
+    request: Request,
+    category_name: str,
+    published: Optional[bool] = Query(default=None),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    query: Dict[str, Any] = {"categories": category_name}
+    if _should_force_published_only(request, published):
+        query["published"] = True
+    elif published is not None:
+        query["published"] = published
+
+    blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
+    if not blogs:
+        raise HTTPException(status_code=404, detail="No blogs found for this category")
+    return [_normalize_blog(b, db_client) for b in blogs]
+
+
+@blog_router.get("/blogs/tags/{tag}", response_model=List[BlogPost], tags=["Blogs"])
+async def get_blogs_by_tag(
+    request: Request,
+    tag: str,
+    published: Optional[bool] = Query(default=None),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    query: Dict[str, Any] = {"tags": tag}
+    if _should_force_published_only(request, published):
+        query["published"] = True
+    elif published is not None:
+        query["published"] = published
+
+    blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
+    return [_normalize_blog(b, db_client) for b in blogs]
+
+
+# ------------------------- Search & Suggest (PUBLIC) -------------------------
+_TEXT_INDEX_NAME = "blogs_text_idx"
+
+
+def _ensure_text_index(db_client: MongoClient):
+    coll = db_client[db.db_name]["blogs"]
+    try:
+        coll.create_index(
+            [
+                ("title", "text"),
+                ("content", "text"),
+                ("tags", "text"),
+                ("categories", "text"),
+            ],
+            name=_TEXT_INDEX_NAME,
+            default_language="english",
+        )
+    except Exception as e:
+        logger.debug(f"text index create skipped: {e}")
+
+
+@blog_router.get("/blogs/search", response_model=List[BlogPost], tags=["Blogs"])
+async def search_blogs(
+    request: Request,
+    q: str = Query(..., min_length=1),
+    published: Optional[bool] = Query(default=None),
+    limit: int = Query(20, ge=1, le=100),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    _ensure_text_index(db_client)
+
+    base: Dict[str, Any] = {}
+    if _should_force_published_only(request, published):
+        base["published"] = True
+    elif published is not None:
+        base["published"] = published
+
+    coll = db_client[db.db_name]["blogs"]
+
+    # Try text search first
+    try:
+        cursor = coll.find({"$text": {"$search": q}, **base}, {"score": {"$meta": "textScore"}})
+        docs = list(cursor.sort([("score", {"$meta": "textScore"})]).limit(limit))
+    except Exception:
+        docs = []
+
+    # Fallback: case-insensitive regex across fields (OR)
+    if not docs:
+        regex = re.compile(re.escape(q), re.IGNORECASE)
+        docs = list(
+            coll.find(
+                {
+                    **base,
+                    "$or": [
+                        {"title": regex},
+                        {"content": regex},
+                        {"tags": regex},
+                        {"categories": regex},
+                    ],
+                }
+            )
+            .sort("created_at", DESCENDING)
+            .limit(limit)
+        )
+
+    return [_normalize_blog(d, db_client) for d in docs]
+
+
+@blog_router.get("/blogs/suggest", response_model=List[Dict[str, str]], tags=["Blogs"])
+async def suggest_blogs(
+    request: Request,
+    q: str = Query(..., min_length=1),
+    limit: int = Query(8, ge=1, le=20),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    base: Dict[str, Any] = {}
+    if _should_force_published_only(request, None):
+        base["published"] = True
+
+    regex = re.compile(re.escape(q), re.IGNORECASE)
+    coll = db_client[db.db_name]["blogs"]
+    docs = list(
+        coll.find(
+            {
+                **base,
+                "$or": [
+                    {"title": {"$regex": regex}},
+                    {"tags": {"$regex": regex}},
+                    {"categories": {"$regex": regex}},
+                ],
+            },
+            {"title": 1},
+        )
+        .sort("created_at", DESCENDING)
+        .limit(limit)
+    )
+    return [{"_id": str(d["_id"]), "title": d.get("title", "")} for d in docs]
+
+
+# ------------------------- Related posts (PUBLIC) -------------------------
+@blog_router.get("/blogs/{blog_id}/related", response_model=List[BlogPost], tags=["Blogs"])
+async def related_blogs(
+    blog_id: str,
+    limit: int = Query(5, ge=1, le=10),
+    db_client: MongoClient = Depends(db.get_client),
+):
     if not ObjectId.is_valid(blog_id):
         raise HTTPException(status_code=404, detail="Blog not found")
-    blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
-    if not blog:
+    me = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
+    if not me:
         raise HTTPException(status_code=404, detail="Blog not found")
-    return _normalize_blog(blog, db_client)
+
+    tags = me.get("tags", [])
+    cat = me.get("categories")
+    q: Dict[str, Any] = {"_id": {"$ne": me["_id"]}}
+    ors = []
+    if tags:
+        ors.append({"tags": {"$in": tags}})
+    if cat:
+        ors.append({"categories": cat})
+    if ors:
+        q["$or"] = ors
+
+    docs = list(
+        db_client[db.db_name]["blogs"]
+        .find(q)
+        .sort("created_at", DESCENDING)
+        .limit(limit)
+    )
+    return [_normalize_blog(d, db_client) for d in docs]
 
 
-# ------------------------- Views & Likes -------------------------
+# ------------------------- Views & Likes (PUBLIC) -------------------------
 @blog_router.post("/blogs/{blog_id}/views", response_model=dict, tags=["Blogs"])
 async def increment_blog_views(
     blog_id: str,
     request: Request,
     db_client: MongoClient = Depends(db.get_client),
 ):
+    if not ObjectId.is_valid(blog_id):
+        raise HTTPException(status_code=404, detail="Blog not found")
     blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
     if not blog:
         raise HTTPException(status_code=404, detail="Blog not found")
@@ -900,6 +1449,8 @@ async def increment_blog_likes(
     request: Request,
     db_client: MongoClient = Depends(db.get_client),
 ):
+    if not ObjectId.is_valid(blog_id):
+        raise HTTPException(status_code=404, detail="Blog not found")
     blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
     if not blog:
         raise HTTPException(status_code=404, detail="Blog not found")
@@ -925,7 +1476,65 @@ async def increment_blog_likes(
     return {"likes": current_likes}
 
 
-# ------------------------- Update & Delete blog -------------------------
+# ------------------------- Comments (PUBLIC read, protected write) -------------------------
+@blog_router.get("/blogs/{blog_id}/comments", response_model=List[Comment], tags=["Blogs"])
+async def list_comments_for_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
+    comments = list(db_client[db.db_name]["comments"].find({"blog_id": blog_id}).sort("created_at", DESCENDING))
+    for c in comments:
+        c["_id"] = str(c["_id"])
+    return comments
+
+
+@blog_router.put("/comments/{comment_id}", response_model=Comment, tags=["Blogs"])
+async def update_comment(
+    comment_id: str,
+    payload: Comment,
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    if not ObjectId.is_valid(comment_id):
+        raise HTTPException(status_code=404, detail="Comment not found")
+    existing = db_client[db.db_name]["comments"].find_one({"_id": ObjectId(comment_id)})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Comment not found")
+
+    update_doc = payload.dict(by_alias=True, exclude={"id", "_id", "blog_id", "created_at"})
+    db_client[db.db_name]["comments"].update_one(
+        {"_id": ObjectId(comment_id)},
+        {"$set": update_doc},
+    )
+    updated = db_client[db.db_name]["comments"].find_one({"_id": ObjectId(comment_id)})
+    updated["_id"] = str(updated["_id"])
+    return updated
+
+
+@blog_router.delete("/comments/{comment_id}", tags=["Blogs"])
+async def delete_comment(
+    comment_id: str,
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    if not ObjectId.is_valid(comment_id):
+        raise HTTPException(status_code=404, detail="Comment not found")
+    existing = db_client[db.db_name]["comments"].find_one({"_id": ObjectId(comment_id)})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    db_client[db.db_name]["comments"].delete_one({"_id": ObjectId(comment_id)})
+    return {"message": "Comment deleted successfully"}
+
+
+# ------------------------- SINGLE blog (PUBLIC) -------------------------
+@blog_router.get("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
+async def get_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
+    if not ObjectId.is_valid(blog_id):
+        raise HTTPException(status_code=404, detail="Blog not found")
+    blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
+    if not blog:
+        raise HTTPException(status_code=404, detail="Blog not found")
+    return _normalize_blog(blog, db_client)
+
+
+# ------------------------- Update & Delete blog (PROTECTED) -------------------------
 @blog_router.put("/blogs/{blog_id}", response_model=BlogPost, tags=["Blogs"])
 async def update_blog(
     blog_id: str,
@@ -933,6 +1542,8 @@ async def update_blog(
     current_user: User = Depends(get_current_author_or_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
+    if not ObjectId.is_valid(blog_id):
+        raise HTTPException(status_code=404, detail="Blog not found")
     existing_blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
     if not existing_blog:
         raise HTTPException(status_code=404, detail="Blog not found")
@@ -965,6 +1576,8 @@ async def delete_blog(
     current_user: User = Depends(get_current_author_or_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
+    if not ObjectId.is_valid(blog_id):
+        raise HTTPException(status_code=404, detail="Blog not found")
     existing_blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
     if not existing_blog:
         raise HTTPException(status_code=404, detail="Blog not found")
@@ -972,121 +1585,116 @@ async def delete_blog(
     return {"message": "Blog deleted successfully"}
 
 
-# ------------------------- Filter by tag/category -------------------------
-@blog_router.get("/blogs/tags/{tag}", response_model=List[BlogPost], tags=["Blogs"])
-async def get_blogs_by_tag(
-    request: Request,
-    tag: str,
-    published: Optional[bool] = Query(default=None),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    query: Dict[str, Any] = {"tags": tag}
-    if _should_force_published_only(request, published):
-        query["published"] = True
-    elif published is not None:
-        query["published"] = published
-
-    blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
-    return [_normalize_blog(b, db_client) for b in blogs]
+# ------------------------- Blog <-> Tags per blog (PROTECTED for write) -------------------------
+class TagsPayload(BaseModel):
+    tags: Optional[List[str]] = None
+    tag: Optional[str] = None  # accept either shape
 
 
-@blog_router.get("/blogs/category/{category_name}", response_model=List[BlogPost], tags=["Blogs"])
-async def get_blogs_by_category(
-    request: Request,
-    category_name: str,
-    published: Optional[bool] = Query(default=None),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    query: Dict[str, Any] = {"categories": category_name}
-    if _should_force_published_only(request, published):
-        query["published"] = True
-    elif published is not None:
-        query["published"] = published
-
-    blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
-    if not blogs:
-        raise HTTPException(status_code=404, detail="No blogs found for this category")
-    return [_normalize_blog(b, db_client) for b in blogs]
-
-
-@blog_router.get("/blogs/filter", response_model=List[BlogPost], tags=["Blogs"])
-async def get_blogs_by_category_and_tags(
-    request: Request,
-    category: Optional[str] = None,
-    tag: Optional[str] = None,
-    published: Optional[bool] = Query(default=None),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    query: Dict[str, Any] = {}
-    if category:
-        query["categories"] = category
-    if tag:
-        query["tags"] = tag
-
-    if _should_force_published_only(request, published):
-        query["published"] = True
-    elif published is not None:
-        query["published"] = published
-
-    blogs = list(db_client[db.db_name]["blogs"].find(query).sort("created_at", DESCENDING))
-    return [_normalize_blog(b, db_client) for b in blogs]
-
-
-# ------------------------- Tags: list + admin ops -------------------------
-@blog_router.get("/blogs/tags", response_model=List[str], tags=["Blogs"])
-async def get_all_tags(db_client: MongoClient = Depends(db.get_client)):
-    tags_cursor = db_client[db.db_name]["blogs"].aggregate(
-        [{"$unwind": "$tags"}, {"$group": {"_id": "$tags"}}]
-    )
-    return [tag["_id"] for tag in tags_cursor]
+def _extract_tags(payload: TagsPayload) -> List[str]:
+    if payload.tags and isinstance(payload.tags, list):
+        return [str(t).strip() for t in payload.tags if str(t).strip()]
+    if payload.tag and isinstance(payload.tag, str) and payload.tag.strip():
+        return [payload.tag.strip()]
+    return []
 
 
 @blog_router.post("/blogs/{blog_id}/tags", tags=["Blogs"])
-async def add_tag_to_blog(
+async def add_tags_to_blog(
     blog_id: str,
-    payload: Dict[str, str],
+    payload: TagsPayload = Body(...),
     current_user: User = Depends(get_current_author_or_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
-    tag = (payload.get("tag") or "").strip()
-    if not tag:
-        raise HTTPException(status_code=400, detail="Missing tag")
+    if not ObjectId.is_valid(blog_id):
+        raise HTTPException(status_code=404, detail="Blog not found")
+    tags = _extract_tags(payload)
+    if not tags:
+        raise HTTPException(status_code=400, detail="No tags provided")
     res = db_client[db.db_name]["blogs"].update_one(
         {"_id": ObjectId(blog_id)},
-        {"$addToSet": {"tags": tag}},
+        {"$addToSet": {"tags": {"$each": tags}}},
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Blog not found")
-    return {"message": "Tag added"}
+    return {"added": tags}
 
 
+@blog_router.delete("/blogs/{blog_id}/tags", tags=["Blogs"])
+async def remove_tags_from_blog(
+    blog_id: str,
+    payload: TagsPayload = Body(...),
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    if not ObjectId.is_valid(blog_id):
+        raise HTTPException(status_code=404, detail="Blog not found")
+    tags = _extract_tags(payload)
+    if not tags:
+        raise HTTPException(status_code=400, detail="No tags provided")
+    res = db_client[db.db_name]["blogs"].update_one(
+        {"_id": ObjectId(blog_id)},
+        {"$pull": {"tags": {"$in": tags}}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Blog not found")
+    return {"removed": tags}
+
+
+# (keep legacy single-tag delete for backwards compatibility)
 @blog_router.delete("/blogs/{blog_id}/tags/{tag}", tags=["Blogs"])
-async def remove_tag_from_blog(
+async def remove_single_tag_legacy(
     blog_id: str,
     tag: str,
     current_user: User = Depends(get_current_author_or_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
+    if not ObjectId.is_valid(blog_id):
+        raise HTTPException(status_code=404, detail="Blog not found")
     res = db_client[db.db_name]["blogs"].update_one(
         {"_id": ObjectId(blog_id)},
         {"$pull": {"tags": tag}},
     )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Blog not found")
-    return {"message": "Tag removed"}
+    return {"removed": [tag]}
 
 
-@blog_router.put("/blogs/tags/rename", tags=["Blogs"])
+# ------------------------- Global tags admin (PUBLIC counts, admin writes) -------------------------
+@blog_router.get("/tags", tags=["Blogs"])
+async def list_tags_with_counts(db_client: MongoClient = Depends(db.get_client)):
+    pipeline = [
+        {"$addFields": {
+            "tags": {
+                "$cond": [
+                    {"$isArray": "$tags"},
+                    "$tags",
+                    {"$cond": [
+                        {"$and": [{"$ne": ["$tags", None]}, {"$ne": ["$tags", ""]}]},
+                        ["$tags"],
+                        []
+                    ]}
+                ]
+            }
+        }},
+        {"$unwind": "$tags"},
+        {"$group": {"_id": "$tags", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1, "_id": 1}},
+    ]
+    rows = db_client[db.db_name]["blogs"].aggregate(pipeline)
+    return [{"tag": r["_id"], "count": r["count"]} for r in rows]
+
+
+@blog_router.put("/tags/rename", tags=["Blogs"])
 async def rename_tag_globally(
     payload: Dict[str, str],
     current_admin: User = Depends(get_current_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
-    old = (payload.get("old") or "").strip()
-    new = (payload.get("new") or "").strip()
+    old = (payload.get("old_tag") or payload.get("old") or "").strip()
+    new = (payload.get("new_tag") or payload.get("new") or "").strip()
     if not old or not new:
-        raise HTTPException(status_code=400, detail="old and new are required")
-    # Replace all occurrences of `old` with `new` across all blogs
+        raise HTTPException(status_code=400, detail="old_tag/new_tag required")
     res = db_client[db.db_name]["blogs"].update_many(
         {"tags": old},
         {"$set": {"tags.$[elem]": new}},
@@ -1095,7 +1703,7 @@ async def rename_tag_globally(
     return {"matched": res.matched_count, "modified": res.modified_count}
 
 
-@blog_router.delete("/blogs/tags/{tag}", tags=["Blogs"])
+@blog_router.delete("/tags/{tag}", tags=["Blogs"])
 async def delete_tag_globally(
     tag: str,
     current_admin: User = Depends(get_current_admin_user),
@@ -1136,6 +1744,8 @@ async def update_category(
     current_admin: User = Depends(get_current_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
+    if not ObjectId.is_valid(category_id):
+        raise HTTPException(status_code=404, detail="Category not found")
     existing = db_client[db.db_name]["categories"].find_one({"_id": ObjectId(category_id)})
     if not existing:
         raise HTTPException(status_code=404, detail="Category not found")
@@ -1155,6 +1765,8 @@ async def delete_category(
     current_admin: User = Depends(get_current_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
+    if not ObjectId.is_valid(category_id):
+        raise HTTPException(status_code=404, detail="Category not found")
     existing = db_client[db.db_name]["categories"].find_one({"_id": ObjectId(category_id)})
     if not existing:
         raise HTTPException(status_code=404, detail="Category not found")
@@ -1175,52 +1787,11 @@ async def create_multiple_categories(
     return categories
 
 
-# ------------------------- Comments: list/update/delete -------------------------
-@blog_router.get("/blogs/{blog_id}/comments", response_model=List[Comment], tags=["Blogs"])
-async def list_comments_for_blog(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
-    comments = list(db_client[db.db_name]["comments"].find({"blog_id": blog_id}).sort("created_at", DESCENDING))
-    for c in comments:
-        c["_id"] = str(c["_id"])
-    return comments
-
-
-@blog_router.put("/comments/{comment_id}", response_model=Comment, tags=["Blogs"])
-async def update_comment(
-    comment_id: str,
-    payload: Comment,
-    current_admin: User = Depends(get_current_author_or_admin_user),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    existing = db_client[db.db_name]["comments"].find_one({"_id": ObjectId(comment_id)})
-    if not existing:
-        raise HTTPException(status_code=404, detail="Comment not found")
-
-    update_doc = payload.dict(by_alias=True, exclude={"id", "_id", "blog_id", "created_at"})
-    db_client[db.db_name]["comments"].update_one(
-        {"_id": ObjectId(comment_id)},
-        {"$set": update_doc},
-    )
-    updated = db_client[db.db_name]["comments"].find_one({"_id": ObjectId(comment_id)})
-    updated["_id"] = str(updated["_id"])
-    return updated
-
-
-@blog_router.delete("/comments/{comment_id}", tags=["Blogs"])
-async def delete_comment(
-    comment_id: str,
-    current_admin: User = Depends(get_current_author_or_admin_user),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    existing = db_client[db.db_name]["comments"].find_one({"_id": ObjectId(comment_id)})
-    if not existing:
-        raise HTTPException(status_code=404, detail="Comment not found")
-    db_client[db.db_name]["comments"].delete_one({"_id": ObjectId(comment_id)})
-    return {"message": "Comment deleted successfully"}
-
-
-# ------------------------- SEO meta -------------------------
+# ------------------------- SEO meta (PUBLIC) -------------------------
 @blog_router.get("/blogs/{blog_id}/meta", response_class=HTMLResponse, tags=["Blogs"])
 async def get_blog_meta(blog_id: str, db_client: MongoClient = Depends(db.get_client)):
+    if not ObjectId.is_valid(blog_id):
+        raise HTTPException(status_code=404, detail="Blog not found")
     blog = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
     if not blog:
         raise HTTPException(status_code=404, detail="Blog not found")
@@ -1254,10 +1825,7 @@ async def get_blog_meta(blog_id: str, db_client: MongoClient = Depends(db.get_cl
     return HTMLResponse(content=html_content)
 
 
-# ------------------------- Paginated (kept for compatibility; UI can ignore) -------------------------
-from pydantic import BaseModel
-
-
+# ------------------------- Paginated (compat; optional) -------------------------
 class PageMeta(BaseModel):
     total: int
     page: int
@@ -1342,248 +1910,3 @@ async def get_blogs_paginated(
             "has_prev": page > 1,
         },
     }
-
-
-# ------------------------- Search & Suggest (for search bar) -------------------------
-_TEXT_INDEX_NAME = "blogs_text_idx"
-
-
-def _ensure_text_index(db_client: MongoClient):
-    """Create a text index on title/content/tags/categories (idempotent)."""
-    coll = db_client[db.db_name]["blogs"]
-    try:
-        coll.create_index(
-            [
-                ("title", "text"),
-                ("content", "text"),
-                ("tags", "text"),
-                ("categories", "text"),
-            ],
-            name=_TEXT_INDEX_NAME,
-            default_language="english",
-        )
-    except Exception as e:
-        # ignore if exists or any benign error
-        logger.debug(f"text index create skipped: {e}")
-
-
-@blog_router.get("/blogs/search", response_model=List[BlogPost], tags=["Blogs"])
-async def search_blogs(
-    request: Request,
-    q: str = Query(..., min_length=1),
-    published: Optional[bool] = Query(default=None),
-    limit: int = Query(20, ge=1, le=100),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    """
-    Full-text search with regex fallback.
-    Matches title/content/tags/categories.
-    """
-    _ensure_text_index(db_client)
-
-    base: Dict[str, Any] = {}
-    if _should_force_published_only(request, published):
-        base["published"] = True
-    elif published is not None:
-        base["published"] = published
-
-    coll = db_client[db.db_name]["blogs"]
-
-    # Try text search first
-    try:
-        cursor = coll.find({"$text": {"$search": q}, **base}, {"score": {"$meta": "textScore"}})
-        docs = list(cursor.sort([("score", {"$meta": "textScore"})]).limit(limit))
-    except Exception:
-        docs = []
-
-    # Fallback: case-insensitive regex across fields (OR)
-    if not docs:
-        regex = re.compile(re.escape(q), re.IGNORECASE)
-        docs = list(
-            coll.find(
-                {
-                    **base,
-                    "$or": [
-                        {"title": regex},
-                        {"content": regex},
-                        {"tags": regex},
-                        {"categories": regex},
-                    ],
-                }
-            )
-            .sort("created_at", DESCENDING)
-            .limit(limit)
-        )
-
-    return [_normalize_blog(d, db_client) for d in docs]
-
-
-@blog_router.get("/blogs/suggest", response_model=List[Dict[str, str]], tags=["Blogs"])
-async def suggest_blogs(
-    request: Request,
-    q: str = Query(..., min_length=1),
-    limit: int = Query(8, ge=1, le=20),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    """
-    Lightweight suggestions for a search bar.
-    Returns [{_id, title}] using a prefix/substring match on title and tags.
-    """
-    base: Dict[str, Any] = {}
-    if _should_force_published_only(request, None):
-        base["published"] = True
-
-    regex = re.compile(re.escape(q), re.IGNORECASE)
-    coll = db_client[db.db_name]["blogs"]
-    docs = list(
-        coll.find(
-            {
-                **base,
-                "$or": [
-                    {"title": {"$regex": regex}},
-                    {"tags": {"$regex": regex}},
-                    {"categories": {"$regex": regex}},
-                ],
-            },
-            {"title": 1},
-        )
-        .sort("created_at", DESCENDING)
-        .limit(limit)
-    )
-    return [{"_id": str(d["_id"]), "title": d.get("title", "")} for d in docs]
-
-
-# ------------------------- Bulk admin ops -------------------------
-@blog_router.post("/blogs/bulk/publish", tags=["Blogs"])
-async def bulk_publish(
-    payload: Dict[str, Any],
-    current_admin: User = Depends(get_current_admin_user),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    ids: List[str] = payload.get("ids") or []
-    publish: bool = bool(payload.get("published", True))
-    if not ids:
-        raise HTTPException(status_code=400, detail="ids required")
-    object_ids = [ObjectId(i) for i in ids if ObjectId.is_valid(i)]
-    res = db_client[db.db_name]["blogs"].update_many(
-        {"_id": {"$in": object_ids}},
-        {"$set": {"published": publish, "updated_at": datetime.utcnow()}},
-    )
-    return {"matched": res.matched_count, "modified": res.modified_count}
-
-
-@blog_router.post("/blogs/bulk/tags/add", tags=["Blogs"])
-async def bulk_add_tag(
-    payload: Dict[str, Any],
-    current_admin: User = Depends(get_current_admin_user),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    ids: List[str] = payload.get("ids") or []
-    tag: str = (payload.get("tag") or "").strip()
-    if not ids or not tag:
-        raise HTTPException(status_code=400, detail="ids and tag required")
-    object_ids = [ObjectId(i) for i in ids if ObjectId.is_valid(i)]
-    res = db_client[db.db_name]["blogs"].update_many(
-        {"_id": {"$in": object_ids}},
-        {"$addToSet": {"tags": tag}},
-    )
-    return {"matched": res.matched_count, "modified": res.modified_count}
-
-
-@blog_router.post("/blogs/bulk/tags/remove", tags=["Blogs"])
-async def bulk_remove_tag(
-    payload: Dict[str, Any],
-    current_admin: User = Depends(get_current_admin_user),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    ids: List[str] = payload.get("ids") or []
-    tag: str = (payload.get("tag") or "").strip()
-    if not ids or not tag:
-        raise HTTPException(status_code=400, detail="ids and tag required")
-    object_ids = [ObjectId(i) for i in ids if ObjectId.is_valid(i)]
-    res = db_client[db.db_name]["blogs"].update_many(
-        {"_id": {"$in": object_ids}},
-        {"$pull": {"tags": tag}},
-    )
-    return {"matched": res.matched_count, "modified": res.modified_count}
-
-
-# ------------------------- Related posts -------------------------
-@blog_router.get("/blogs/{blog_id}/related", response_model=List[BlogPost], tags=["Blogs"])
-async def related_blogs(
-    blog_id: str,
-    limit: int = Query(3, ge=1, le=10),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    me = db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)})
-    if not me:
-        raise HTTPException(status_code=404, detail="Blog not found")
-
-    tags = me.get("tags", [])
-    cat = me.get("categories")
-    q: Dict[str, Any] = {"_id": {"$ne": me["_id"]}}
-    ors = []
-    if tags:
-        ors.append({"tags": {"$in": tags}})
-    if cat:
-        ors.append({"categories": cat})
-    if ors:
-        q["$or"] = ors
-
-    docs = list(
-        db_client[db.db_name]["blogs"]
-        .find(q)
-        .sort("created_at", DESCENDING)
-        .limit(limit)
-    )
-    return [_normalize_blog(d, db_client) for d in docs]
-
-
-# ------------------------- Simple stats for dashboard -------------------------
-# @blog_router.get("/blogs/stats", tags=["Blogs"])
-# async def blogs_stats(db_client: MongoClient = Depends(db.get_client)):
-#     coll = db_client[db.db_name]["blogs"]
-#     total = coll.count_documents({})
-#     published = coll.count_documents({"published": True})
-#     drafts = total - published
-
-#     agg = list(
-#         coll.aggregate(
-#             [
-#                 {
-#                     "$group": {
-#                         "_id": None,
-#                         "views": {"$sum": {"$ifNull": ["$views", 0]}},
-#                         "likes": {"$sum": {"$ifNull": ["$likes", 0]}},
-#                     }
-#                 }
-#             ]
-#         )
-#     )
-#     views = (agg[0]["views"] if agg else 0) or 0
-#     likes = (agg[0]["likes"] if agg else 0) or 0
-
-#     top_viewed = list(
-#         coll.find({}, {"title": 1, "views": 1})
-#         .sort([("views", -1)])
-#         .limit(5)
-#     )
-#     top_liked = list(
-#         coll.find({}, {"title": 1, "likes": 1})
-#         .sort([("likes", -1)])
-#         .limit(5)
-#     )
-#     for d in top_viewed:
-#         d["_id"] = str(d["_id"])
-#     for d in top_liked:
-#         d["_id"] = str(d["_id"])
-
-#     return {
-#         "total": total,
-#         "published": published,
-#         "drafts": drafts,
-#         "views": views,
-#         "likes": likes,
-#         "top_viewed": top_viewed,
-#         "top_liked": top_liked,
-#     }
