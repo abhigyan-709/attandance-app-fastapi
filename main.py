@@ -87,7 +87,7 @@ app.include_router(sql_gen.sql_router)
 app.include_router(cicd_router, prefix="/api", tags=["CI/CD"])
 app.include_router(cli_router, prefix="/api")
 app.include_router(diagram_router, prefix="/api")
-app.include_router(tutorial_router, prefix="/api", tags=["Tutorials"])
+app.include_router(tutorial_router, tags=["Tutorials"])
 
 if __name__ == "__main__":
     import uvicorn
