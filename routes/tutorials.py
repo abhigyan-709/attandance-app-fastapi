@@ -445,18 +445,19 @@ async def delete_tag_globally(
 # ====================================================================================
 
 # ------------------------- Lessons (embedded array) -------------------------
-class LessonPayload(BaseModel):
-    title: str
+class LessonUpdatePayload(BaseModel):
+    title: Optional[str] = None
     content_html: Optional[str] = None
     code_blocks: Optional[List[Dict[str, Any]]] = None
     resources: Optional[List[Dict[str, str]]] = None
-    duration_minutes: Optional[int] = 0
-    order: int = 0
+    duration_minutes: Optional[int] = None
+    order: Optional[int] = None
+
 
 @tutorial_router.post("/tutorials/{tutorial_id}/lessons", tags=["Tutorials"])
 async def add_lesson(
     tutorial_id: str,
-    payload: LessonPayload,
+    payload: LessonUpdatePayload,
     current_user: User = Depends(get_current_author_or_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
@@ -481,23 +482,36 @@ async def add_lesson(
 async def update_lesson(
     tutorial_id: str,
     lesson_id: str,
-    payload: LessonPayload,
+    payload: LessonUpdatePayload,   # <-- accept partials
     current_user: User = Depends(get_current_author_or_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
     if not ObjectId.is_valid(tutorial_id):
         raise HTTPException(status_code=404, detail="Tutorial not found")
-    update_set = {f"lessons.$[ls].{k}": v for k, v in payload.dict().items() if v is not None}
-    update_set["lessons.$[ls].slug"] = _slugify(payload.title)
+
+    patch = {k: v for k, v in payload.dict().items() if v is not None}
+    if not patch:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    update_set = {f"lessons.$[ls].{k}": v for k, v in patch.items()}
+
+    # only update slug if title is provided
+    if "title" in patch:
+        update_set["lessons.$[ls].slug"] = _slugify(patch["title"])
+
     update_set["lessons.$[ls].updated_at"] = datetime.utcnow()
+
     res = db_client[db.db_name]["tutorials"].update_one(
         {"_id": ObjectId(tutorial_id)},
         {"$set": update_set},
-        array_filters=[{"ls._id": lesson_id}]
+        array_filters=[{"ls._id": lesson_id}],
     )
+
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Tutorial or lesson not found")
+
     return {"updated": True}
+
 
 @tutorial_router.delete("/tutorials/{tutorial_id}/lessons/{lesson_id}", tags=["Tutorials"])
 async def delete_lesson(
