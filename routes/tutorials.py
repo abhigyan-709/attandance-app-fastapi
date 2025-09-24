@@ -95,6 +95,10 @@ def _ensure_text_index(db_client: MongoClient):
         logger.debug(f"text index create skipped: {e}")
 
 
+# ====================================================================================
+# 1) STATIC /tutorials/* ROUTES FIRST (these must come before /tutorials/{tutorial_id})
+# ====================================================================================
+
 # ------------------------- Upload cover image -------------------------
 @tutorial_router.post("/tutorials/upload-cover", tags=["Tutorials"])
 async def upload_tutorial_cover(
@@ -181,7 +185,7 @@ async def create_tutorial(
     return _normalize(tutorial)
 
 
-# ------------------------- Read/List/Search -------------------------
+# ------------------------- Read/List/Search (STATIC) -------------------------
 @tutorial_router.get("/tutorials", response_model=List[Tutorial], tags=["Tutorials"])
 async def list_tutorials(
     request: Request,
@@ -316,61 +320,129 @@ async def suggest_tutorials(
     return [{"_id": str(d["_id"]), "title": d.get("title", "")} for d in docs]
 
 
-# ------------------------- Single tutorial -------------------------
-@tutorial_router.get("/tutorials/{tutorial_id}", response_model=Tutorial, tags=["Tutorials"])
-async def get_tutorial(tutorial_id: str, db_client: MongoClient = Depends(db.get_client)):
-    if not ObjectId.is_valid(tutorial_id):
-        raise HTTPException(status_code=404, detail="Tutorial not found")
-    doc = db_client[db.db_name]["tutorials"].find_one({"_id": ObjectId(tutorial_id)})
-    if not doc:
-        raise HTTPException(status_code=404, detail="Tutorial not found")
-    return _normalize(doc)
+@tutorial_router.get("/tutorials/stats", tags=["Tutorials"])
+async def tutorials_stats(db_client: MongoClient = Depends(db.get_client)):
+    coll = db_client[db.db_name]["tutorials"]
+    total = coll.count_documents({})
+    published = coll.count_documents({"published": True})
+    drafts = total - published
+
+    agg = list(coll.aggregate(
+        [{"$group": {"_id": None,
+                     "views": {"$sum": {"$ifNull": ["$views", 0]}},
+                     "likes": {"$sum": {"$ifNull": ["$likes", 0]}},
+                     "ratings_sum": {"$sum": {"$ifNull": ["$ratings_sum", 0]}},
+                     "ratings_count": {"$sum": {"$ifNull": ["$ratings_count", 0]}}}}]
+    ))
+    views = (agg[0]["views"] if agg else 0) or 0
+    likes = (agg[0]["likes"] if agg else 0) or 0
+    ratings_sum = (agg[0]["ratings_sum"] if agg else 0.0) or 0.0
+    ratings_count = (agg[0]["ratings_count"] if agg else 0) or 0
+    avg_rating = round((ratings_sum / ratings_count), 2) if ratings_count else 0
+
+    top_viewed = list(coll.find({}, {"title":1,"views":1}).sort([("views",-1)]).limit(5))
+    top_liked = list(coll.find({}, {"title":1,"likes":1}).sort([("likes",-1)]).limit(5))
+    for d in top_viewed: d["_id"] = str(d["_id"])
+    for d in top_liked: d["_id"] = str(d["_id"])
+
+    return {"total": total, "published": published, "drafts": drafts,
+            "views": views, "likes": likes,
+            "avg_rating": avg_rating,
+            "top_viewed": top_viewed, "top_liked": top_liked}
 
 
-# ------------------------- Update/Delete tutorial -------------------------
-@tutorial_router.put("/tutorials/{tutorial_id}", response_model=Tutorial, tags=["Tutorials"])
-async def update_tutorial(
-    tutorial_id: str,
-    payload: Tutorial,
-    current_user: User = Depends(get_current_author_or_admin_user),
+# ------------------------- Categories & Tags (STATIC) -------------------------
+@tutorial_router.post("/tutorials/categories", response_model=TutorialCategory, tags=["Tutorials"])
+async def create_tutorial_category(
+    category: TutorialCategory,
+    current_admin: User = Depends(get_current_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
-    if not ObjectId.is_valid(tutorial_id):
-        raise HTTPException(status_code=404, detail="Tutorial not found")
+    doc = category.dict(by_alias=True, exclude={"id"})
+    ins = db_client[db.db_name]["tutorial_categories"].insert_one(doc)
+    category.id = str(ins.inserted_id)
+    return category
 
-    existing = db_client[db.db_name]["tutorials"].find_one({"_id": ObjectId(tutorial_id)})
-    if not existing:
-        raise HTTPException(status_code=404, detail="Tutorial not found")
+@tutorial_router.get("/tutorials/categories", response_model=List[TutorialCategory], tags=["Tutorials"])
+async def get_categories(db_client: MongoClient = Depends(db.get_client)):
+    categories = list(db_client[db.db_name]["tutorial_categories"].find({}).sort("name", 1))
+    for c in categories:
+        c["_id"] = str(c["_id"])
+    return categories
 
-    payload.updated_at = datetime.utcnow()
-    db_client[db.db_name]["tutorials"].update_one(
-        {"_id": ObjectId(tutorial_id)},
-        {"$set": payload.dict(by_alias=True, exclude={"id", "_id", "author_username",
-                                                     "views", "viewed_ips", "likes", "liked_ips",
-                                                     "ratings_count", "ratings_sum", "created_at"})}
+@tutorial_router.put("/tutorials/categories/{category_id}", response_model=TutorialCategory, tags=["Tutorials"])
+async def update_tutorial_category(
+    category_id: str,
+    category: TutorialCategory,
+    current_admin: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    if not ObjectId.is_valid(category_id):
+        raise HTTPException(status_code=404, detail="Category not found")
+    update_doc = category.dict(by_alias=True, exclude={"id","_id"})
+    db_client[db.db_name]["tutorial_categories"].update_one({"_id": ObjectId(category_id)}, {"$set": update_doc})
+    category.id = category_id
+    return category
+
+@tutorial_router.delete("/tutorials/categories/{category_id}", tags=["Tutorials"])
+async def delete_tutorial_category(
+    category_id: str,
+    current_admin: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    if not ObjectId.is_valid(category_id):
+        raise HTTPException(status_code=404, detail="Category not found")
+    db_client[db.db_name]["tutorial_categories"].delete_one({"_id": ObjectId(category_id)})
+    return {"message": "Category deleted successfully"}
+
+@tutorial_router.get("/tutorials/tags", response_model=List[str], tags=["Tutorials"])
+async def list_all_tags(db_client: MongoClient = Depends(db.get_client)):
+    pipeline = [
+        {"$addFields": {
+            "tags": {
+                "$cond": [
+                    {"$isArray": "$tags"}, "$tags",
+                    {"$cond":[{"$and":[{"$ne":["$tags",None]},{"$ne":["$tags",""]}]}, ["$tags"], []]}
+                ]
+            }
+        }},
+        {"$unwind": "$tags"},
+        {"$group": {"_id": "$tags"}},
+        {"$sort": {"_id": 1}},
+    ]
+    rows = db_client[db.db_name]["tutorials"].aggregate(pipeline)
+    return [r["_id"] for r in rows]
+
+@tutorial_router.put("/tutorials/tags/rename", tags=["Tutorials"])
+async def rename_tag_globally(
+    payload: Dict[str, str],
+    current_admin: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    old = (payload.get("old_tag") or payload.get("old") or "").strip()
+    new = (payload.get("new_tag") or payload.get("new") or "").strip()
+    if not old or not new:
+        raise HTTPException(status_code=400, detail="old_tag/new_tag required")
+    res = db_client[db.db_name]["tutorials"].update_many(
+        {"tags": old},
+        {"$set": {"tags.$[elem]": new}},
+        array_filters=[{"elem": old}],
     )
-    payload.id = tutorial_id
-    return payload
+    return {"matched": res.matched_count, "modified": res.modified_count}
 
-
-@tutorial_router.delete("/tutorials/{tutorial_id}", tags=["Tutorials"])
-async def delete_tutorial(
-    tutorial_id: str,
-    current_user: User = Depends(get_current_author_or_admin_user),
+@tutorial_router.delete("/tutorials/tags/{tag}", tags=["Tutorials"])
+async def delete_tag_globally(
+    tag: str,
+    current_admin: User = Depends(get_current_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
-    if not ObjectId.is_valid(tutorial_id):
-        raise HTTPException(status_code=404, detail="Tutorial not found")
-    existing = db_client[db.db_name]["tutorials"].find_one({"_id": ObjectId(tutorial_id)})
-    if not existing:
-        raise HTTPException(status_code=404, detail="Tutorial not found")
-    db_client[db.db_name]["tutorials"].delete_one({"_id": ObjectId(tutorial_id)})
-    # cleanup per-user progress & bookmarks & comments
-    db_client[db.db_name]["tutorial_progress"].delete_many({"tutorial_id": tutorial_id})
-    db_client[db.db_name]["bookmarks"].delete_many({"tutorial_id": tutorial_id})
-    db_client[db.db_name]["tutorial_comments"].delete_many({"tutorial_id": tutorial_id})
-    return {"message": "Tutorial deleted successfully"}
+    res = db_client[db.db_name]["tutorials"].update_many({"tags": tag}, {"$pull": {"tags": tag}})
+    return {"matched": res.matched_count, "modified": res.modified_count}
 
+
+# ====================================================================================
+# 2) DYNAMIC /tutorials/{tutorial_id} SUBROUTES (still BEFORE /tutorials/{tutorial_id})
+# ====================================================================================
 
 # ------------------------- Lessons (embedded array) -------------------------
 class LessonPayload(BaseModel):
@@ -596,101 +668,6 @@ async def mark_comment_as_answer(
     return {"marked": True}
 
 
-# ------------------------- Categories & Tags (global) -------------------------
-@tutorial_router.post("/tutorials/categories", response_model=TutorialCategory, tags=["Tutorials"])
-async def create_tutorial_category(
-    category: TutorialCategory,
-    current_admin: User = Depends(get_current_admin_user),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    doc = category.dict(by_alias=True, exclude={"id"})
-    ins = db_client[db.db_name]["tutorial_categories"].insert_one(doc)
-    category.id = str(ins.inserted_id)
-    return category
-
-# @tutorial_router.get("/tutorials/categories", response_model=List[TutorialCategory], tags=["Tutorials"])
-# async def list_tutorial_categories(db_client: MongoClient = Depends(db.get_client)):
-#     rows = list(db_client[db.db_name]["tutorial_categories"].find({}).sort("name", 1))
-#     for r in rows: r["_id"] = str(r["_id"])
-#     return rows
-
-@tutorial_router.get("/tutorials/categories", response_model=List[TutorialCategory], tags=["Tutorials"])
-async def get_categories(db_client: MongoClient = Depends(db.get_client)):
-    categories = list(db_client[db.db_name]["tutorial_categories"].find({}).sort("name", 1))
-    for c in categories:
-        c["_id"] = str(c["_id"])
-    return categories
-
-@tutorial_router.put("/tutorials/categories/{category_id}", response_model=TutorialCategory, tags=["Tutorials"])
-async def update_tutorial_category(
-    category_id: str,
-    category: TutorialCategory,
-    current_admin: User = Depends(get_current_admin_user),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    if not ObjectId.is_valid(category_id):
-        raise HTTPException(status_code=404, detail="Category not found")
-    update_doc = category.dict(by_alias=True, exclude={"id","_id"})
-    db_client[db.db_name]["tutorial_categories"].update_one({"_id": ObjectId(category_id)}, {"$set": update_doc})
-    category.id = category_id
-    return category
-
-@tutorial_router.delete("/tutorials/categories/{category_id}", tags=["Tutorials"])
-async def delete_tutorial_category(
-    category_id: str,
-    current_admin: User = Depends(get_current_admin_user),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    if not ObjectId.is_valid(category_id):
-        raise HTTPException(status_code=404, detail="Category not found")
-    db_client[db.db_name]["tutorial_categories"].delete_one({"_id": ObjectId(category_id)})
-    return {"message": "Category deleted successfully"}
-
-@tutorial_router.get("/tutorials/tags", response_model=List[str], tags=["Tutorials"])
-async def list_all_tags(db_client: MongoClient = Depends(db.get_client)):
-    pipeline = [
-        {"$addFields": {
-            "tags": {
-                "$cond": [
-                    {"$isArray": "$tags"}, "$tags",
-                    {"$cond":[{"$and":[{"$ne":["$tags",None]},{"$ne":["$tags",""]}]}, ["$tags"], []]}
-                ]
-            }
-        }},
-        {"$unwind": "$tags"},
-        {"$group": {"_id": "$tags"}},
-        {"$sort": {"_id": 1}},
-    ]
-    rows = db_client[db.db_name]["tutorials"].aggregate(pipeline)
-    return [r["_id"] for r in rows]
-
-@tutorial_router.put("/tutorials/tags/rename", tags=["Tutorials"])
-async def rename_tag_globally(
-    payload: Dict[str, str],
-    current_admin: User = Depends(get_current_admin_user),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    old = (payload.get("old_tag") or payload.get("old") or "").strip()
-    new = (payload.get("new_tag") or payload.get("new") or "").strip()
-    if not old or not new:
-        raise HTTPException(status_code=400, detail="old_tag/new_tag required")
-    res = db_client[db.db_name]["tutorials"].update_many(
-        {"tags": old},
-        {"$set": {"tags.$[elem]": new}},
-        array_filters=[{"elem": old}],
-    )
-    return {"matched": res.matched_count, "modified": res.modified_count}
-
-@tutorial_router.delete("/tutorials/tags/{tag}", tags=["Tutorials"])
-async def delete_tag_globally(
-    tag: str,
-    current_admin: User = Depends(get_current_admin_user),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    res = db_client[db.db_name]["tutorials"].update_many({"tags": tag}, {"$pull": {"tags": tag}})
-    return {"matched": res.matched_count, "modified": res.modified_count}
-
-
 # ------------------------- Progress & Bookmarks (per user) -------------------------
 class ProgressPayload(BaseModel):
     lesson_id: str
@@ -768,7 +745,7 @@ async def unbookmark_tutorial(
     return {"bookmarked": False}
 
 
-# ------------------------- Related & Stats -------------------------
+# ------------------------- Related & SEO Meta -------------------------
 @tutorial_router.get("/tutorials/{tutorial_id}/related", response_model=List[Tutorial], tags=["Tutorials"])
 async def related_tutorials(
     tutorial_id: str,
@@ -792,38 +769,6 @@ async def related_tutorials(
     docs = list(db_client[db.db_name]["tutorials"].find(q).sort("created_at", DESCENDING).limit(limit))
     return [_normalize(d) for d in docs]
 
-@tutorial_router.get("/tutorials/stats", tags=["Tutorials"])
-async def tutorials_stats(db_client: MongoClient = Depends(db.get_client)):
-    coll = db_client[db.db_name]["tutorials"]
-    total = coll.count_documents({})
-    published = coll.count_documents({"published": True})
-    drafts = total - published
-
-    agg = list(coll.aggregate(
-        [{"$group": {"_id": None,
-                     "views": {"$sum": {"$ifNull": ["$views", 0]}},
-                     "likes": {"$sum": {"$ifNull": ["$likes", 0]}},
-                     "ratings_sum": {"$sum": {"$ifNull": ["$ratings_sum", 0]}},
-                     "ratings_count": {"$sum": {"$ifNull": ["$ratings_count", 0]}}}}]
-    ))
-    views = (agg[0]["views"] if agg else 0) or 0
-    likes = (agg[0]["likes"] if agg else 0) or 0
-    ratings_sum = (agg[0]["ratings_sum"] if agg else 0.0) or 0.0
-    ratings_count = (agg[0]["ratings_count"] if agg else 0) or 0
-    avg_rating = round((ratings_sum / ratings_count), 2) if ratings_count else 0
-
-    top_viewed = list(coll.find({}, {"title":1,"views":1}).sort([("views",-1)]).limit(5))
-    top_liked = list(coll.find({}, {"title":1,"likes":1}).sort([("likes",-1)]).limit(5))
-    for d in top_viewed: d["_id"] = str(d["_id"])
-    for d in top_liked: d["_id"] = str(d["_id"])
-
-    return {"total": total, "published": published, "drafts": drafts,
-            "views": views, "likes": likes,
-            "avg_rating": avg_rating,
-            "top_viewed": top_viewed, "top_liked": top_liked}
-
-
-# ------------------------- SEO Meta (for link previews) -------------------------
 @tutorial_router.get("/tutorials/{tutorial_id}/meta", response_class=HTMLResponse, tags=["Tutorials"])
 async def get_tutorial_meta(tutorial_id: str, db_client: MongoClient = Depends(db.get_client)):
     if not ObjectId.is_valid(tutorial_id):
@@ -854,3 +799,59 @@ async def get_tutorial_meta(tutorial_id: str, db_client: MongoClient = Depends(d
 </head>
 <body><p>Open tutorial: <a href="{url}">{title}</a></p></body></html>"""
     return HTMLResponse(content=html)
+
+
+# ====================================================================================
+# 3) FINALLY: SINGLE tutorial routes (PUT/DELETE can stay with GET here)
+# ====================================================================================
+
+@tutorial_router.get("/tutorials/{tutorial_id}", response_model=Tutorial, tags=["Tutorials"])
+async def get_tutorial(tutorial_id: str, db_client: MongoClient = Depends(db.get_client)):
+    if not ObjectId.is_valid(tutorial_id):
+        raise HTTPException(status_code=404, detail="Tutorial not found")
+    doc = db_client[db.db_name]["tutorials"].find_one({"_id": ObjectId(tutorial_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Tutorial not found")
+    return _normalize(doc)
+
+@tutorial_router.put("/tutorials/{tutorial_id}", response_model=Tutorial, tags=["Tutorials"])
+async def update_tutorial(
+    tutorial_id: str,
+    payload: Tutorial,
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    if not ObjectId.is_valid(tutorial_id):
+        raise HTTPException(status_code=404, detail="Tutorial not found")
+
+    existing = db_client[db.db_name]["tutorials"].find_one({"_id": ObjectId(tutorial_id)})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Tutorial not found")
+
+    payload.updated_at = datetime.utcnow()
+    db_client[db.db_name]["tutorials"].update_one(
+        {"_id": ObjectId(tutorial_id)},
+        {"$set": payload.dict(by_alias=True, exclude={"id", "_id", "author_username",
+                                                     "views", "viewed_ips", "likes", "liked_ips",
+                                                     "ratings_count", "ratings_sum", "created_at"})}
+    )
+    payload.id = tutorial_id
+    return payload
+
+@tutorial_router.delete("/tutorials/{tutorial_id}", tags=["Tutorials"])
+async def delete_tutorial(
+    tutorial_id: str,
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    if not ObjectId.is_valid(tutorial_id):
+        raise HTTPException(status_code=404, detail="Tutorial not found")
+    existing = db_client[db.db_name]["tutorials"].find_one({"_id": ObjectId(tutorial_id)})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Tutorial not found")
+    db_client[db.db_name]["tutorials"].delete_one({"_id": ObjectId(tutorial_id)})
+    # cleanup per-user progress & bookmarks & comments
+    db_client[db.db_name]["tutorial_progress"].delete_many({"tutorial_id": tutorial_id})
+    db_client[db.db_name]["bookmarks"].delete_many({"tutorial_id": tutorial_id})
+    db_client[db.db_name]["tutorial_comments"].delete_many({"tutorial_id": tutorial_id})
+    return {"message": "Tutorial deleted successfully"}
