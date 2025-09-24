@@ -29,6 +29,7 @@ from routes import sql_gen
 from routes.cicd_gen import cicd_router
 from routes.cli_gen import cli_router
 from routes.diagram_gen import diagram_router
+from routes.tutorials import tutorial_router
 
 
 app = FastAPI(title="OpenSource Enterprise API",
@@ -86,6 +87,7 @@ app.include_router(sql_gen.sql_router)
 app.include_router(cicd_router, prefix="/api", tags=["CI/CD"])
 app.include_router(cli_router, prefix="/api")
 app.include_router(diagram_router, prefix="/api")
+app.include_router(tutorial_router, prefix="/api", tags=["Tutorials"])
 
 if __name__ == "__main__":
     import uvicorn
