@@ -79,16 +79,22 @@ class TutorialComment(BaseModel):
 
 
 # ---------- Categories ----------
+# class TutorialCategory(BaseModel):
+#     id: Optional[str] = Field(default=None, alias="_id")
+#     name: str
+#     description: Optional[str] = None
+#     icon: Optional[str] = None
+
+#     class Config:
+#         arbitrary_types_allowed = True
+#         json_encoders = { "ObjectId": str }
+#         alias_generator = lambda x: "_id" if x == "id" else x
+
 class TutorialCategory(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
     name: str
     description: Optional[str] = None
     icon: Optional[str] = None
-
-    class Config:
-        arbitrary_types_allowed = True
-        json_encoders = { "ObjectId": str }
-        alias_generator = lambda x: "_id" if x == "id" else x
 
 
 # ---------- Progress / Bookmarks (per-user) ----------
