@@ -608,11 +608,18 @@ async def create_tutorial_category(
     category.id = str(ins.inserted_id)
     return category
 
+# @tutorial_router.get("/tutorials/categories", response_model=List[TutorialCategory], tags=["Tutorials"])
+# async def list_tutorial_categories(db_client: MongoClient = Depends(db.get_client)):
+#     rows = list(db_client[db.db_name]["tutorial_categories"].find({}).sort("name", 1))
+#     for r in rows: r["_id"] = str(r["_id"])
+#     return rows
+
 @tutorial_router.get("/tutorials/categories", response_model=List[TutorialCategory], tags=["Tutorials"])
-async def list_tutorial_categories(db_client: MongoClient = Depends(db.get_client)):
-    rows = list(db_client[db.db_name]["tutorial_categories"].find({}).sort("name", 1))
-    for r in rows: r["_id"] = str(r["_id"])
-    return rows
+async def get_categories(db_client: MongoClient = Depends(db.get_client)):
+    categories = list(db_client[db.db_name]["tutorial_categories"].find({}).sort("name", 1))
+    for c in categories:
+        c["_id"] = str(c["_id"])
+    return categories
 
 @tutorial_router.put("/tutorials/categories/{category_id}", response_model=TutorialCategory, tags=["Tutorials"])
 async def update_tutorial_category(
