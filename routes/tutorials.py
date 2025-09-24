@@ -60,6 +60,38 @@ def get_current_admin_user(current_user: User = Depends(get_current_user)):
 def _slugify(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", (s or "").lower()).strip("-")
 
+def _clean_str_list(values: Optional[List[str]]) -> List[str]:
+    """
+    Normalize a possibly-empty list of strings:
+    - Trim whitespace
+    - Split accidental comma-separated entries
+    - Drop empties
+    - De-duplicate (preserving order)
+    """
+    if not values:
+        return []
+    out: List[str] = []
+    for v in values:
+        if v is None:
+            continue
+        if isinstance(v, str):
+            parts = [p.strip() for p in v.split(",")] if "," in v else [v.strip()]
+            for p in parts:
+                if p:
+                    out.append(p)
+        else:
+            s = str(v).strip()
+            if s:
+                out.append(s)
+    seen = set()
+    uniq: List[str] = []
+    for x in out:
+        if x not in seen:
+            seen.add(x)
+            uniq.append(x)
+    return uniq
+
+
 def _should_force_published_only(request: Request, published_param: Optional[bool]) -> bool:
     if published_param is not None:
         return False
@@ -143,8 +175,8 @@ async def create_tutorial(
         "difficulty": difficulty,
         "categories": categories or [],
         "tags": tags or [],
-        "prerequisites": clean(prerequisites),
-        "objectives": clean(objectives),
+        "prerequisites": _clean_str_list(prerequisites),
+        "objectives": _clean_str_list(objectives),
         "overview_html": overview_html,
         "lessons": [],
         "version": version,
