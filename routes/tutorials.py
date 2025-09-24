@@ -11,7 +11,7 @@ import boto3
 from bs4 import BeautifulSoup
 from bson import ObjectId
 from fastapi import (
-    APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, Body, Request, BackgroundTasks
+    APIRouter, Depends, HTTPException, Query, UploadFile, File, Form, Request, BackgroundTasks
 )
 from fastapi.responses import HTMLResponse
 from pymongo import MongoClient, DESCENDING
@@ -888,43 +888,12 @@ async def related_tutorials(
     docs = list(db_client[db.db_name]["tutorials"].find(q).sort("created_at", DESCENDING).limit(limit))
     return [_normalize(d) for d in docs]
 
-@tutorial_router.get("/tutorials/{tutorial_id}/meta", response_class=HTMLResponse, tags=["Tutorials"])
-async def get_tutorial_meta(tutorial_id: str, db_client: MongoClient = Depends(db.get_client)):
-    if not ObjectId.is_valid(tutorial_id):
-        raise HTTPException(status_code=404, detail="Tutorial not found")
-    tut = db_client[db.db_name]["tutorials"].find_one({"_id": ObjectId(tutorial_id)})
-    if not tut:
-        raise HTTPException(status_code=404, detail="Tutorial not found")
-
-    title = tut["title"]
-    description = BeautifulSoup((tut.get("overview_html") or ""), "html.parser").get_text()[:150] + "..."
-    image_url = tut.get("cover_image_url") or ""
-    if image_url and not image_url.startswith("http"):
-        image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{image_url}"
-    slug = _slugify(title)
-    url = f"{TUTORIAL_BASE_URL}/t/{str(tut['_id'])}-{slug}"
-
-    html = f"""<!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<meta property="og:title" content="{title}"/>
-<meta property="og:description" content="{description}"/>
-<meta property="og:image" content="{image_url}"/>
-<meta property="og:url" content="{url}"/>
-<meta property="og:type" content="article"/>
-<meta name="twitter:card" content="summary_large_image"/>
-<title>{title}</title>
-</head>
-<body><p>Open tutorial: <a href="{url}">{title}</a></p></body></html>"""
-    return HTMLResponse(content=html)
-
-
-# ====================================================================================
-# 3) FINALLY: SINGLE tutorial routes (PUT/DELETE can stay with GET here)
-# ====================================================================================
-
-@tutorial_router.get("/tutorials/{tutorial_id}", response_model=Tutorial, tags=["Tutorials"])
+@tutorial_router.get(
+    "/tutorials/{tutorial_id}",
+    response_model=Tutorial,
+    response_model_exclude_none=False,  # ensure none fields aren't silently dropped
+    tags=["Tutorials"],
+)
 async def get_tutorial(tutorial_id: str, db_client: MongoClient = Depends(db.get_client)):
     if not ObjectId.is_valid(tutorial_id):
         raise HTTPException(status_code=404, detail="Tutorial not found")
@@ -933,10 +902,27 @@ async def get_tutorial(tutorial_id: str, db_client: MongoClient = Depends(db.get
         raise HTTPException(status_code=404, detail="Tutorial not found")
     return _normalize(doc)
 
+
+# ============================ Partial update model ============================
+class TutorialUpdate(BaseModel):
+    title: Optional[str] = None
+    subtitle: Optional[str] = None
+    cover_image_url: Optional[str] = None
+    difficulty: Optional[str] = None
+    categories: Optional[List[str]] = None
+    tags: Optional[List[str]] = None
+    prerequisites: Optional[List[str]] = None
+    objectives: Optional[List[str]] = None
+    overview_html: Optional[str] = None
+    version: Optional[str] = None
+    published: Optional[bool] = None
+    lessons: Optional[List[Dict[str, Any]]] = None  # usually edited via subroutes
+
+
 @tutorial_router.put("/tutorials/{tutorial_id}", response_model=Tutorial, tags=["Tutorials"])
 async def update_tutorial(
     tutorial_id: str,
-    payload: Tutorial,
+    payload: TutorialUpdate,
     current_user: User = Depends(get_current_author_or_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
@@ -947,15 +933,24 @@ async def update_tutorial(
     if not existing:
         raise HTTPException(status_code=404, detail="Tutorial not found")
 
-    payload.updated_at = datetime.utcnow()
+    patch = payload.dict(exclude_unset=True)
+    if not patch:
+        return _normalize(existing)
+
+    # never allow these to be overwritten from the client
+    for k in ("author_username", "views", "viewed_ips", "likes", "liked_ips",
+              "ratings_count", "ratings_sum", "created_at", "_id", "id"):
+        patch.pop(k, None)
+
+    patch["updated_at"] = datetime.utcnow()
+
     db_client[db.db_name]["tutorials"].update_one(
         {"_id": ObjectId(tutorial_id)},
-        {"$set": payload.dict(by_alias=True, exclude={"id", "_id", "author_username",
-                                                     "views", "viewed_ips", "likes", "liked_ips",
-                                                     "ratings_count", "ratings_sum", "created_at"})}
+        {"$set": patch}
     )
-    payload.id = tutorial_id
-    return payload
+    updated = db_client[db.db_name]["tutorials"].find_one({"_id": ObjectId(tutorial_id)})
+    return _normalize(updated)
+
 
 @tutorial_router.delete("/tutorials/{tutorial_id}", tags=["Tutorials"])
 async def delete_tutorial(
