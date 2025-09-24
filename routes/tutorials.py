@@ -352,23 +352,74 @@ async def tutorials_stats(db_client: MongoClient = Depends(db.get_client)):
 
 
 # ------------------------- Categories & Tags (STATIC) -------------------------
+
+def _normalize_cat(doc: Dict[str, Any]) -> Dict[str, Any]:
+    # normalize _id and parent_id to strings for API responses
+    if isinstance(doc.get("_id"), ObjectId):
+        doc["_id"] = str(doc["_id"])
+    if isinstance(doc.get("parent_id"), ObjectId):
+        doc["parent_id"] = str(doc["parent_id"])
+    # do NOT include children here; we add children only when building a tree
+    return doc
+
+
+def _build_category_tree(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Return hierarchical tree (roots first) from flat rows with parent_id."""
+    nodes = {str(r["_id"]): {**_normalize_cat(r), "children": []} for r in rows}
+    roots: List[Dict[str, Any]] = []
+    for r in nodes.values():
+        pid = r.get("parent_id")
+        if pid and str(pid) in nodes:
+            nodes[str(pid)]["children"].append(r)
+        else:
+            roots.append(r)
+    # sort children by name (stable)
+    def sort_rec(n):
+        n["children"].sort(key=lambda x: x.get("name", "").lower())
+        for c in n["children"]:
+            sort_rec(c)
+    for root in roots:
+        sort_rec(root)
+    roots.sort(key=lambda x: x.get("name", "").lower())
+    return roots
+
+
 @tutorial_router.post("/tutorials/categories", response_model=TutorialCategory, tags=["Tutorials"])
 async def create_tutorial_category(
     category: TutorialCategory,
     current_admin: User = Depends(get_current_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
-    doc = category.dict(by_alias=True, exclude={"id"})
+    doc = category.dict(by_alias=True, exclude={"id", "children"})
+    # validate parent if provided
+    pid = doc.get("parent_id")
+    if pid:
+        if not ObjectId.is_valid(pid):
+            raise HTTPException(status_code=400, detail="Invalid parent_id")
+        parent = db_client[db.db_name]["tutorial_categories"].find_one({"_id": ObjectId(pid)})
+        if not parent:
+            raise HTTPException(status_code=404, detail="Parent category not found")
+        # store as ObjectId in DB
+        doc["parent_id"] = ObjectId(pid)
+    else:
+        doc["parent_id"] = None
+
     ins = db_client[db.db_name]["tutorial_categories"].insert_one(doc)
     category.id = str(ins.inserted_id)
+    category.children = []  # response consistency
     return category
 
+
 @tutorial_router.get("/tutorials/categories", response_model=List[TutorialCategory], tags=["Tutorials"])
-async def get_categories(db_client: MongoClient = Depends(db.get_client)):
-    categories = list(db_client[db.db_name]["tutorial_categories"].find({}).sort("name", 1))
-    for c in categories:
-        c["_id"] = str(c["_id"])
-    return categories
+async def get_categories(
+    flat: Optional[bool] = Query(default=False, description="Return flat list when true; default returns tree"),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    rows = list(db_client[db.db_name]["tutorial_categories"].find({}).sort("name", 1))
+    if flat:
+        return [_normalize_cat(r) for r in rows]
+    return _build_category_tree(rows)
+
 
 @tutorial_router.put("/tutorials/categories/{category_id}", response_model=TutorialCategory, tags=["Tutorials"])
 async def update_tutorial_category(
@@ -379,21 +430,72 @@ async def update_tutorial_category(
 ):
     if not ObjectId.is_valid(category_id):
         raise HTTPException(status_code=404, detail="Category not found")
-    update_doc = category.dict(by_alias=True, exclude={"id","_id"})
-    db_client[db.db_name]["tutorial_categories"].update_one({"_id": ObjectId(category_id)}, {"$set": update_doc})
-    category.id = category_id
-    return category
+    existing = db_client[db.db_name]["tutorial_categories"].find_one({"_id": ObjectId(category_id)})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    patch = category.dict(by_alias=True, exclude={"id", "_id", "children"})
+    # Validate/normalize parent
+    pid = patch.get("parent_id")
+    if pid == "":
+        pid = None
+    if pid is not None:
+        if pid == category_id:
+            raise HTTPException(status_code=400, detail="A category cannot be its own parent")
+        if pid and not ObjectId.is_valid(pid):
+            raise HTTPException(status_code=400, detail="Invalid parent_id")
+        if pid:
+            parent = db_client[db.db_name]["tutorial_categories"].find_one({"_id": ObjectId(pid)})
+            if not parent:
+                raise HTTPException(status_code=404, detail="Parent category not found")
+            patch["parent_id"] = ObjectId(pid)
+        else:
+            patch["parent_id"] = None
+
+    db_client[db.db_name]["tutorial_categories"].update_one({"_id": ObjectId(category_id)}, {"$set": patch})
+    updated = db_client[db.db_name]["tutorial_categories"].find_one({"_id": ObjectId(category_id)})
+    # return as a single node (no children in this response)
+    return {**_normalize_cat(updated), "children": []}  # type: ignore
+
 
 @tutorial_router.delete("/tutorials/categories/{category_id}", tags=["Tutorials"])
 async def delete_tutorial_category(
     category_id: str,
     current_admin: User = Depends(get_current_admin_user),
     db_client: MongoClient = Depends(db.get_client),
+    force: Optional[bool] = Query(default=False, description="Set true to cascade-delete all subcategories"),
 ):
     if not ObjectId.is_valid(category_id):
         raise HTTPException(status_code=404, detail="Category not found")
+    cat = db_client[db.db_name]["tutorial_categories"].find_one({"_id": ObjectId(category_id)})
+    if not cat:
+        raise HTTPException(status_code=404, detail="Category not found")
+
+    # check for children
+    children = list(db_client[db.db_name]["tutorial_categories"].find({"parent_id": ObjectId(category_id)}, {"_id": 1}))
+    if children and not force:
+        raise HTTPException(
+            status_code=400,
+            detail="Category has subcategories. Pass ?force=true to cascade delete."
+        )
+
+    # cascade delete if requested
+    if children and force:
+        # simple BFS cascade
+        queue = [ObjectId(category_id)]
+        to_delete = []
+        while queue:
+            cid = queue.pop(0)
+            to_delete.append(cid)
+            subs = db_client[db.db_name]["tutorial_categories"].find({"parent_id": cid}, {"_id": 1})
+            queue.extend(s["_id"] for s in subs)
+        db_client[db.db_name]["tutorial_categories"].delete_many({"_id": {"$in": to_delete}})
+        return {"message": f"Deleted {len(to_delete)} categories (cascade)"}
+
+    # plain delete
     db_client[db.db_name]["tutorial_categories"].delete_one({"_id": ObjectId(category_id)})
     return {"message": "Category deleted successfully"}
+
 
 @tutorial_router.get("/tutorials/tags", response_model=List[str], tags=["Tutorials"])
 async def list_all_tags(db_client: MongoClient = Depends(db.get_client)):
@@ -413,6 +515,7 @@ async def list_all_tags(db_client: MongoClient = Depends(db.get_client)):
     rows = db_client[db.db_name]["tutorials"].aggregate(pipeline)
     return [r["_id"] for r in rows]
 
+
 @tutorial_router.put("/tutorials/tags/rename", tags=["Tutorials"])
 async def rename_tag_globally(
     payload: Dict[str, str],
@@ -430,6 +533,7 @@ async def rename_tag_globally(
     )
     return {"matched": res.matched_count, "modified": res.modified_count}
 
+
 @tutorial_router.delete("/tutorials/tags/{tag}", tags=["Tutorials"])
 async def delete_tag_globally(
     tag: str,
@@ -438,6 +542,7 @@ async def delete_tag_globally(
 ):
     res = db_client[db.db_name]["tutorials"].update_many({"tags": tag}, {"$pull": {"tags": tag}})
     return {"matched": res.matched_count, "modified": res.modified_count}
+
 
 
 # ====================================================================================
