@@ -88,7 +88,7 @@ app.include_router(cicd_router, prefix="/api", tags=["CI/CD"])
 app.include_router(cli_router, prefix="/api")
 app.include_router(diagram_router, prefix="/api")
 app.include_router(tutorial_router, tags=["Tutorials"])        # /tutorials/*
-app.include_router(tutorial_router, prefix="/api", tags=["Tutorials"])  # /api/tutorials/*
+app.include_router(tutorial_router, prefix="/api", include_in_schema=False)  # /api/tutorials/*
 
 if __name__ == "__main__":
     import uvicorn
