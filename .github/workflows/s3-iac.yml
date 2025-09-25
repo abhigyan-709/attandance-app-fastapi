@@ -8,7 +8,7 @@ on:
         description: "One-time import existing S3 resources into state?"
         default: "false"
   push:
-    branches: [ Abhigyans-Code ]
+    branches: [ IAC ]
 
 jobs:
   s3-iac:
