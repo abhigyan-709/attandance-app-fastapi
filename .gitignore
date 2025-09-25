@@ -1,8 +1,10 @@
+# Python
 __pycache__/
 *.py[cod]
 venv/
 .env
 
+# Terraform
 terraform/.terraform/
 terraform/terraform.tfstate
 terraform/terraform.tfstate.*
@@ -10,6 +12,7 @@ terraform/crash.log
 terraform/*.tfvars
 *.tfplan
 
+# OS/editor
 .DS_Store
 .idea/
 .vscode/
