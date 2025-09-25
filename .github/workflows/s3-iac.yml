@@ -1,0 +1,76 @@
+name: S3 IaC (Manage bucket via Terraform)
+
+on:
+  workflow_dispatch:
+    inputs:
+      do_import:
+        description: "One-time import existing S3 resources into state?"
+        required: false
+        default: "false"
+  push:
+    branches:
+      - Abhigyans-Code
+
+jobs:
+  s3-iac:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
+      BUCKET_POLICY_JSON: ${{ secrets.BUCKET_POLICY_JSON }}
+      TF_IN_AUTOMATION: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          # Keep local/CI aligned if you want: 1.5.7, 1.9.x, or 1.13.x
+          terraform_version: 1.5.7
+
+      - name: Write terraform.auto.tfvars from secrets
+        working-directory: terraform
+        shell: bash
+        run: |
+          cat > terraform.auto.tfvars <<'EOF'
+          aws_region        = "${AWS_REGION}"
+          bucket_name       = "${S3_BUCKET_NAME}"
+          bucket_policy_json = <<POLICY
+          ${BUCKET_POLICY_JSON}
+          POLICY
+          EOF
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init -upgrade
+
+      # One-time import block; run with workflow_dispatch and set do_import=true
+      - name: Terraform Import (one-time)
+        if: ${{ github.event.inputs.do_import == 'true' }}
+        working-directory: terraform
+        run: |
+          set -e
+          terraform import aws_s3_bucket.this "${S3_BUCKET_NAME}"
+          terraform import aws_s3_bucket_ownership_controls.this "${S3_BUCKET_NAME}" || true
+          terraform import aws_s3_bucket_public_access_block.this "${S3_BUCKET_NAME}" || true
+          terraform import aws_s3_bucket_versioning.this "${S3_BUCKET_NAME}" || true
+          terraform import aws_s3_bucket_server_side_encryption_configuration.this "${S3_BUCKET_NAME}" || true
+          terraform import aws_s3_bucket_cors_configuration.this "${S3_BUCKET_NAME}" || true
+          terraform import aws_s3_bucket_policy.this "${S3_BUCKET_NAME}" || true
+
+      - name: Terraform Plan
+        working-directory: terraform
+        run: terraform plan -input=false
+
+      - name: Terraform Apply
+        working-directory: terraform
+        run: terraform apply -auto-approve -input=false
