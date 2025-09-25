@@ -44,6 +44,7 @@ app = FastAPI(title="OpenSource Enterprise API",
     },
     swagger_ui_parameters={"syntaxHighlight.theme": "obsidian"})
 
+#IAC Checks
 
 app.openapi_version = "3.0.2"
 
