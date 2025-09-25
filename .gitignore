@@ -1,3 +1,15 @@
-/venv
-
+__pycache__/
+*.py[cod]
+venv/
 .env
+
+terraform/.terraform/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.*
+terraform/crash.log
+terraform/*.tfvars
+*.tfplan
+
+.DS_Store
+.idea/
+.vscode/
