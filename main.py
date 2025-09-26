@@ -30,6 +30,7 @@ from routes.cicd_gen import cicd_router
 from routes.cli_gen import cli_router
 from routes.diagram_gen import diagram_router
 from routes.tutorials import tutorial_router
+from routes.news import news_router
 
 
 app = FastAPI(title="OpenSource Enterprise API",
@@ -56,7 +57,8 @@ app.add_middleware(
     allow_origins=["https://familiesfuel.com", "http://localhost:5173", "http://localhost:3000", 
                    "https://projectdevops.in", "https://www.projectdevops.in", 
                    "https://tools.projectdevops.in", "https://www.tools.projectdevops.in",
-                   "https://blogs.projectdevops.in", "https://www.blogs.projectdevops.in"],
+                   "https://blogs.projectdevops.in", "https://www.blogs.projectdevops.in",
+                   "https://gtnews18.in", "https://www.gtnews18.in",],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*", "x-admin-token"],
@@ -89,6 +91,7 @@ app.include_router(cli_router, prefix="/api")
 app.include_router(diagram_router, prefix="/api")
 app.include_router(tutorial_router, tags=["Tutorials"])        # /tutorials/*
 app.include_router(tutorial_router, prefix="/api", include_in_schema=False)  # /api/tutorials/*
+app.include_router(news_router)
 
 if __name__ == "__main__":
     import uvicorn
