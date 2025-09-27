@@ -6,7 +6,7 @@ import uuid
 import logging
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-
+from pydantic import BaseModel, EmailStr, Field
 import boto3
 import requests
 from bs4 import BeautifulSoup
@@ -32,7 +32,7 @@ from models.user import User
 from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
 from routes.user import get_current_user
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -528,6 +528,40 @@ async def list_comments_for_news(news_id: str, db_client: MongoClient = Depends(
     for c in comments:
         c["_id"] = str(c["_id"])
     return comments
+
+
+class CommentCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    content: str = Field(..., min_length=1, max_length=5000)
+
+# ------------------------- Comments (PUBLIC create) -------------------------
+@news_router.post("/news/{news_id}/comments", response_model=Comment, tags=["News"])
+async def create_comment_for_news(
+    news_id: str,
+    payload: CommentCreate = Body(...),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    # verify news exists (news collection uses ObjectId)
+    if not ObjectId.is_valid(news_id):
+        raise HTTPException(status_code=404, detail="News not found")
+    if not db_client[db.db_name][NEWS_COMMENTS_COLL].find_one({"_id": ObjectId(news_id)}):
+        raise HTTPException(status_code=404, detail="News not found")
+
+    # persist news_id as STRING (your list uses {"news_id": news_id})
+    doc = {
+        "news_id": news_id,
+        "name": payload.name.strip(),
+        "email": (payload.email or None),
+        "phone": (payload.phone or None),
+        "content": payload.content.strip(),
+        "created_at": datetime.utcnow(),
+    }
+
+    res = db_client[db.db_name]["comments"].insert_one(doc)
+    doc["_id"] = str(res.inserted_id)
+    return doc
 
 
 @news_router.put("/news/comments/{comment_id}", response_model=Comment, tags=["News"])
