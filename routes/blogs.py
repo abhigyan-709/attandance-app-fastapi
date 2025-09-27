@@ -6,7 +6,7 @@ import uuid
 import logging
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-
+from pydantic import BaseModel, EmailStr, Field
 import boto3
 import requests
 from bs4 import BeautifulSoup
@@ -526,6 +526,39 @@ async def list_comments_for_blog(blog_id: str, db_client: MongoClient = Depends(
         c["_id"] = str(c["_id"])
     return comments
 
+
+class CommentCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=80)
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    content: str = Field(..., min_length=1, max_length=5000)
+
+# ------------------------- Comments (PUBLIC create) -------------------------
+@blog_router.post("/blogs/{blog_id}/comments", response_model=Comment, tags=["Blogs"])
+async def create_comment_for_blog(
+    blog_id: str,
+    payload: CommentCreate = Body(...),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    # verify blog exists (blogs collection uses ObjectId)
+    if not ObjectId.is_valid(blog_id):
+        raise HTTPException(status_code=404, detail="Blog not found")
+    if not db_client[db.db_name]["blogs"].find_one({"_id": ObjectId(blog_id)}):
+        raise HTTPException(status_code=404, detail="Blog not found")
+
+    # persist blog_id as STRING (your list uses {"blog_id": blog_id})
+    doc = {
+        "blog_id": blog_id,
+        "name": payload.name.strip(),
+        "email": (payload.email or None),
+        "phone": (payload.phone or None),
+        "content": payload.content.strip(),
+        "created_at": datetime.utcnow(),
+    }
+
+    res = db_client[db.db_name]["comments"].insert_one(doc)
+    doc["_id"] = str(res.inserted_id)
+    return doc
 
 @blog_router.put("/comments/{comment_id}", response_model=Comment, tags=["Blogs"])
 async def update_comment(
