@@ -537,6 +537,7 @@ class CommentCreate(BaseModel):
     content: str = Field(..., min_length=1, max_length=5000)
 
 # ------------------------- Comments (PUBLIC create) -------------------------
+# ------------------------- Comments (PUBLIC create) -------------------------
 @news_router.post("/news/{news_id}/comments", response_model=Comment, tags=["News"])
 async def create_comment_for_news(
     news_id: str,
@@ -546,10 +547,10 @@ async def create_comment_for_news(
     # verify news exists (news collection uses ObjectId)
     if not ObjectId.is_valid(news_id):
         raise HTTPException(status_code=404, detail="News not found")
-    if not db_client[db.db_name][NEWS_COMMENTS_COLL].find_one({"_id": ObjectId(news_id)}):
+    if not db_client[db.db_name][NEWS_COLL].find_one({"_id": ObjectId(news_id)}):
         raise HTTPException(status_code=404, detail="News not found")
 
-    # persist news_id as STRING (your list uses {"news_id": news_id})
+    # persist comment into the dedicated news comments collection
     doc = {
         "news_id": news_id,
         "name": payload.name.strip(),
@@ -559,7 +560,7 @@ async def create_comment_for_news(
         "created_at": datetime.utcnow(),
     }
 
-    res = db_client[db.db_name]["comments"].insert_one(doc)
+    res = db_client[db.db_name][NEWS_COMMENTS_COLL].insert_one(doc)
     doc["_id"] = str(res.inserted_id)
     return doc
 
