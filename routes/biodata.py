@@ -37,7 +37,24 @@ from models.biodata import (
     Gender,
     MaritalStatus,
     Religion,
-    CasteCategory
+    CasteCategory,
+    # New enhanced models
+    DetailedReligiousInfo,
+    DetailedAstrology,
+    DetailedFamilyBackground,
+    TraditionalPreferences,
+    MarriagePlanning,
+    VerificationDocuments,
+    ExtendedFamilyMember,
+    BiodataType,
+    Varna,
+    ReligiousSect,
+    Dosha,
+    FamilyType,
+    FamilyValues,
+    EconomicStatus,
+    PhotoCategory,
+    RegionalTradition
 )
 from models.user import User
 from routes.user import get_current_user
@@ -1500,3 +1517,816 @@ async def unverify_biodata_profile(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     return JSONResponse(content={"message": "Profile verification removed"})
+
+
+# ============================================================================
+# ENHANCED HINDU MATRIMONIAL FEATURES - DETAILED BIODATA CRUD OPERATIONS
+# ============================================================================
+
+# ==================== BIODATA TYPE MANAGEMENT ====================
+
+@biodata_router.patch("/biodata/{profile_id}/upgrade-to-detailed", tags=["Enhanced Biodata"])
+async def upgrade_to_detailed_biodata(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Upgrade basic biodata to detailed Hindu matrimonial profile"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check ownership
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Upgrade to detailed
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$set": {
+                "biodata_type": "detailed",
+                "updated_at": datetime.utcnow(),
+                "profile_completeness_score": 25.0  # Initial score for upgrade
+            }
+        }
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Failed to upgrade profile")
+    
+    return JSONResponse(content={"message": "Profile upgraded to detailed biodata successfully"})
+
+
+# ==================== DETAILED RELIGIOUS INFO CRUD ====================
+
+@biodata_router.patch("/biodata/{profile_id}/detailed-religious-info", tags=["Enhanced Biodata"])
+async def update_detailed_religious_info(
+    profile_id: str,
+    religious_info: DetailedReligiousInfo,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Update detailed religious information (detailed biodata only)"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check ownership and biodata type
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    if profile.get("biodata_type") != "detailed":
+        raise HTTPException(status_code=400, detail="This feature is only available for detailed biodata profiles")
+    
+    # Update religious information
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$set": {
+                "detailed_religious_info": religious_info.model_dump(),
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Failed to update religious information")
+    
+    return JSONResponse(content={"message": "Detailed religious information updated successfully"})
+
+
+@biodata_router.get("/biodata/{profile_id}/detailed-religious-info", response_model=DetailedReligiousInfo, tags=["Enhanced Biodata"])
+async def get_detailed_religious_info(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get detailed religious information"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check access permissions
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        if not profile.get("is_active", False):
+            raise HTTPException(status_code=403, detail="Profile is not public")
+    
+    religious_info = profile.get("detailed_religious_info")
+    if not religious_info:
+        raise HTTPException(status_code=404, detail="Detailed religious information not found")
+    
+    return religious_info
+
+
+# ==================== DETAILED ASTROLOGY CRUD ====================
+
+@biodata_router.patch("/biodata/{profile_id}/detailed-astrology", tags=["Enhanced Biodata"])
+async def update_detailed_astrology(
+    profile_id: str,
+    astrology_info: DetailedAstrology,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Update detailed astrological information"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check ownership and biodata type
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    if profile.get("biodata_type") != "detailed":
+        raise HTTPException(status_code=400, detail="This feature is only available for detailed biodata profiles")
+    
+    # Update astrology information
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$set": {
+                "detailed_astrology": astrology_info.model_dump(),
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Failed to update astrology information")
+    
+    return JSONResponse(content={"message": "Detailed astrology information updated successfully"})
+
+
+@biodata_router.get("/biodata/{profile_id}/detailed-astrology", response_model=DetailedAstrology, tags=["Enhanced Biodata"])
+async def get_detailed_astrology(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get detailed astrological information"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check access permissions
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        if not profile.get("is_active", False):
+            raise HTTPException(status_code=403, detail="Profile is not public")
+    
+    astrology_info = profile.get("detailed_astrology")
+    if not astrology_info:
+        raise HTTPException(status_code=404, detail="Detailed astrology information not found")
+    
+    return astrology_info
+
+
+@biodata_router.post("/biodata/{profile_id}/upload-kundli", tags=["Enhanced Biodata"])
+async def upload_kundli_pdf(
+    profile_id: str,
+    kundli_file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Upload Kundli PDF file"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check ownership
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Validate file type
+    if not kundli_file.filename.lower().endswith('.pdf'):
+        raise HTTPException(status_code=400, detail="Only PDF files are allowed for Kundli")
+    
+    try:
+        # Upload to S3
+        file_key = f"kundli/{current_user.username}_{profile_id}_{int(datetime.utcnow().timestamp())}.pdf"
+        
+        s3_client.upload_fileobj(
+            kundli_file.file,
+            AWS_BUCKET_NAME,
+            file_key,
+            ExtraArgs={"ContentType": "application/pdf"}
+        )
+        
+        kundli_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{file_key}"
+        
+        # Update profile with kundli URL
+        db_client[db.db_name][BIODATA_COLLECTION].update_one(
+            {"_id": ObjectId(profile_id)},
+            {
+                "$set": {
+                    "detailed_astrology.kundli_pdf_url": kundli_url,
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+        
+        return JSONResponse(content={
+            "message": "Kundli PDF uploaded successfully",
+            "kundli_url": kundli_url
+        })
+        
+    except ClientError as e:
+        logger.error(f"S3 upload error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload Kundli PDF")
+
+
+# ==================== DETAILED FAMILY BACKGROUND CRUD ====================
+
+@biodata_router.patch("/biodata/{profile_id}/detailed-family-background", tags=["Enhanced Biodata"])
+async def update_detailed_family_background(
+    profile_id: str,
+    family_background: DetailedFamilyBackground,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Update detailed family background information"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check ownership and biodata type
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    if profile.get("biodata_type") != "detailed":
+        raise HTTPException(status_code=400, detail="This feature is only available for detailed biodata profiles")
+    
+    # Update family background
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$set": {
+                "detailed_family_background": family_background.model_dump(),
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Failed to update family background")
+    
+    return JSONResponse(content={"message": "Detailed family background updated successfully"})
+
+
+@biodata_router.post("/biodata/{profile_id}/extended-family-member", tags=["Enhanced Biodata"])
+async def add_extended_family_member(
+    profile_id: str,
+    family_member: ExtendedFamilyMember,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Add extended family member"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check ownership
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Add family member to extended family list
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$push": {
+                "detailed_family_background.extended_family": family_member.model_dump()
+            },
+            "$set": {
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Failed to add family member")
+    
+    return JSONResponse(content={"message": "Extended family member added successfully"})
+
+
+@biodata_router.delete("/biodata/{profile_id}/extended-family-member/{member_index}", tags=["Enhanced Biodata"])
+async def remove_extended_family_member(
+    profile_id: str,
+    member_index: int,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Remove extended family member by index"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check ownership
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Get current extended family list
+    family_background = profile.get("detailed_family_background", {})
+    extended_family = family_background.get("extended_family", [])
+    
+    if member_index < 0 or member_index >= len(extended_family):
+        raise HTTPException(status_code=400, detail="Invalid family member index")
+    
+    # Remove the family member
+    extended_family.pop(member_index)
+    
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$set": {
+                "detailed_family_background.extended_family": extended_family,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Failed to remove family member")
+    
+    return JSONResponse(content={"message": "Extended family member removed successfully"})
+
+
+# ==================== TRADITIONAL PREFERENCES CRUD ====================
+
+@biodata_router.patch("/biodata/{profile_id}/traditional-preferences", tags=["Enhanced Biodata"])
+async def update_traditional_preferences(
+    profile_id: str,
+    preferences: TraditionalPreferences,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Update traditional Hindu marriage preferences"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check ownership and biodata type
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    if profile.get("biodata_type") != "detailed":
+        raise HTTPException(status_code=400, detail="This feature is only available for detailed biodata profiles")
+    
+    # Update traditional preferences
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$set": {
+                "traditional_preferences": preferences.model_dump(),
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Failed to update traditional preferences")
+    
+    return JSONResponse(content={"message": "Traditional preferences updated successfully"})
+
+
+@biodata_router.get("/biodata/{profile_id}/traditional-preferences", response_model=TraditionalPreferences, tags=["Enhanced Biodata"])
+async def get_traditional_preferences(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get traditional marriage preferences"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check access permissions
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        if not profile.get("is_active", False):
+            raise HTTPException(status_code=403, detail="Profile is not public")
+    
+    preferences = profile.get("traditional_preferences")
+    if not preferences:
+        raise HTTPException(status_code=404, detail="Traditional preferences not found")
+    
+    return preferences
+
+
+# ==================== MARRIAGE PLANNING CRUD ====================
+
+@biodata_router.patch("/biodata/{profile_id}/marriage-planning", tags=["Enhanced Biodata"])
+async def update_marriage_planning(
+    profile_id: str,
+    planning: MarriagePlanning,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Update marriage ceremony planning details"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check ownership and biodata type
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    if profile.get("biodata_type") != "detailed":
+        raise HTTPException(status_code=400, detail="This feature is only available for detailed biodata profiles")
+    
+    # Update marriage planning
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$set": {
+                "marriage_planning": planning.model_dump(),
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Failed to update marriage planning")
+    
+    return JSONResponse(content={"message": "Marriage planning details updated successfully"})
+
+
+@biodata_router.get("/biodata/{profile_id}/marriage-planning", response_model=MarriagePlanning, tags=["Enhanced Biodata"])
+async def get_marriage_planning(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get marriage planning details"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check access permissions
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        if not profile.get("is_active", False):
+            raise HTTPException(status_code=403, detail="Profile is not public")
+    
+    planning = profile.get("marriage_planning")
+    if not planning:
+        raise HTTPException(status_code=404, detail="Marriage planning details not found")
+    
+    return planning
+
+
+# ==================== DOCUMENT VERIFICATION CRUD ====================
+
+@biodata_router.patch("/biodata/{profile_id}/verification-documents", tags=["Enhanced Biodata"])
+async def update_verification_documents(
+    profile_id: str,
+    documents: VerificationDocuments,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Update verification documents"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check ownership
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Update verification documents
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$set": {
+                "verification_documents": documents.model_dump(),
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Failed to update verification documents")
+    
+    return JSONResponse(content={"message": "Verification documents updated successfully"})
+
+
+@biodata_router.post("/biodata/{profile_id}/upload-document", tags=["Enhanced Biodata"])
+async def upload_verification_document(
+    profile_id: str,
+    document_type: str = Form(...),  # birth_certificate, caste_certificate, etc.
+    document_file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Upload verification document"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check ownership
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Validate document type
+    valid_document_types = [
+        "birth_certificate", "caste_certificate", "education_certificate",
+        "income_proof", "id_proof", "address_proof", "medical_report"
+    ]
+    
+    if document_type not in valid_document_types:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid document type. Must be one of: {', '.join(valid_document_types)}"
+        )
+    
+    # Validate file type (PDF, JPG, PNG)
+    allowed_extensions = ['.pdf', '.jpg', '.jpeg', '.png']
+    file_extension = '.' + document_file.filename.split('.')[-1].lower()
+    
+    if file_extension not in allowed_extensions:
+        raise HTTPException(
+            status_code=400, 
+            detail="Only PDF, JPG, and PNG files are allowed"
+        )
+    
+    try:
+        # Upload to S3
+        file_key = f"documents/{current_user.username}/{profile_id}/{document_type}_{int(datetime.utcnow().timestamp())}{file_extension}"
+        
+        content_type = "application/pdf" if file_extension == '.pdf' else f"image/{file_extension[1:]}"
+        
+        s3_client.upload_fileobj(
+            document_file.file,
+            AWS_BUCKET_NAME,
+            file_key,
+            ExtraArgs={"ContentType": content_type}
+        )
+        
+        document_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{file_key}"
+        
+        # Update profile with document URL
+        update_field = f"verification_documents.{document_type}_url"
+        if document_type == "education_certificate":
+            # Handle multiple education certificates
+            db_client[db.db_name][BIODATA_COLLECTION].update_one(
+                {"_id": ObjectId(profile_id)},
+                {
+                    "$push": {
+                        "verification_documents.education_certificates": document_url
+                    },
+                    "$set": {
+                        "updated_at": datetime.utcnow()
+                    }
+                }
+            )
+        elif document_type == "medical_report":
+            # Handle multiple medical reports
+            db_client[db.db_name][BIODATA_COLLECTION].update_one(
+                {"_id": ObjectId(profile_id)},
+                {
+                    "$push": {
+                        "verification_documents.medical_reports": document_url
+                    },
+                    "$set": {
+                        "updated_at": datetime.utcnow()
+                    }
+                }
+            )
+        else:
+            # Single document types
+            db_client[db.db_name][BIODATA_COLLECTION].update_one(
+                {"_id": ObjectId(profile_id)},
+                {
+                    "$set": {
+                        update_field: document_url,
+                        "updated_at": datetime.utcnow()
+                    }
+                }
+            )
+        
+        return JSONResponse(content={
+            "message": f"{document_type.replace('_', ' ').title()} uploaded successfully",
+            "document_url": document_url
+        })
+        
+    except ClientError as e:
+        logger.error(f"S3 upload error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload document")
+
+
+@biodata_router.get("/biodata/{profile_id}/verification-documents", response_model=VerificationDocuments, tags=["Enhanced Biodata"])
+async def get_verification_documents(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get verification documents (admin only or own profile)"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Only owner or admin can access verification documents
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    documents = profile.get("verification_documents")
+    if not documents:
+        raise HTTPException(status_code=404, detail="Verification documents not found")
+    
+    return documents
+
+
+# ==================== PROFILE ANALYTICS & MANAGEMENT ====================
+
+@biodata_router.get("/biodata/{profile_id}/analytics", tags=["Enhanced Biodata"])
+async def get_profile_analytics(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get profile analytics (views, interests, completeness)"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Only owner can see analytics
+    if profile.get("user_id") != current_user.username:
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    analytics = {
+        "profile_views": profile.get("profile_views", 0),
+        "interests_received": profile.get("interests_received", 0),
+        "interests_sent": profile.get("interests_sent", 0),
+        "profile_completeness_score": profile.get("profile_completeness_score", 0),
+        "last_activity": profile.get("last_activity"),
+        "biodata_type": profile.get("biodata_type", "basic"),
+        "is_verified": profile.get("is_verified", False),
+        "verification_status": profile.get("verification_status", "pending")
+    }
+    
+    return JSONResponse(content=analytics)
+
+
+@biodata_router.patch("/biodata/{profile_id}/increment-view", tags=["Enhanced Biodata"])
+async def increment_profile_view(
+    profile_id: str,
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Increment profile view count (public endpoint)"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Increment view count
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$inc": {"profile_views": 1},
+            "$set": {"last_activity": datetime.utcnow()}
+        }
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    return JSONResponse(content={"message": "Profile view recorded"})
+
+
+# ==================== ADMIN MANAGEMENT ====================
+
+async def get_current_admin_user(current_user: User = Depends(get_current_user)):
+    """Dependency to ensure current user is admin"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return current_user
+
+
+@biodata_router.get("/admin/biodata/detailed-profiles", tags=["Admin - Enhanced Biodata"])
+async def get_all_detailed_profiles(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    verification_status: Optional[str] = Query(None),
+    current_admin: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get all detailed biodata profiles (admin only)"""
+    # Build filter
+    filter_query = {"biodata_type": "detailed"}
+    if verification_status:
+        filter_query["verification_status"] = verification_status
+    
+    # Get profiles with pagination
+    profiles = list(
+        db_client[db.db_name][BIODATA_COLLECTION]
+        .find(filter_query, {"verification_documents": 0})  # Exclude sensitive docs
+        .sort("created_at", DESCENDING)
+        .skip(skip)
+        .limit(limit)
+    )
+    
+    # Convert ObjectId to string
+    for profile in profiles:
+        profile["_id"] = str(profile["_id"])
+    
+    total_count = db_client[db.db_name][BIODATA_COLLECTION].count_documents(filter_query)
+    
+    return JSONResponse(content={
+        "profiles": profiles,
+        "total_count": total_count,
+        "skip": skip,
+        "limit": limit
+    })
+
+
+@biodata_router.patch("/admin/biodata/{profile_id}/verification-status", tags=["Admin - Enhanced Biodata"])
+async def update_verification_status(
+    profile_id: str,
+    verification_status: str = Body(..., embed=True),
+    admin_notes: Optional[str] = Body(None, embed=True),
+    current_admin: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Update profile verification status (admin only)"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    valid_statuses = ["pending", "verified", "rejected", "under_review"]
+    if verification_status not in valid_statuses:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
+        )
+    
+    update_data = {
+        "verification_status": verification_status,
+        "updated_at": datetime.utcnow(),
+        "verified_by": current_admin.username
+    }
+    
+    if verification_status == "verified":
+        update_data["is_verified"] = True
+        update_data["verified_at"] = datetime.utcnow()
+    else:
+        update_data["is_verified"] = False
+    
+    if admin_notes:
+        update_data["admin_notes"] = admin_notes
+    
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {"$set": update_data}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    return JSONResponse(content={
+        "message": f"Verification status updated to '{verification_status}'",
+        "verified_by": current_admin.username
+    })
