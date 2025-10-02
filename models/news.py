@@ -37,6 +37,13 @@ class NewsPost(BaseModel):
     viewed_ips: Optional[List[str]] = Field(default_factory=list)
     likes: int = 0
     liked_ips: List[str] = Field(default_factory=list)
+    
+    # SEO Enhancement Fields (Optional - won't break existing UI)
+    slug: Optional[str] = None                              # Auto-generated if not provided
+    meta_title: Optional[str] = None                        # Defaults to title
+    meta_description: Optional[str] = None                  # Auto-extracted from content
+    language: Optional[str] = Field(default="hi")          # Default language
+    keywords: Optional[List[str]] = Field(default_factory=list)  # SEO keywords
 
 
 class Category(BaseModel):

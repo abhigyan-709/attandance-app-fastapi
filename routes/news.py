@@ -57,6 +57,39 @@ NEWS_BASE_URL = os.getenv("NEWS_BASE_URL", "https://gtnews18.in")
 def _slugify(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
 
+def _generate_seo_slug(title: str, news_id: str) -> str:
+    """Generate SEO-friendly slug from title and ID"""
+    # Handle both Hindi and English text
+    base_slug = re.sub(r'[^a-zA-Z0-9\u0900-\u097F]+', '-', title.lower()).strip('-')
+    # Limit slug length and ensure it ends with ID for uniqueness
+    slug_part = base_slug[:50] if len(base_slug) > 50 else base_slug
+    return f"{slug_part}-{news_id}"
+
+def _extract_meta_description(content: str, max_length: int = 160) -> str:
+    """Extract clean meta description from HTML content"""
+    if not content:
+        return ""
+    # Remove HTML tags and get plain text
+    soup = BeautifulSoup(content, "html.parser")
+    text = soup.get_text().strip()
+    # Return first 160 characters for meta description
+    return text[:max_length] + "..." if len(text) > max_length else text
+
+def _extract_keywords(title: str, content: str, categories: str) -> List[str]:
+    """Auto-extract keywords from title, content, and categories"""
+    keywords = []
+    
+    # Add category as keyword
+    if categories:
+        keywords.append(categories.lower())
+    
+    # Extract important words from title (Hindi and English)
+    title_words = re.findall(r'[\u0900-\u097F]+|[a-zA-Z]+', title.lower())
+    keywords.extend([word for word in title_words if len(word) > 3])
+    
+    # Remove duplicates and limit to 10 keywords
+    return list(dict.fromkeys(keywords))[:10]
+
 
 def _notify_new_blog_async(title: str, url: str, image: Optional[str] = None):
     """Kept identical to your blogs notifier per request."""
@@ -123,6 +156,23 @@ def _normalize_news(doc: Dict[str, Any], db_client: MongoClient) -> Dict[str, An
     doc["viewed_ips"] = doc.get("viewed_ips", [])
     doc["likes"] = doc.get("likes", 0)
     doc["liked_ips"] = doc.get("liked_ips", [])
+    
+    # SEO fields (backward compatible - add if missing)
+    if not doc.get("slug"):
+        doc["slug"] = _generate_seo_slug(doc.get("title", ""), doc["_id"])
+    if not doc.get("meta_title"):
+        doc["meta_title"] = doc.get("title", "")
+    if not doc.get("meta_description"):
+        doc["meta_description"] = _extract_meta_description(doc.get("content", ""))
+    if not doc.get("language"):
+        doc["language"] = "hi"
+    if not doc.get("keywords"):
+        doc["keywords"] = _extract_keywords(
+            doc.get("title", ""), 
+            doc.get("content", ""), 
+            doc.get("categories", "")
+        )
+    
     return doc
 
 
@@ -172,6 +222,24 @@ async def create_news(
     inserted = db_client[db.db_name][NEWS_COLL].insert_one(news_data)
     news_id = str(inserted.inserted_id)
     news_data["_id"] = news_id
+
+    # Auto-generate SEO data after insertion (backward compatible)
+    seo_updates = {
+        "slug": _generate_seo_slug(title, news_id),
+        "meta_title": title[:60] if len(title) > 60 else title,  # SEO optimal length
+        "meta_description": _extract_meta_description(content),
+        "language": "hi",  # Default to Hindi
+        "keywords": _extract_keywords(title, content, categories)
+    }
+    
+    # Update the document with SEO data
+    db_client[db.db_name][NEWS_COLL].update_one(
+        {"_id": ObjectId(news_id)},
+        {"$set": seo_updates}
+    )
+    
+    # Add SEO data to response
+    news_data.update(seo_updates)
 
     # 🔔 Notify subscribers (same notifier) only if published
     if published and background_tasks is not None:
@@ -871,7 +939,165 @@ async def create_multiple_categories(
     return categories
 
 
-# ------------------------- SEO meta (PUBLIC) -------------------------
+# ------------------------- SEO-friendly endpoints (NEW - don't break existing) -------------------------
+
+@news_router.get("/news/seo/{news_id}", response_class=HTMLResponse, tags=["News"])
+async def get_news_seo_meta(news_id: str, db_client: MongoClient = Depends(db.get_client)):
+    """Enhanced SEO meta tags endpoint - works with existing data"""
+    if not ObjectId.is_valid(news_id):
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    doc = db_client[db.db_name][NEWS_COLL].find_one({"_id": ObjectId(news_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="News not found")
+
+    # Use existing data with SEO enhancements
+    title = doc.get("title", "")
+    meta_title = doc.get("meta_title") or title
+    meta_description = doc.get("meta_description") or _extract_meta_description(doc.get("content", ""))
+    keywords = ", ".join(doc.get("keywords", []))
+    
+    # Generate slug if not exists
+    slug = doc.get("slug") or _generate_seo_slug(title, news_id)
+    canonical_url = f"{NEWS_BASE_URL}/news/{slug}"
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="hi">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        <!-- Primary Meta Tags -->
+        <title>{meta_title}</title>
+        <meta name="description" content="{meta_description}">
+        <meta name="keywords" content="{keywords}">
+        <link rel="canonical" href="{canonical_url}">
+        
+        <!-- Open Graph / Facebook -->
+        <meta property="og:type" content="article">
+        <meta property="og:url" content="{canonical_url}">
+        <meta property="og:title" content="{title}">
+        <meta property="og:description" content="{meta_description}">
+        <meta property="og:image" content="{doc.get('image_url', '')}">
+        <meta property="og:locale" content="hi_IN">
+        
+        <!-- Twitter -->
+        <meta property="twitter:card" content="summary_large_image">
+        <meta property="twitter:url" content="{canonical_url}">
+        <meta property="twitter:title" content="{title}">
+        <meta property="twitter:description" content="{meta_description}">
+        <meta property="twitter:image" content="{doc.get('image_url', '')}">
+        
+        <!-- Hindi font optimization -->
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@300;400;500;700&display=swap" rel="stylesheet">
+    </head>
+    <body>
+        <h1>{title}</h1>
+        <p>समाचार पढ़ें: <a href="{canonical_url}">{title}</a></p>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+@news_router.get("/news/slug/{slug}", response_model=NewsPost, tags=["News"])
+async def get_news_by_slug(slug: str, db_client: MongoClient = Depends(db.get_client)):
+    """Get news by SEO-friendly slug - backward compatible"""
+    # Try to find by slug first
+    doc = db_client[db.db_name][NEWS_COLL].find_one({"slug": slug, "published": True})
+    
+    # If not found by slug, try to extract ID from slug (format: title-words-id)
+    if not doc:
+        parts = slug.split('-')
+        if parts:
+            potential_id = parts[-1]  # Last part should be the ID
+            if ObjectId.is_valid(potential_id):
+                doc = db_client[db.db_name][NEWS_COLL].find_one({"_id": ObjectId(potential_id)})
+    
+    if not doc:
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    return _normalize_news(doc, db_client)
+
+@news_router.get("/rss", response_class=HTMLResponse, tags=["News"])
+async def get_rss_feed(db_client: MongoClient = Depends(db.get_client)):
+    """Generate RSS feed for news - works with existing data"""
+    docs = list(db_client[db.db_name][NEWS_COLL]
+               .find({"published": True})
+               .sort("created_at", DESCENDING)
+               .limit(50))
+    
+    rss_items = []
+    for doc in docs:
+        title = doc.get("title", "")
+        content = doc.get("content", "")
+        description = _extract_meta_description(content, 200)
+        slug = doc.get("slug") or _generate_seo_slug(title, str(doc["_id"]))
+        link = f"{NEWS_BASE_URL}/news/{slug}"
+        pub_date = doc.get("created_at", datetime.utcnow()).strftime('%a, %d %b %Y %H:%M:%S GMT')
+        
+        rss_items.append(f"""
+        <item>
+            <title><![CDATA[{title}]]></title>
+            <description><![CDATA[{description}]]></description>
+            <link>{link}</link>
+            <guid>{link}</guid>
+            <pubDate>{pub_date}</pubDate>
+        </item>
+        """)
+    
+    rss_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+    <rss version="2.0">
+        <channel>
+            <title>GT News 18 - हिंदी समाचार</title>
+            <description>Latest Hindi news and updates</description>
+            <link>{NEWS_BASE_URL}</link>
+            <language>hi</language>
+            <lastBuildDate>{datetime.utcnow().strftime('%a, %d %b %Y %H:%M:%S GMT')}</lastBuildDate>
+            {''.join(rss_items)}
+        </channel>
+    </rss>
+    """
+    
+    return HTMLResponse(content=rss_content, media_type="application/rss+xml")
+
+@news_router.get("/sitemap.xml", response_class=HTMLResponse, tags=["News"])
+async def generate_sitemap(db_client: MongoClient = Depends(db.get_client)):
+    """Generate XML sitemap for SEO - works with existing data"""
+    docs = list(db_client[db.db_name][NEWS_COLL]
+               .find({"published": True}, {"slug": 1, "title": 1, "updated_at": 1, "created_at": 1})
+               .sort("created_at", DESCENDING))
+    
+    urls = [f"""
+        <url>
+            <loc>{NEWS_BASE_URL}</loc>
+            <lastmod>{datetime.utcnow().strftime('%Y-%m-%d')}</lastmod>
+            <changefreq>daily</changefreq>
+            <priority>1.0</priority>
+        </url>"""]
+    
+    for doc in docs:
+        title = doc.get("title", "")
+        slug = doc.get("slug") or _generate_seo_slug(title, str(doc["_id"]))
+        lastmod = (doc.get("updated_at") or doc.get("created_at") or datetime.utcnow()).strftime('%Y-%m-%d')
+        urls.append(f"""
+        <url>
+            <loc>{NEWS_BASE_URL}/news/{slug}</loc>
+            <lastmod>{lastmod}</lastmod>
+            <changefreq>weekly</changefreq>
+            <priority>0.8</priority>
+        </url>
+        """)
+    
+    sitemap_content = f"""<?xml version="1.0" encoding="UTF-8"?>
+    <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+        {''.join(urls)}
+    </urlset>
+    """
+    
+    return HTMLResponse(content=sitemap_content, media_type="application/xml")
 @news_router.get("/news/{news_id}/meta", response_class=HTMLResponse, tags=["News"])
 async def get_news_meta(news_id: str, db_client: MongoClient = Depends(db.get_client)):
     if not ObjectId.is_valid(news_id):
