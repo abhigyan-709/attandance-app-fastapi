@@ -10,7 +10,7 @@ class User(BaseModel):
     email: EmailStr
     password: str
     role : str = "user" # default user is set to the user role
-    is_active : bool = False
+    is_active : bool = True
 
     class Config:
         orm_mode = True
