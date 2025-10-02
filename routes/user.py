@@ -250,6 +250,399 @@ async def activate_user(
     return updated_user
 
 
+@route2.patch("/users/deactivate/{username}", response_model=User, tags=["User Management"])
+async def deactivate_user(
+    username: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    # Check if the current user is an admin
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to perform this action"
+        )
+
+    # Find the user by username
+    user_from_db = db_client[db.db_name]["user"].find_one({"username": username})
+
+    if user_from_db is None:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    # Prevent admin from deactivating themselves
+    if username == current_user.username:
+        raise HTTPException(
+            status_code=400,
+            detail="You cannot deactivate your own account"
+        )
+
+    # Update the is_active field to False
+    update_result = db_client[db.db_name]["user"].update_one(
+        {"username": username},
+        {"$set": {"is_active": False}}
+    )
+
+    if update_result.matched_count == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to update user status"
+        )
+
+    # Remove active sessions for deactivated user
+    db_client[db.db_name]["active_sessions"].delete_many({"username": username})
+
+    # Fetch the updated user data from database
+    updated_user = db_client[db.db_name]["user"].find_one({"username": username})
+    updated_user["_id"] = str(updated_user["_id"])
+
+    return updated_user
+
+
+@route2.put("/users/{username}", response_model=User, tags=["User Management"])
+async def update_user(
+    username: str,
+    updated_user_data: dict,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """Update user information (admin only or own profile)"""
+    # Check permissions - admin can update any user, users can update their own profile
+    if current_user.role != "admin" and current_user.username != username:
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to update this user"
+        )
+
+    # Find the user to update
+    user_from_db = db_client[db.db_name]["user"].find_one({"username": username})
+    if not user_from_db:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    # Prepare update data
+    allowed_fields = ["first_name", "last_name", "email", "city", "role", "is_active"]
+    update_data = {}
+    
+    for field, value in updated_user_data.items():
+        if field in allowed_fields:
+            # Special handling for email uniqueness
+            if field == "email" and value != user_from_db.get("email"):
+                existing_email = db_client[db.db_name]["user"].find_one({"email": value})
+                if existing_email:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Email is already registered to another user"
+                    )
+            
+            # Only admins can change role and is_active
+            if field in ["role", "is_active"] and current_user.role != "admin":
+                continue
+                
+            # Prevent admin from deactivating themselves
+            if field == "is_active" and value is False and username == current_user.username:
+                raise HTTPException(
+                    status_code=400,
+                    detail="You cannot deactivate your own account"
+                )
+                
+            update_data[field] = value
+
+    # Add updated timestamp
+    update_data["updated_at"] = datetime.utcnow()
+
+    # Perform the update
+    if update_data:
+        update_result = db_client[db.db_name]["user"].update_one(
+            {"username": username},
+            {"$set": update_data}
+        )
+
+        if update_result.matched_count == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to update user"
+            )
+
+    # Fetch and return updated user
+    updated_user = db_client[db.db_name]["user"].find_one({"username": username})
+    updated_user["_id"] = str(updated_user["_id"])
+    
+    return updated_user
+
+
+@route2.patch("/users/{username}/role", tags=["User Management"])
+async def update_user_role(
+    username: str,
+    new_role: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """Update user role (admin only)"""
+    # Only admin can change roles
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to change user roles"
+        )
+
+    # Validate role
+    valid_roles = ["user", "admin", "author", "vendor"]
+    if new_role not in valid_roles:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid role. Must be one of: {', '.join(valid_roles)}"
+        )
+
+    # Find the user
+    user_from_db = db_client[db.db_name]["user"].find_one({"username": username})
+    if not user_from_db:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    # Prevent admin from changing their own role to non-admin
+    if username == current_user.username and new_role != "admin":
+        raise HTTPException(
+            status_code=400,
+            detail="You cannot change your own admin role"
+        )
+
+    # Update the role
+    update_result = db_client[db.db_name]["user"].update_one(
+        {"username": username},
+        {
+            "$set": {
+                "role": new_role,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+
+    if update_result.matched_count == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to update user role"
+        )
+
+    return JSONResponse(
+        content={"message": f"User role updated to '{new_role}' successfully"},
+        status_code=200
+    )
+
+
+@route2.patch("/users/change-password", tags=["User Management"])
+async def change_password(
+    current_password: str,
+    new_password: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """Change user's own password"""
+    # Verify current password
+    user_from_db = db_client[db.db_name]["user"].find_one({"username": current_user.username})
+    if not user_from_db or not verify_password(current_password, user_from_db["password"]):
+        raise HTTPException(
+            status_code=400,
+            detail="Current password is incorrect"
+        )
+
+    # Validate new password strength (basic validation)
+    if len(new_password) < 6:
+        raise HTTPException(
+            status_code=400,
+            detail="New password must be at least 6 characters long"
+        )
+
+    # Hash and update new password
+    hashed_new_password = get_password_hash(new_password)
+    update_result = db_client[db.db_name]["user"].update_one(
+        {"username": current_user.username},
+        {
+            "$set": {
+                "password": hashed_new_password,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+
+    if update_result.matched_count == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to update password"
+        )
+
+    # Invalidate all active sessions for security
+    db_client[db.db_name]["active_sessions"].delete_many({"username": current_user.username})
+
+    return JSONResponse(
+        content={"message": "Password changed successfully. Please log in again."},
+        status_code=200
+    )
+
+
+@route2.delete("/users/{username}", tags=["User Management"])
+async def delete_user(
+    username: str,
+    permanent: bool = False,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """Delete user (soft delete by default, hard delete if permanent=True)"""
+    # Only admin can delete users
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to delete users"
+        )
+
+    # Find the user to delete
+    user_from_db = db_client[db.db_name]["user"].find_one({"username": username})
+    if not user_from_db:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+
+    # Prevent admin from deleting themselves
+    if username == current_user.username:
+        raise HTTPException(
+            status_code=400,
+            detail="You cannot delete your own account"
+        )
+
+    # Remove all active sessions
+    db_client[db.db_name]["active_sessions"].delete_many({"username": username})
+
+    if permanent:
+        # Hard delete - remove from database completely
+        delete_result = db_client[db.db_name]["user"].delete_one({"username": username})
+        
+        if delete_result.deleted_count == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to delete user"
+            )
+
+        # Also delete related data
+        db_client[db.db_name]["user_details"].delete_many({"username": username})
+        db_client[db.db_name]["biodata_profiles"].delete_many({"user_id": username})
+        db_client[db.db_name]["password_resets"].delete_many({"email": user_from_db.get("email")})
+
+        return JSONResponse(
+            content={"message": f"User '{username}' permanently deleted"},
+            status_code=200
+        )
+    else:
+        # Soft delete - mark as inactive and add deletion timestamp
+        update_result = db_client[db.db_name]["user"].update_one(
+            {"username": username},
+            {
+                "$set": {
+                    "is_active": False,
+                    "deleted_at": datetime.utcnow(),
+                    "deleted_by": current_user.username,
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+
+        if update_result.matched_count == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Failed to delete user"
+            )
+
+        return JSONResponse(
+            content={"message": f"User '{username}' soft deleted (deactivated)"},
+            status_code=200
+        )
+
+
+@route2.post("/users/{username}/restore", tags=["User Management"])
+async def restore_user(
+    username: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """Restore soft-deleted user (admin only)"""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to restore users"
+        )
+
+    # Find the soft-deleted user
+    user_from_db = db_client[db.db_name]["user"].find_one({
+        "username": username,
+        "deleted_at": {"$exists": True}
+    })
+    
+    if not user_from_db:
+        raise HTTPException(
+            status_code=404,
+            detail="Deleted user not found"
+        )
+
+    # Restore the user
+    update_result = db_client[db.db_name]["user"].update_one(
+        {"username": username},
+        {
+            "$set": {
+                "is_active": True,
+                "restored_at": datetime.utcnow(),
+                "restored_by": current_user.username,
+                "updated_at": datetime.utcnow()
+            },
+            "$unset": {
+                "deleted_at": "",
+                "deleted_by": ""
+            }
+        }
+    )
+
+    if update_result.matched_count == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Failed to restore user"
+        )
+
+    return JSONResponse(
+        content={"message": f"User '{username}' restored successfully"},
+        status_code=200
+    )
+
+
+@route2.get("/users/deleted", response_model=List[User], tags=["User Management"])
+async def get_deleted_users(
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """Get list of soft-deleted users (admin only)"""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to view deleted users"
+        )
+
+    # Find all soft-deleted users
+    deleted_users = list(db_client[db.db_name]["user"].find(
+        {"deleted_at": {"$exists": True}},
+        {"password": 0}  # Exclude password field
+    ))
+
+    # Convert ObjectId to string
+    for user in deleted_users:
+        user["_id"] = str(user["_id"])
+
+    return deleted_users
+
+
 @route2.put("/users/details", response_model=UserDetails, tags=["User Details"])
 async def add_or_update_user_details(
     user_details: UserDetails, 

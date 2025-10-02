@@ -164,8 +164,6 @@ def _normalize_news(doc: Dict[str, Any], db_client: MongoClient) -> Dict[str, An
         doc["meta_title"] = doc.get("title", "")
     if not doc.get("meta_description"):
         doc["meta_description"] = _extract_meta_description(doc.get("content", ""))
-    if not doc.get("language"):
-        doc["language"] = "hi"
     if not doc.get("keywords"):
         doc["keywords"] = _extract_keywords(
             doc.get("title", ""), 
@@ -228,7 +226,6 @@ async def create_news(
         "slug": _generate_seo_slug(title, news_id),
         "meta_title": title[:60] if len(title) > 60 else title,  # SEO optimal length
         "meta_description": _extract_meta_description(content),
-        "language": "hi",  # Default to Hindi
         "keywords": _extract_keywords(title, content, categories)
     }
     

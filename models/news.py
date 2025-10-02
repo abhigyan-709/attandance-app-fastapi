@@ -42,7 +42,6 @@ class NewsPost(BaseModel):
     slug: Optional[str] = None                              # Auto-generated if not provided
     meta_title: Optional[str] = None                        # Defaults to title
     meta_description: Optional[str] = None                  # Auto-extracted from content
-    language: Optional[str] = Field(default="hi")          # Default language
     keywords: Optional[List[str]] = Field(default_factory=list)  # SEO keywords
 
 
