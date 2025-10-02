@@ -501,6 +501,757 @@ async def update_partner_preferences(
     
     return JSONResponse(content={"message": "Partner preferences updated successfully"})
 
+@biodata_router.patch("/biodata/{profile_id}/physical", tags=["Biodata"])
+async def update_physical_attributes(
+    profile_id: str,
+    physical: PhysicalAttributes,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Update physical attributes section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check permission
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$set": {
+                "physical": physical.dict(),
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    return JSONResponse(content={"message": "Physical attributes updated successfully"})
+
+@biodata_router.patch("/biodata/{profile_id}/lifestyle", tags=["Biodata"])
+async def update_lifestyle(
+    profile_id: str,
+    lifestyle: Lifestyle,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Update lifestyle section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check permission
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$set": {
+                "lifestyle": lifestyle.dict(),
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    return JSONResponse(content={"message": "Lifestyle updated successfully"})
+
+@biodata_router.patch("/biodata/{profile_id}/horoscope", tags=["Biodata"])
+async def update_horoscope(
+    profile_id: str,
+    horoscope: Horoscope,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Update horoscope section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check permission
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    # Convert date objects to strings for MongoDB storage
+    horoscope_data = horoscope.dict()
+    if "date_of_birth" in horoscope_data and isinstance(horoscope_data["date_of_birth"], date):
+        horoscope_data["date_of_birth"] = horoscope_data["date_of_birth"].isoformat()
+    
+    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$set": {
+                "horoscope": horoscope_data,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    return JSONResponse(content={"message": "Horoscope updated successfully"})
+
+@biodata_router.patch("/biodata/{profile_id}/languages", tags=["Biodata"])
+async def update_languages(
+    profile_id: str,
+    languages: Languages,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Update languages section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check permission
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$set": {
+                "languages": languages.dict(),
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    return JSONResponse(content={"message": "Languages updated successfully"})
+
+# ------------------------- Enhanced Photo Management -------------------------
+
+@biodata_router.get("/biodata/{profile_id}/photos", tags=["Biodata"])
+async def get_biodata_photos(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get all photos for a biodata profile"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
+        {"_id": ObjectId(profile_id)}, 
+        {"photos": 1}
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    return {"photos": profile.get("photos", [])}
+
+@biodata_router.patch("/biodata/{profile_id}/photos/{photo_index}", tags=["Biodata"])
+async def update_biodata_photo(
+    profile_id: str,
+    photo_index: int,
+    caption: Optional[str] = Form(None),
+    is_primary: Optional[bool] = Form(None),
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Update photo metadata (caption, primary status)"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check permission
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    photos = profile.get("photos", [])
+    if photo_index >= len(photos) or photo_index < 0:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    
+    update_fields = {}
+    if caption is not None:
+        update_fields[f"photos.{photo_index}.caption"] = caption
+    
+    if is_primary is not None:
+        if is_primary:
+            # First, unset all other primary photos
+            db_client[db.db_name][BIODATA_COLLECTION].update_one(
+                {"_id": ObjectId(profile_id)},
+                {"$set": {"photos.$[].is_primary": False}}
+            )
+        update_fields[f"photos.{photo_index}.is_primary"] = is_primary
+    
+    if update_fields:
+        update_fields["updated_at"] = datetime.utcnow()
+        db_client[db.db_name][BIODATA_COLLECTION].update_one(
+            {"_id": ObjectId(profile_id)},
+            {"$set": update_fields}
+        )
+    
+    return JSONResponse(content={"message": "Photo updated successfully"})
+
+@biodata_router.post("/biodata/{profile_id}/photos/replace/{photo_index}", tags=["Biodata"])
+async def replace_biodata_photo(
+    profile_id: str,
+    photo_index: int,
+    file: UploadFile = File(...),
+    caption: Optional[str] = Form(None),
+    is_primary: Optional[bool] = Form(None),
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Replace an existing photo with a new one"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check permission
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    photos = profile.get("photos", [])
+    if photo_index >= len(photos) or photo_index < 0:
+        raise HTTPException(status_code=404, detail="Photo not found")
+    
+    # Validate file type
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Only image files are allowed")
+    
+    # Delete old photo from S3
+    old_photo_url = photos[photo_index].get("url")
+    if old_photo_url:
+        _delete_from_s3(old_photo_url)
+    
+    # Upload new photo to S3
+    new_image_url = _upload_to_s3(file, f"biodata/{profile_id}")
+    
+    # Update photo data
+    new_photo_data = {
+        "url": new_image_url,
+        "caption": caption if caption is not None else photos[photo_index].get("caption"),
+        "is_primary": is_primary if is_primary is not None else photos[photo_index].get("is_primary", False),
+        "uploaded_at": datetime.utcnow()
+    }
+    
+    # If this is primary, unset other primary photos
+    if new_photo_data["is_primary"]:
+        db_client[db.db_name][BIODATA_COLLECTION].update_one(
+            {"_id": ObjectId(profile_id)},
+            {"$set": {"photos.$[].is_primary": False}}
+        )
+    
+    # Replace photo in array
+    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$set": {
+                f"photos.{photo_index}": new_photo_data,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    return JSONResponse(content={
+        "message": "Photo replaced successfully",
+        "photo": new_photo_data
+    }, status_code=200)
+
+@biodata_router.patch("/biodata/{profile_id}/photos/reorder", tags=["Biodata"])
+async def reorder_biodata_photos(
+    profile_id: str,
+    photo_order: List[int] = Body(..., description="New order of photo indices"),
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Reorder photos in the profile"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check permission
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    photos = profile.get("photos", [])
+    
+    # Validate photo_order
+    if len(photo_order) != len(photos):
+        raise HTTPException(status_code=400, detail="Photo order length must match current photos count")
+    
+    if set(photo_order) != set(range(len(photos))):
+        raise HTTPException(status_code=400, detail="Invalid photo order indices")
+    
+    # Reorder photos
+    reordered_photos = [photos[i] for i in photo_order]
+    
+    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$set": {
+                "photos": reordered_photos,
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    return JSONResponse(content={"message": "Photos reordered successfully"})
+
+# ------------------------- Get Individual Sections -------------------------
+
+@biodata_router.get("/biodata/{profile_id}/contact", response_model=ContactInfo, tags=["Biodata"])
+async def get_contact_info(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get contact information section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
+        {"_id": ObjectId(profile_id)}, 
+        {"contact": 1}
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    contact_info = profile.get("contact")
+    if not contact_info:
+        raise HTTPException(status_code=404, detail="Contact information not found")
+    
+    return contact_info
+
+@biodata_router.get("/biodata/{profile_id}/education", response_model=Education, tags=["Biodata"])
+async def get_education_info(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get education information section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
+        {"_id": ObjectId(profile_id)}, 
+        {"education": 1}
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    education_info = profile.get("education")
+    if not education_info:
+        raise HTTPException(status_code=404, detail="Education information not found")
+    
+    return education_info
+
+@biodata_router.get("/biodata/{profile_id}/occupation", response_model=Occupation, tags=["Biodata"])
+async def get_occupation_info(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get occupation information section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
+        {"_id": ObjectId(profile_id)}, 
+        {"occupation": 1}
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    occupation_info = profile.get("occupation")
+    if not occupation_info:
+        raise HTTPException(status_code=404, detail="Occupation information not found")
+    
+    return occupation_info
+
+@biodata_router.get("/biodata/{profile_id}/family", response_model=FamilyDetails, tags=["Biodata"])
+async def get_family_details(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get family details section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
+        {"_id": ObjectId(profile_id)}, 
+        {"family": 1}
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    family_info = profile.get("family")
+    if not family_info:
+        raise HTTPException(status_code=404, detail="Family details not found")
+    
+    return family_info
+
+@biodata_router.get("/biodata/{profile_id}/physical", response_model=PhysicalAttributes, tags=["Biodata"])
+async def get_physical_attributes(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get physical attributes section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
+        {"_id": ObjectId(profile_id)}, 
+        {"physical": 1}
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    physical_info = profile.get("physical")
+    if not physical_info:
+        raise HTTPException(status_code=404, detail="Physical attributes not found")
+    
+    return physical_info
+
+@biodata_router.get("/biodata/{profile_id}/lifestyle", response_model=Lifestyle, tags=["Biodata"])
+async def get_lifestyle(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get lifestyle section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
+        {"_id": ObjectId(profile_id)}, 
+        {"lifestyle": 1}
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    lifestyle_info = profile.get("lifestyle")
+    if not lifestyle_info:
+        raise HTTPException(status_code=404, detail="Lifestyle information not found")
+    
+    return lifestyle_info
+
+@biodata_router.get("/biodata/{profile_id}/horoscope", response_model=Horoscope, tags=["Biodata"])
+async def get_horoscope(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get horoscope section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
+        {"_id": ObjectId(profile_id)}, 
+        {"horoscope": 1}
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    horoscope_info = profile.get("horoscope")
+    if not horoscope_info:
+        raise HTTPException(status_code=404, detail="Horoscope information not found")
+    
+    # Convert date string back to date object if needed
+    if "date_of_birth" in horoscope_info and isinstance(horoscope_info["date_of_birth"], str):
+        try:
+            horoscope_info["date_of_birth"] = datetime.fromisoformat(horoscope_info["date_of_birth"]).date()
+        except:
+            pass
+    
+    return horoscope_info
+
+@biodata_router.get("/biodata/{profile_id}/languages", response_model=Languages, tags=["Biodata"])
+async def get_languages(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get languages section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
+        {"_id": ObjectId(profile_id)}, 
+        {"languages": 1}
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    languages_info = profile.get("languages")
+    if not languages_info:
+        raise HTTPException(status_code=404, detail="Languages information not found")
+    
+    return languages_info
+
+@biodata_router.get("/biodata/{profile_id}/partner-preferences", response_model=PartnerPreferences, tags=["Biodata"])
+async def get_partner_preferences(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get partner preferences section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
+        {"_id": ObjectId(profile_id)}, 
+        {"partner_preferences": 1}
+    )
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    preferences_info = profile.get("partner_preferences")
+    if not preferences_info:
+        raise HTTPException(status_code=404, detail="Partner preferences not found")
+    
+    return preferences_info
+
+# ------------------------- Delete Individual Sections -------------------------
+
+@biodata_router.delete("/biodata/{profile_id}/contact", tags=["Biodata"])
+async def delete_contact_info(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Delete contact information section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check permission
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$unset": {"contact": ""},
+            "$set": {"updated_at": datetime.utcnow()}
+        }
+    )
+    
+    return JSONResponse(content={"message": "Contact information deleted successfully"})
+
+@biodata_router.delete("/biodata/{profile_id}/education", tags=["Biodata"])
+async def delete_education_info(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Delete education information section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check permission
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$unset": {"education": ""},
+            "$set": {"updated_at": datetime.utcnow()}
+        }
+    )
+    
+    return JSONResponse(content={"message": "Education information deleted successfully"})
+
+@biodata_router.delete("/biodata/{profile_id}/occupation", tags=["Biodata"])
+async def delete_occupation_info(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Delete occupation information section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check permission
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$unset": {"occupation": ""},
+            "$set": {"updated_at": datetime.utcnow()}
+        }
+    )
+    
+    return JSONResponse(content={"message": "Occupation information deleted successfully"})
+
+@biodata_router.delete("/biodata/{profile_id}/physical", tags=["Biodata"])
+async def delete_physical_attributes(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Delete physical attributes section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check permission
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$unset": {"physical": ""},
+            "$set": {"updated_at": datetime.utcnow()}
+        }
+    )
+    
+    return JSONResponse(content={"message": "Physical attributes deleted successfully"})
+
+@biodata_router.delete("/biodata/{profile_id}/lifestyle", tags=["Biodata"])
+async def delete_lifestyle(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Delete lifestyle section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check permission
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$unset": {"lifestyle": ""},
+            "$set": {"updated_at": datetime.utcnow()}
+        }
+    )
+    
+    return JSONResponse(content={"message": "Lifestyle information deleted successfully"})
+
+@biodata_router.delete("/biodata/{profile_id}/horoscope", tags=["Biodata"])
+async def delete_horoscope(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Delete horoscope section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check permission
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$unset": {"horoscope": ""},
+            "$set": {"updated_at": datetime.utcnow()}
+        }
+    )
+    
+    return JSONResponse(content={"message": "Horoscope information deleted successfully"})
+
+@biodata_router.delete("/biodata/{profile_id}/languages", tags=["Biodata"])
+async def delete_languages(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Delete languages section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check permission
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$unset": {"languages": ""},
+            "$set": {"updated_at": datetime.utcnow()}
+        }
+    )
+    
+    return JSONResponse(content={"message": "Languages information deleted successfully"})
+
+@biodata_router.delete("/biodata/{profile_id}/partner-preferences", tags=["Biodata"])
+async def delete_partner_preferences(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Delete partner preferences section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check permission
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$unset": {"partner_preferences": ""},
+            "$set": {"updated_at": datetime.utcnow()}
+        }
+    )
+    
+    return JSONResponse(content={"message": "Partner preferences deleted successfully"})
+
 # ------------------------- Delete Photo -------------------------
 
 @biodata_router.delete("/biodata/{profile_id}/photos/{photo_index}", tags=["Biodata"])
