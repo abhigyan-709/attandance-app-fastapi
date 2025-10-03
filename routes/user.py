@@ -1,13 +1,13 @@
 # routes/user.py
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, File, UploadFile, Form
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 # ✅ Use JOSE consistently (you already do elsewhere)
 from jose import jwt
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from database.db import db
-from models.user import User
+from models.user import User, UserProfileUpdate
 from models.token import Token
 from typing import Union, List
 import secrets
@@ -21,6 +21,10 @@ from datetime import datetime, timedelta
 import pytz
 import requests
 import base64
+import boto3
+from botocore.exceptions import ClientError
+import logging
+import uuid
 
 # ✅ import the shared values/functions
 from authentication.auth import (
@@ -31,6 +35,22 @@ from authentication.auth import (
     verify_password,
     create_access_token,  # reuse the same token creator
 )
+
+# S3 Configuration (same as biodata routes)
+from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+
+# AWS S3 Configuration
+AWS_BUCKET_NAME = "projectdevops-blogs-new"
+s3_client = boto3.client(
+    "s3",
+    aws_access_key_id=AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+    region_name=AWS_REGION,
+)
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 route2 = APIRouter()
 
@@ -807,6 +827,230 @@ async def reset_password(token: str, new_password: str, db_client: MongoClient =
     except jwt.PyJWTError:
         raise HTTPException(status_code=400, detail="Invalid token")
 
+
+@route2.patch("/users/profile", response_model=User, tags=["User Profile"])
+async def update_user_profile(
+    profile_update: UserProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """Update current user's profile information"""
+    
+    # Prepare update data - only include non-None fields
+    update_data = {}
+    
+    for field, value in profile_update.model_dump(exclude_unset=True).items():
+        if value is not None:
+            # Special handling for email uniqueness
+            if field == "email" and value != current_user.email:
+                existing_user = db_client[db.db_name]["user"].find_one({"email": value})
+                if existing_user and existing_user["username"] != current_user.username:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Email is already registered to another user"
+                    )
+            
+            update_data[field] = value
+    
+    # If no fields to update, return current user
+    if not update_data:
+        raise HTTPException(
+            status_code=400,
+            detail="No valid fields provided for update"
+        )
+    
+    # Add updated timestamp
+    update_data["updated_at"] = datetime.utcnow()
+    
+    # Perform the update
+    update_result = db_client[db.db_name]["user"].update_one(
+        {"username": current_user.username},
+        {"$set": update_data}
+    )
+    
+    if update_result.matched_count == 0:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found"
+        )
+    
+    # Fetch and return updated user
+    updated_user = db_client[db.db_name]["user"].find_one({"username": current_user.username})
+    if not updated_user:
+        raise HTTPException(status_code=404, detail="User not found after update")
+    
+    # Convert ObjectId to string and remove password from response
+    updated_user["_id"] = str(updated_user["_id"])
+    updated_user.pop("password", None)  # Remove password from response
+    
+    return JSONResponse(
+        content={
+            "message": "Profile updated successfully",
+            "user": updated_user
+        },
+        status_code=200
+    )
+
+
+@route2.get("/users/profile", response_model=User, tags=["User Profile"])
+async def get_user_profile(
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """Get current user's complete profile information"""
+    
+    # Fetch user from database to get latest data including new fields
+    user_from_db = db_client[db.db_name]["user"].find_one({"username": current_user.username})
+    
+    if not user_from_db:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Convert ObjectId to string and remove password
+    user_from_db["_id"] = str(user_from_db["_id"])
+    user_from_db.pop("password", None)
+    
+    return user_from_db
+
+
+@route2.post("/users/profile/upload-picture", tags=["User Profile"])
+async def upload_profile_picture(
+    profile_picture: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """Upload user profile picture to S3 and update user profile"""
+    
+    # Validate file type
+    allowed_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
+    file_extension = '.' + profile_picture.filename.split('.')[-1].lower()
+    
+    if file_extension not in allowed_extensions:
+        raise HTTPException(
+            status_code=400,
+            detail="Only JPG, JPEG, PNG, GIF, and WebP image files are allowed"
+        )
+    
+    # Validate file size (max 5MB)
+    max_file_size = 5 * 1024 * 1024  # 5MB in bytes
+    file_content = await profile_picture.read()
+    
+    if len(file_content) > max_file_size:
+        raise HTTPException(
+            status_code=400,
+            detail="File size too large. Maximum allowed size is 5MB"
+        )
+    
+    try:
+        # Generate unique filename
+        unique_filename = f"profile-pictures/{current_user.username}_{uuid.uuid4()}{file_extension}"
+        
+        # Upload to S3
+        s3_client.put_object(
+            Bucket=AWS_BUCKET_NAME,
+            Key=unique_filename,
+            Body=file_content,
+            ContentType=f"image/{file_extension[1:]}",
+            CacheControl="max-age=31536000",  # Cache for 1 year
+            ACL="public-read"  # Make image publicly accessible
+        )
+        
+        # Generate S3 URL
+        profile_picture_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"
+        
+        # Get current user's old profile picture URL to delete later
+        user_from_db = db_client[db.db_name]["user"].find_one({"username": current_user.username})
+        old_profile_picture_url = user_from_db.get("profile_picture_url")
+        
+        # Update user profile with new picture URL
+        update_result = db_client[db.db_name]["user"].update_one(
+            {"username": current_user.username},
+            {
+                "$set": {
+                    "profile_picture_url": profile_picture_url,
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+        
+        if update_result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        # Delete old profile picture from S3 (if exists and not default)
+        if old_profile_picture_url and "profile-pictures/" in old_profile_picture_url:
+            try:
+                old_key = old_profile_picture_url.split(f"{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/")[1]
+                s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=old_key)
+                logger.info(f"Deleted old profile picture: {old_key}")
+            except Exception as e:
+                logger.warning(f"Failed to delete old profile picture: {e}")
+        
+        return JSONResponse(
+            content={
+                "message": "Profile picture uploaded successfully",
+                "profile_picture_url": profile_picture_url
+            },
+            status_code=200
+        )
+        
+    except ClientError as e:
+        logger.error(f"S3 upload error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload profile picture")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+
+
+@route2.delete("/users/profile/delete-picture", tags=["User Profile"])
+async def delete_profile_picture(
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """Delete user's profile picture from S3 and update profile"""
+    
+    # Get current user's profile picture URL
+    user_from_db = db_client[db.db_name]["user"].find_one({"username": current_user.username})
+    if not user_from_db:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    profile_picture_url = user_from_db.get("profile_picture_url")
+    
+    if not profile_picture_url:
+        raise HTTPException(status_code=400, detail="No profile picture to delete")
+    
+    # Only delete if it's stored in our S3 bucket
+    if "profile-pictures/" not in profile_picture_url:
+        raise HTTPException(status_code=400, detail="Cannot delete external profile picture")
+    
+    try:
+        # Extract S3 key from URL
+        s3_key = profile_picture_url.split(f"{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/")[1]
+        
+        # Delete from S3
+        s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=s3_key)
+        
+        # Remove profile picture URL from user document
+        update_result = db_client[db.db_name]["user"].update_one(
+            {"username": current_user.username},
+            {
+                "$unset": {"profile_picture_url": ""},
+                "$set": {"updated_at": datetime.utcnow()}
+            }
+        )
+        
+        if update_result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        return JSONResponse(
+            content={"message": "Profile picture deleted successfully"},
+            status_code=200
+        )
+        
+    except ClientError as e:
+        logger.error(f"S3 delete error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete profile picture")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred")
 
 
 @route2.post("/migrate-users", tags=["User Management"])
