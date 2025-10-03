@@ -883,6 +883,12 @@ async def update_user_profile(
     updated_user["_id"] = str(updated_user["_id"])
     updated_user.pop("password", None)  # Remove password from response
     
+    # 🔧 FIX: Convert datetime objects to ISO format strings for JSON serialization
+    if "created_at" in updated_user and updated_user["created_at"]:
+        updated_user["created_at"] = updated_user["created_at"].isoformat()
+    if "updated_at" in updated_user and updated_user["updated_at"]:
+        updated_user["updated_at"] = updated_user["updated_at"].isoformat()
+    
     return JSONResponse(
         content={
             "message": "Profile updated successfully",
