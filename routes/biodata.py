@@ -3,6 +3,7 @@ import uuid
 import logging
 from datetime import datetime, date
 from typing import List, Optional, Dict, Any
+from enum import Enum
 from bson import ObjectId
 from fastapi import (
     APIRouter,
@@ -78,6 +79,24 @@ BIODATA_COLLECTION = "biodata_profiles"
 
 # ------------------------- Helper Functions -------------------------
 
+def _serialize_for_mongodb(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert Pydantic model data to MongoDB-compatible format"""
+    def convert_value(value):
+        if isinstance(value, Enum):
+            return value.value  # Convert enum to its string value
+        elif isinstance(value, date):
+            return value.isoformat()  # Convert date to ISO string
+        elif isinstance(value, datetime):
+            return value  # Keep datetime as-is (MongoDB supports it)
+        elif isinstance(value, dict):
+            return {k: convert_value(v) for k, v in value.items()}
+        elif isinstance(value, list):
+            return [convert_value(item) for item in value]
+        else:
+            return value
+    
+    return {k: convert_value(v) for k, v in data.items()}
+
 def _normalize_biodata(doc: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize biodata document for response"""
     if "_id" in doc:
@@ -89,6 +108,11 @@ def _normalize_biodata(doc: Dict[str, Any]) -> Dict[str, Any]:
             doc["dob"] = datetime.fromisoformat(doc["dob"]).date()
         except:
             pass
+    
+    # Convert datetime objects to ISO strings for JSON response
+    for key in ["created_at", "updated_at", "verified_at", "last_activity"]:
+        if key in doc and isinstance(doc[key], datetime):
+            doc[key] = doc[key].isoformat()
     
     return doc
 
@@ -143,16 +167,17 @@ async def create_biodata_profile(
     db_client: MongoClient = Depends(db.get_client),
 ):
     """Create a new biodata profile"""
-    # Add user association
-    profile_dict = profile.dict(by_alias=True, exclude={"id"})
+    # Convert Pydantic model to dict and serialize for MongoDB
+    profile_dict = profile.model_dump(by_alias=True, exclude={"id"})
+    
+    # Add user metadata
     profile_dict["user_id"] = current_user.username  # Link to user
     profile_dict["created_by"] = current_user.username
     profile_dict["created_at"] = datetime.utcnow()
     profile_dict["updated_at"] = datetime.utcnow()
     
-    # Convert date objects to strings for MongoDB storage
-    if "dob" in profile_dict and isinstance(profile_dict["dob"], date):
-        profile_dict["dob"] = profile_dict["dob"].isoformat()
+    # 🔧 FIX: Serialize enums and dates for MongoDB compatibility
+    profile_dict = _serialize_for_mongodb(profile_dict)
     
     try:
         result = db_client[db.db_name][BIODATA_COLLECTION].insert_one(profile_dict)
@@ -285,7 +310,21 @@ async def get_biodata_profiles(
         logger.error(f"Failed to fetch profiles: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch profiles")
 
-# ------------------------- Get Single Biodata Profile -------------------------
+# ------------------------- Get My Biodata Profile (SPECIFIC ROUTE FIRST) -------------------------
+
+@biodata_router.get("/biodata/my/profile", response_model=CandidateProfile, tags=["Biodata"])
+async def get_my_biodata_profile(
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get current user's biodata profile"""
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"user_id": current_user.username})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    return _normalize_biodata(profile)
+
+# ------------------------- Get Single Biodata Profile (GENERIC ROUTE LAST) -------------------------
 
 @biodata_router.get("/biodata/{profile_id}", response_model=CandidateProfile, tags=["Biodata"])
 async def get_biodata_profile(
@@ -298,20 +337,6 @@ async def get_biodata_profile(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
-    if not profile:
-        raise HTTPException(status_code=404, detail="Profile not found")
-    
-    return _normalize_biodata(profile)
-
-# ------------------------- Get My Biodata Profile -------------------------
-
-@biodata_router.get("/biodata/my/profile", response_model=CandidateProfile, tags=["Biodata"])
-async def get_my_biodata_profile(
-    current_user: User = Depends(get_current_user),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    """Get current user's biodata profile"""
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"user_id": current_user.username})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -339,15 +364,14 @@ async def update_biodata_profile(
         raise HTTPException(status_code=403, detail="Permission denied")
     
     # Prepare update data
-    update_data = updated_profile.dict(
+    update_data = updated_profile.model_dump(
         by_alias=True,
         exclude={"id", "created_at", "user_id", "created_by"}
     )
     update_data["updated_at"] = datetime.utcnow()
     
-    # Convert date objects to strings for MongoDB storage
-    if "dob" in update_data and isinstance(update_data["dob"], date):
-        update_data["dob"] = update_data["dob"].isoformat()
+    # 🔧 FIX: Serialize enums and dates for MongoDB compatibility
+    update_data = _serialize_for_mongodb(update_data)
     
     try:
         db_client[db.db_name][BIODATA_COLLECTION].update_one(
@@ -386,7 +410,7 @@ async def update_contact_info(
         {"_id": ObjectId(profile_id)},
         {
             "$set": {
-                "contact": contact_info.dict(),
+                "contact": _serialize_for_mongodb(contact_info.model_dump()),
                 "updated_at": datetime.utcnow()
             }
         }
@@ -417,7 +441,7 @@ async def update_education_info(
         {"_id": ObjectId(profile_id)},
         {
             "$set": {
-                "education": education.dict(),
+                "education": _serialize_for_mongodb(education.model_dump()),
                 "updated_at": datetime.utcnow()
             }
         }
@@ -448,7 +472,7 @@ async def update_occupation_info(
         {"_id": ObjectId(profile_id)},
         {
             "$set": {
-                "occupation": occupation.dict(),
+                "occupation": _serialize_for_mongodb(occupation.model_dump()),
                 "updated_at": datetime.utcnow()
             }
         }
@@ -479,7 +503,7 @@ async def update_family_details(
         {"_id": ObjectId(profile_id)},
         {
             "$set": {
-                "family": family.dict(),
+                "family": _serialize_for_mongodb(family.model_dump()),
                 "updated_at": datetime.utcnow()
             }
         }
@@ -510,7 +534,7 @@ async def update_partner_preferences(
         {"_id": ObjectId(profile_id)},
         {
             "$set": {
-                "partner_preferences": preferences.dict(),
+                "partner_preferences": _serialize_for_mongodb(preferences.model_dump()),
                 "updated_at": datetime.utcnow()
             }
         }
@@ -541,7 +565,7 @@ async def update_physical_attributes(
         {"_id": ObjectId(profile_id)},
         {
             "$set": {
-                "physical": physical.dict(),
+                "physical": _serialize_for_mongodb(physical.model_dump()),
                 "updated_at": datetime.utcnow()
             }
         }
@@ -572,7 +596,7 @@ async def update_lifestyle(
         {"_id": ObjectId(profile_id)},
         {
             "$set": {
-                "lifestyle": lifestyle.dict(),
+                "lifestyle": _serialize_for_mongodb(lifestyle.model_dump()),
                 "updated_at": datetime.utcnow()
             }
         }
@@ -599,10 +623,8 @@ async def update_horoscope(
     if profile.get("user_id") != current_user.username and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Permission denied")
     
-    # Convert date objects to strings for MongoDB storage
-    horoscope_data = horoscope.dict()
-    if "date_of_birth" in horoscope_data and isinstance(horoscope_data["date_of_birth"], date):
-        horoscope_data["date_of_birth"] = horoscope_data["date_of_birth"].isoformat()
+    # Update horoscope information
+    horoscope_data = _serialize_for_mongodb(horoscope.model_dump())
     
     db_client[db.db_name][BIODATA_COLLECTION].update_one(
         {"_id": ObjectId(profile_id)},
@@ -639,7 +661,7 @@ async def update_languages(
         {"_id": ObjectId(profile_id)},
         {
             "$set": {
-                "languages": languages.dict(),
+                "languages": _serialize_for_mongodb(languages.model_dump()),
                 "updated_at": datetime.utcnow()
             }
         }
@@ -1590,7 +1612,7 @@ async def update_detailed_religious_info(
         {"_id": ObjectId(profile_id)},
         {
             "$set": {
-                "detailed_religious_info": religious_info.model_dump(),
+                "detailed_religious_info": _serialize_for_mongodb(religious_info.model_dump()),
                 "updated_at": datetime.utcnow()
             }
         }
@@ -1657,7 +1679,7 @@ async def update_detailed_astrology(
         {"_id": ObjectId(profile_id)},
         {
             "$set": {
-                "detailed_astrology": astrology_info.model_dump(),
+                "detailed_astrology": _serialize_for_mongodb(astrology_info.model_dump()),
                 "updated_at": datetime.utcnow()
             }
         }
@@ -1781,7 +1803,7 @@ async def update_detailed_family_background(
         {"_id": ObjectId(profile_id)},
         {
             "$set": {
-                "detailed_family_background": family_background.model_dump(),
+                "detailed_family_background": _serialize_for_mongodb(family_background.model_dump()),
                 "updated_at": datetime.utcnow()
             }
         }
@@ -1817,7 +1839,7 @@ async def add_extended_family_member(
         {"_id": ObjectId(profile_id)},
         {
             "$push": {
-                "detailed_family_background.extended_family": family_member.model_dump()
+                "detailed_family_background.extended_family": _serialize_for_mongodb(family_member.model_dump())
             },
             "$set": {
                 "updated_at": datetime.utcnow()
@@ -1905,7 +1927,7 @@ async def update_traditional_preferences(
         {"_id": ObjectId(profile_id)},
         {
             "$set": {
-                "traditional_preferences": preferences.model_dump(),
+                "traditional_preferences": _serialize_for_mongodb(preferences.model_dump()),
                 "updated_at": datetime.utcnow()
             }
         }
@@ -1972,7 +1994,7 @@ async def update_marriage_planning(
         {"_id": ObjectId(profile_id)},
         {
             "$set": {
-                "marriage_planning": planning.model_dump(),
+                "marriage_planning": _serialize_for_mongodb(planning.model_dump()),
                 "updated_at": datetime.utcnow()
             }
         }
@@ -2036,7 +2058,7 @@ async def update_verification_documents(
         {"_id": ObjectId(profile_id)},
         {
             "$set": {
-                "verification_documents": documents.model_dump(),
+                "verification_documents": _serialize_for_mongodb(documents.model_dump()),
                 "updated_at": datetime.utcnow()
             }
         }
