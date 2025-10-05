@@ -1,10 +1,11 @@
-# routes/news.py — gtnews18 news API (blogs parity)
+# routes/news.py — gtnews18 news API (blogs parity) + Religious Content Scheduling
 import math
 import os
 import re
 import uuid
 import logging
-from datetime import datetime
+import calendar
+from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, EmailStr, Field
 import boto3
@@ -27,10 +28,16 @@ from fastapi.responses import HTMLResponse
 from pymongo import MongoClient, DESCENDING
 
 from database.db import db
-from models.news import NewsPost, Comment, Category   # <-- use your new models
+from models.news import (
+    NewsPost, Comment, Category, ScheduledContent, ContentTemplate,
+    ReligiousContentType, ScheduleStatus, ZodiacSign, HinduCalendarMonth,
+    ScheduleRequest, ScheduledContentResponse, BulkScheduleRequest, DashboardStats,
+    RashifalContent, PanchangContent, ThisDayHistoryContent, FestivalContent
+)
 from models.user import User
 from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
 from routes.user import get_current_user
+from services.hindu_calendar import hindu_calendar_service
 
 from pydantic import BaseModel, Field
 
@@ -140,6 +147,8 @@ def _should_force_published_only(request: Request, published_param: Optional[boo
 
 NEWS_COLL = "news"
 NEWS_COMMENTS_COLL = "news_comments"  # separate from blogs "comments"
+SCHEDULED_CONTENT_COLL = "scheduled_religious_content"
+CONTENT_TEMPLATES_COLL = "religious_content_templates"
 
 
 def _normalize_news(doc: Dict[str, Any], db_client: MongoClient) -> Dict[str, Any]:
@@ -1218,3 +1227,977 @@ async def get_news_paginated(
             "has_prev": page > 1,
         },
     }
+
+
+# ========================================================================================
+# RELIGIOUS CONTENT SCHEDULING SYSTEM
+# ========================================================================================
+
+def _serialize_for_scheduled_content(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert Pydantic models to MongoDB-compatible format for scheduled content"""
+    if isinstance(data, dict):
+        result = {}
+        for key, value in data.items():
+            if hasattr(value, '__dict__'):  # Pydantic model
+                result[key] = _serialize_for_scheduled_content(value.dict())
+            elif isinstance(value, list):
+                result[key] = [_serialize_for_scheduled_content(item) if isinstance(item, dict) else 
+                              item.dict() if hasattr(item, 'dict') else item for item in value]
+            elif hasattr(value, 'value'):  # Enum
+                result[key] = value.value
+            elif isinstance(value, (datetime, date)):
+                result[key] = value.isoformat()
+            else:
+                result[key] = value
+        return result
+    return data
+
+def _normalize_scheduled_content(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize scheduled content from MongoDB"""
+    doc["_id"] = str(doc["_id"])
+    return doc
+
+
+# ------------------------- Content Templates Management -------------------------
+
+@news_router.post("/religious-content/templates", response_model=ContentTemplate, tags=["Religious Content"])
+async def create_content_template(
+    template: ContentTemplate,
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Create a new content template for recurring religious content"""
+    template_data = _serialize_for_scheduled_content(template.dict(exclude={"id"}))
+    template_data["created_by"] = current_user.username
+    template_data["created_at"] = datetime.utcnow()
+    
+    result = db_client[db.db_name][CONTENT_TEMPLATES_COLL].insert_one(template_data)
+    template_data["_id"] = str(result.inserted_id)
+    
+    return template_data
+
+@news_router.get("/religious-content/templates", response_model=List[ContentTemplate], tags=["Religious Content"])
+async def get_content_templates(
+    content_type: Optional[ReligiousContentType] = Query(None),
+    active_only: bool = Query(True),
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get all content templates, optionally filtered by type"""
+    query = {}
+    if content_type:
+        query["content_type"] = content_type.value
+    if active_only:
+        query["is_active"] = True
+    
+    templates = list(db_client[db.db_name][CONTENT_TEMPLATES_COLL].find(query).sort("created_at", DESCENDING))
+    return [_normalize_scheduled_content(t) for t in templates]
+
+
+# ------------------------- Scheduled Content CRUD -------------------------
+
+@news_router.post("/religious-content/schedule", response_model=ScheduledContent, tags=["Religious Content"])
+async def schedule_religious_content(
+    request: ScheduleRequest,
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Schedule religious content for future publication"""
+    
+    # Create scheduled content document
+    scheduled_data = {
+        "content_type": request.content_type.value,
+        "title": request.title,
+        "content": request.content,
+        "schedule_date": request.schedule_date,
+        "schedule_status": ScheduleStatus.SCHEDULED.value,
+        "author_username": current_user.username,
+        "categories": "धर्म",  # Default religion category
+        "tags": request.tags,
+        "auto_publish": request.auto_publish,
+        "timezone": "Asia/Kolkata",
+        "created_at": datetime.utcnow(),
+        "is_recurring": request.is_recurring,
+        "recurrence_pattern": request.recurrence_pattern,
+        "template_id": request.template_id,
+    }
+    
+    # Add type-specific data
+    if request.rashifal_data:
+        scheduled_data["rashifal_data"] = [_serialize_for_scheduled_content(r.dict()) for r in request.rashifal_data]
+    if request.panchang_data:
+        scheduled_data["panchang_data"] = _serialize_for_scheduled_content(request.panchang_data.dict())
+    if request.history_data:
+        scheduled_data["history_data"] = [_serialize_for_scheduled_content(h.dict()) for h in request.history_data]
+    if request.festival_data:
+        scheduled_data["festival_data"] = _serialize_for_scheduled_content(request.festival_data.dict())
+    
+    # Calculate next schedule date for recurring content
+    if request.is_recurring and request.recurrence_pattern:
+        if request.recurrence_pattern == "daily":
+            scheduled_data["next_schedule_date"] = request.schedule_date + timedelta(days=1)
+        elif request.recurrence_pattern == "weekly":
+            scheduled_data["next_schedule_date"] = request.schedule_date + timedelta(weeks=1)
+        elif request.recurrence_pattern == "monthly":
+            scheduled_data["next_schedule_date"] = request.schedule_date + timedelta(days=30)
+    
+    result = db_client[db.db_name][SCHEDULED_CONTENT_COLL].insert_one(scheduled_data)
+    scheduled_data["_id"] = str(result.inserted_id)
+    
+    return _normalize_scheduled_content(scheduled_data)
+
+@news_router.get("/religious-content/scheduled", response_model=List[ScheduledContentResponse], tags=["Religious Content"])
+async def get_scheduled_content(
+    content_type: Optional[ReligiousContentType] = Query(None),
+    status: Optional[ScheduleStatus] = Query(None),
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get scheduled religious content with filtering"""
+    query = {}
+    
+    if content_type:
+        query["content_type"] = content_type.value
+    if status:
+        query["schedule_status"] = status.value
+    if start_date:
+        query["schedule_date"] = {"$gte": datetime.combine(start_date, datetime.min.time())}
+    if end_date:
+        if "schedule_date" in query:
+            query["schedule_date"]["$lte"] = datetime.combine(end_date, datetime.max.time())
+        else:
+            query["schedule_date"] = {"$lte": datetime.combine(end_date, datetime.max.time())}
+    
+    skip = (page - 1) * limit
+    
+    scheduled_items = list(
+        db_client[db.db_name][SCHEDULED_CONTENT_COLL]
+        .find(query)
+        .sort("schedule_date", 1)
+        .skip(skip)
+        .limit(limit)
+    )
+    
+    return [_normalize_scheduled_content(item) for item in scheduled_items]
+
+@news_router.put("/religious-content/scheduled/{content_id}", response_model=ScheduledContent, tags=["Religious Content"])
+async def update_scheduled_content(
+    content_id: str,
+    request: ScheduleRequest,
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Update scheduled religious content"""
+    if not ObjectId.is_valid(content_id):
+        raise HTTPException(status_code=404, detail="Scheduled content not found")
+    
+    existing = db_client[db.db_name][SCHEDULED_CONTENT_COLL].find_one({"_id": ObjectId(content_id)})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Scheduled content not found")
+    
+    # Check authorization (admin or content author)
+    if current_user.role != "admin" and existing.get("author_username") != current_user.username:
+        raise HTTPException(status_code=403, detail="Not authorized to update this content")
+    
+    update_data = _serialize_for_scheduled_content(request.dict())
+    update_data["updated_at"] = datetime.utcnow()
+    
+    db_client[db.db_name][SCHEDULED_CONTENT_COLL].update_one(
+        {"_id": ObjectId(content_id)},
+        {"$set": update_data}
+    )
+    
+    updated = db_client[db.db_name][SCHEDULED_CONTENT_COLL].find_one({"_id": ObjectId(content_id)})
+    return _normalize_scheduled_content(updated)
+
+@news_router.delete("/religious-content/scheduled/{content_id}", tags=["Religious Content"])
+async def delete_scheduled_content(
+    content_id: str,
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Delete scheduled religious content"""
+    if not ObjectId.is_valid(content_id):
+        raise HTTPException(status_code=404, detail="Scheduled content not found")
+    
+    existing = db_client[db.db_name][SCHEDULED_CONTENT_COLL].find_one({"_id": ObjectId(content_id)})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Scheduled content not found")
+    
+    # Check authorization
+    if current_user.role != "admin" and existing.get("author_username") != current_user.username:
+        raise HTTPException(status_code=403, detail="Not authorized to delete this content")
+    
+    db_client[db.db_name][SCHEDULED_CONTENT_COLL].delete_one({"_id": ObjectId(content_id)})
+    return {"message": "Scheduled content deleted successfully"}
+
+
+# ------------------------- Bulk Scheduling -------------------------
+
+@news_router.post("/religious-content/bulk-schedule", tags=["Religious Content"])
+async def bulk_schedule_content(
+    request: BulkScheduleRequest,
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Bulk schedule content for multiple dates (useful for daily rashifal, panchang)"""
+    
+    # Get template if provided
+    template = None
+    if request.template_id:
+        if ObjectId.is_valid(request.template_id):
+            template = db_client[db.db_name][CONTENT_TEMPLATES_COLL].find_one({"_id": ObjectId(request.template_id)})
+    
+    if request.template_id and not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+    scheduled_items = []
+    current_date = request.start_date
+    
+    while current_date <= request.end_date:
+        # Create schedule datetime
+        schedule_time_parts = request.schedule_time.split(":")
+        schedule_datetime = datetime.combine(
+            current_date,
+            datetime.min.time().replace(
+                hour=int(schedule_time_parts[0]),
+                minute=int(schedule_time_parts[1]) if len(schedule_time_parts) > 1 else 0
+            )
+        )
+        
+        # Generate content from template or use default title
+        if template:
+            title = template["template_content"].replace("{{date}}", current_date.strftime("%d %B %Y"))
+            content = template["template_content"]
+        else:
+            title = f"{request.content_type.value.title()} - {current_date.strftime('%d %B %Y')}"
+            content = f"Content for {current_date.strftime('%d %B %Y')}"
+        
+        scheduled_data = {
+            "content_type": request.content_type.value,
+            "title": title,
+            "content": content,
+            "schedule_date": schedule_datetime,
+            "schedule_status": ScheduleStatus.SCHEDULED.value,
+            "author_username": current_user.username,
+            "categories": "धर्म",
+            "tags": request.tags,
+            "auto_publish": True,
+            "timezone": "Asia/Kolkata",
+            "created_at": datetime.utcnow(),
+            "is_recurring": False,
+            "template_id": request.template_id,
+        }
+        
+        scheduled_items.append(scheduled_data)
+        current_date += timedelta(days=1)
+    
+    # Bulk insert
+    if scheduled_items:
+        result = db_client[db.db_name][SCHEDULED_CONTENT_COLL].insert_many(scheduled_items)
+        return {
+            "message": f"Successfully scheduled {len(scheduled_items)} items",
+            "scheduled_count": len(scheduled_items),
+            "scheduled_ids": [str(id) for id in result.inserted_ids]
+        }
+    
+    return {"message": "No items to schedule", "scheduled_count": 0}
+
+
+# ------------------------- Publishing System -------------------------
+
+@news_router.post("/religious-content/publish/{content_id}", tags=["Religious Content"])
+async def publish_scheduled_content(
+    content_id: str,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Manually publish scheduled religious content"""
+    if not ObjectId.is_valid(content_id):
+        raise HTTPException(status_code=404, detail="Scheduled content not found")
+    
+    scheduled = db_client[db.db_name][SCHEDULED_CONTENT_COLL].find_one({"_id": ObjectId(content_id)})
+    if not scheduled:
+        raise HTTPException(status_code=404, detail="Scheduled content not found")
+    
+    # Convert scheduled content to regular news post
+    news_data = {
+        "title": scheduled["title"],
+        "content": scheduled["content"],
+        "author_username": scheduled["author_username"],
+        "categories": scheduled.get("categories", "धर्म"),
+        "tags": scheduled.get("tags", []),
+        "published": True,
+        "created_at": datetime.utcnow(),
+        "updated_at": datetime.utcnow(),
+        "views": 0,
+        "viewed_ips": [],
+        "likes": 0,
+        "liked_ips": [],
+        "content_type": scheduled.get("content_type"),
+        "schedule_date": scheduled.get("schedule_date"),
+        "schedule_status": ScheduleStatus.PUBLISHED.value,
+    }
+    
+    # Add religious-specific data
+    if "rashifal_data" in scheduled:
+        news_data["rashifal_data"] = scheduled["rashifal_data"]
+    if "panchang_data" in scheduled:
+        news_data["panchang_data"] = scheduled["panchang_data"]
+    
+    # Generate SEO data
+    news_data["slug"] = _generate_seo_slug(scheduled["title"], "")
+    news_data["meta_title"] = scheduled["title"]
+    news_data["meta_description"] = _extract_meta_description(scheduled["content"])
+    news_data["keywords"] = _extract_keywords(scheduled["title"], scheduled["content"], scheduled.get("categories", ""))
+    
+    # Insert into news collection
+    result = db_client[db.db_name][NEWS_COLL].insert_one(news_data)
+    news_id = str(result.inserted_id)
+    
+    # Update SEO slug with actual ID
+    news_data["slug"] = _generate_seo_slug(scheduled["title"], news_id)
+    db_client[db.db_name][NEWS_COLL].update_one(
+        {"_id": ObjectId(news_id)},
+        {"$set": {"slug": news_data["slug"]}}
+    )
+    
+    # Update scheduled content status
+    db_client[db.db_name][SCHEDULED_CONTENT_COLL].update_one(
+        {"_id": ObjectId(content_id)},
+        {"$set": {
+            "schedule_status": ScheduleStatus.PUBLISHED.value,
+            "published_at": datetime.utcnow(),
+            "published_news_id": news_id
+        }}
+    )
+    
+    # Send notifications
+    if background_tasks:
+        canonical_url = f"{NEWS_BASE_URL}/news/{news_data['slug']}"
+        background_tasks.add_task(_notify_new_blog_async, scheduled["title"], canonical_url)
+    
+    return {
+        "message": "Content published successfully",
+        "news_id": news_id,
+        "url": f"{NEWS_BASE_URL}/news/{news_data['slug']}"
+    }
+
+
+# ------------------------- Admin Dashboard -------------------------
+
+@news_router.get("/religious-content/dashboard", response_model=DashboardStats, tags=["Religious Content"])
+async def get_religious_content_dashboard(
+    current_user: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get dashboard statistics for religious content management"""
+    
+    # Basic counts
+    total_scheduled = db_client[db.db_name][SCHEDULED_CONTENT_COLL].count_documents({})
+    
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    today_end = today_start + timedelta(days=1)
+    
+    published_today = db_client[db.db_name][SCHEDULED_CONTENT_COLL].count_documents({
+        "schedule_status": ScheduleStatus.PUBLISHED.value,
+        "published_at": {"$gte": today_start, "$lt": today_end}
+    })
+    
+    pending_approval = db_client[db.db_name][SCHEDULED_CONTENT_COLL].count_documents({
+        "schedule_status": ScheduleStatus.SCHEDULED.value,
+        "schedule_date": {"$lte": datetime.utcnow()}
+    })
+    
+    failed_publications = db_client[db.db_name][SCHEDULED_CONTENT_COLL].count_documents({
+        "schedule_status": ScheduleStatus.EXPIRED.value
+    })
+    
+    # Content type breakdown
+    pipeline = [
+        {"$group": {"_id": "$content_type", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]
+    content_breakdown = list(db_client[db.db_name][SCHEDULED_CONTENT_COLL].aggregate(pipeline))
+    content_type_breakdown = {item["_id"]: item["count"] for item in content_breakdown}
+    
+    # Upcoming schedules (next 7 days)
+    next_week = datetime.utcnow() + timedelta(days=7)
+    upcoming = list(
+        db_client[db.db_name][SCHEDULED_CONTENT_COLL]
+        .find({
+            "schedule_status": ScheduleStatus.SCHEDULED.value,
+            "schedule_date": {"$gte": datetime.utcnow(), "$lte": next_week}
+        })
+        .sort("schedule_date", 1)
+        .limit(10)
+    )
+    
+    upcoming_schedules = [_normalize_scheduled_content(item) for item in upcoming]
+    
+    return {
+        "total_scheduled": total_scheduled,
+        "published_today": published_today,
+        "pending_approval": pending_approval,
+        "failed_publications": failed_publications,
+        "content_type_breakdown": content_type_breakdown,
+        "upcoming_schedules": upcoming_schedules
+    }
+
+
+# ------------------------- Hindu Calendar Integration -------------------------
+
+@news_router.get("/religious-content/calendar/festivals", tags=["Religious Content"])
+async def get_hindu_festivals(
+    month: Optional[int] = Query(None, ge=1, le=12),
+    year: Optional[int] = Query(None, ge=2024, le=2030),
+    current_user: User = Depends(get_current_author_or_admin_user),
+):
+    """Get Hindu festivals for scheduling content around important dates"""
+    
+    current_year = year or datetime.now().year
+    
+    if month:
+        festivals = hindu_calendar_service.get_festivals_for_month(month, current_year)
+        return {"month": month, "year": current_year, "festivals": festivals}
+    else:
+        all_festivals = hindu_calendar_service.get_festivals_for_year(current_year)
+        return {"year": current_year, "festivals_by_month": all_festivals}
+
+@news_router.get("/religious-content/calendar/panchang", tags=["Religious Content"])
+async def get_daily_panchang(
+    date_requested: Optional[date] = Query(None),
+    current_user: User = Depends(get_current_author_or_admin_user),
+):
+    """Get panchang data for a specific date (for content scheduling)"""
+    
+    target_date = date_requested or date.today()
+    panchang_data = hindu_calendar_service.generate_daily_panchang(target_date)
+    
+    return panchang_data
+
+@news_router.get("/religious-content/calendar/auspicious-dates", tags=["Religious Content"])
+async def get_auspicious_dates_for_scheduling(
+    start_date: Optional[date] = Query(None),
+    end_date: Optional[date] = Query(None),
+    days_ahead: int = Query(30, ge=1, le=90),
+    current_user: User = Depends(get_current_author_or_admin_user),
+):
+    """Get auspicious dates for scheduling religious content"""
+    
+    if not start_date:
+        start_date = date.today()
+    if not end_date:
+        end_date = start_date + timedelta(days=days_ahead)
+    
+    auspicious_dates = hindu_calendar_service.get_auspicious_dates_for_content_scheduling(
+        start_date, end_date
+    )
+    
+    return {
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "auspicious_dates": auspicious_dates,
+        "total_count": len(auspicious_dates)
+    }
+
+@news_router.get("/religious-content/calendar/monthly-overview", tags=["Religious Content"])
+async def get_monthly_calendar_overview(
+    month: int = Query(..., ge=1, le=12),
+    year: int = Query(..., ge=2024, le=2030),
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get comprehensive monthly overview for content planning"""
+    
+    # Get festivals for the month
+    festivals = hindu_calendar_service.get_festivals_for_month(month, year)
+    
+    # Get auspicious dates for the month
+    start_date = date(year, month, 1)
+    end_date = date(year, month, calendar.monthrange(year, month)[1])
+    auspicious_dates = hindu_calendar_service.get_auspicious_dates_for_content_scheduling(
+        start_date, end_date
+    )
+    
+    # Generate daily panchang for the entire month
+    daily_panchang = []
+    current_date = start_date
+    while current_date <= end_date:
+        panchang = hindu_calendar_service.generate_daily_panchang(current_date)
+        daily_panchang.append(panchang)
+        current_date += timedelta(days=1)
+    
+    # Get existing scheduled content for the month
+    scheduled_content = list(
+        db_client[db.db_name][SCHEDULED_CONTENT_COLL].find({
+            "schedule_date": {
+                "$gte": datetime.combine(start_date, datetime.min.time()),
+                "$lte": datetime.combine(end_date, datetime.max.time())
+            }
+        }).sort("schedule_date", 1)
+    )
+    
+    return {
+        "month": month,
+        "year": year,
+        "festivals": festivals,
+        "auspicious_dates": auspicious_dates,
+        "daily_panchang": daily_panchang,
+        "scheduled_content": [_normalize_scheduled_content(item) for item in scheduled_content],
+        "content_scheduling_suggestions": _generate_monthly_content_suggestions(
+            month, year, festivals, auspicious_dates
+        )
+    }
+
+def _generate_monthly_content_suggestions(month: int, year: int, festivals: List[Dict], 
+                                        auspicious_dates: List[Dict]) -> List[Dict]:
+    """Generate content scheduling suggestions for the month"""
+    suggestions = []
+    
+    # Suggest content around major festivals
+    for festival in festivals:
+        if festival.get("is_major", False):
+            festival_date = datetime.fromisoformat(festival["date"]).date()
+            
+            # Suggest content 3 days before festival
+            pre_festival_date = festival_date - timedelta(days=3)
+            suggestions.append({
+                "date": pre_festival_date.isoformat(),
+                "content_type": "festival_preparation",
+                "title": f"{festival['hindi_name']} की तैयारी",
+                "description": f"आने वाले {festival['hindi_name']} के लिए तैयारी और महत्व",
+                "priority": "high"
+            })
+            
+            # Suggest content on festival day
+            suggestions.append({
+                "date": festival["date"],
+                "content_type": "festival_celebration",
+                "title": f"{festival['hindi_name']} की शुभकामनाएं",
+                "description": f"{festival['hindi_name']} के अवसर पर विशेष सामग्री",
+                "priority": "high"
+            })
+    
+    # Suggest weekly rashifal on Sundays
+    start_date = date(year, month, 1)
+    end_date = date(year, month, calendar.monthrange(year, month)[1])
+    current_date = start_date
+    
+    while current_date <= end_date:
+        if current_date.weekday() == 6:  # Sunday
+            suggestions.append({
+                "date": current_date.isoformat(),
+                "content_type": "weekly_rashifal",
+                "title": f"साप्ताहिक राशिफल - {current_date.strftime('%d %B %Y')}",
+                "description": "आने वाले सप्ताह का विस्तृत राशिफल",
+                "priority": "medium"
+            })
+        current_date += timedelta(days=1)
+    
+    # Suggest daily panchang content
+    suggestions.append({
+        "date": "daily",
+        "content_type": "daily_panchang",
+        "title": "दैनिक पंचांग",
+        "description": "रोज सुबह 6 बजे दैनिक पंचांग प्रकाशित करें",
+        "priority": "high",
+        "recurring": True
+    })
+    
+    return suggestions
+
+
+# ------------------------- Admin UI Support Endpoints -------------------------
+
+@news_router.get("/admin/religious-content/overview", tags=["Admin"])
+async def admin_religious_content_overview(
+    current_user: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Admin overview of all religious content activities"""
+    
+    # Get counts by status
+    status_counts = {}
+    for status in ScheduleStatus:
+        count = db_client[db.db_name][SCHEDULED_CONTENT_COLL].count_documents({
+            "schedule_status": status.value
+        })
+        status_counts[status.value] = count
+    
+    # Get counts by content type
+    type_counts = {}
+    for content_type in ReligiousContentType:
+        count = db_client[db.db_name][SCHEDULED_CONTENT_COLL].count_documents({
+            "content_type": content_type.value
+        })
+        type_counts[content_type.value] = count
+    
+    # Recent activity (last 30 days)
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    recent_activity = list(
+        db_client[db.db_name][SCHEDULED_CONTENT_COLL]
+        .find({"created_at": {"$gte": thirty_days_ago}})
+        .sort("created_at", -1)
+        .limit(20)
+    )
+    
+    # Failed publications that need attention
+    failed_items = list(
+        db_client[db.db_name][SCHEDULED_CONTENT_COLL]
+        .find({"schedule_status": ScheduleStatus.EXPIRED.value})
+        .sort("schedule_date", -1)
+        .limit(10)
+    )
+    
+    return {
+        "status_counts": status_counts,
+        "type_counts": type_counts,
+        "recent_activity": [_normalize_scheduled_content(item) for item in recent_activity],
+        "failed_items": [_normalize_scheduled_content(item) for item in failed_items],
+        "total_templates": db_client[db.db_name][CONTENT_TEMPLATES_COLL].count_documents({}),
+        "active_templates": db_client[db.db_name][CONTENT_TEMPLATES_COLL].count_documents({"is_active": True})
+    }
+
+@news_router.get("/admin/religious-content/authors", tags=["Admin"])
+async def get_religious_content_authors_stats(
+    current_user: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get statistics by author for religious content"""
+    
+    pipeline = [
+        {"$group": {
+            "_id": "$author_username",
+            "total_content": {"$sum": 1},
+            "published": {"$sum": {"$cond": [{"$eq": ["$schedule_status", "published"]}, 1, 0]}},
+            "scheduled": {"$sum": {"$cond": [{"$eq": ["$schedule_status", "scheduled"]}, 1, 0]}},
+            "failed": {"$sum": {"$cond": [{"$eq": ["$schedule_status", "expired"]}, 1, 0]}},
+            "last_activity": {"$max": "$created_at"}
+        }},
+        {"$sort": {"total_content": -1}}
+    ]
+    
+    author_stats = list(db_client[db.db_name][SCHEDULED_CONTENT_COLL].aggregate(pipeline))
+    
+    return {"author_statistics": author_stats}
+
+@news_router.post("/admin/religious-content/bulk-actions", tags=["Admin"])
+async def bulk_actions_on_scheduled_content(
+    action: str = Body(...),  # "publish", "delete", "reschedule"
+    content_ids: List[str] = Body(...),
+    new_schedule_date: Optional[datetime] = Body(None),
+    current_user: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Perform bulk actions on scheduled religious content"""
+    
+    if not content_ids:
+        raise HTTPException(status_code=400, detail="No content IDs provided")
+    
+    # Validate content IDs
+    valid_ids = [ObjectId(id) for id in content_ids if ObjectId.is_valid(id)]
+    if len(valid_ids) != len(content_ids):
+        raise HTTPException(status_code=400, detail="Invalid content IDs provided")
+    
+    results = {"success_count": 0, "error_count": 0, "errors": []}
+    
+    if action == "delete":
+        try:
+            delete_result = db_client[db.db_name][SCHEDULED_CONTENT_COLL].delete_many({
+                "_id": {"$in": valid_ids}
+            })
+            results["success_count"] = delete_result.deleted_count
+        except Exception as e:
+            results["error_count"] = len(content_ids)
+            results["errors"].append(f"Bulk delete failed: {str(e)}")
+    
+    elif action == "reschedule":
+        if not new_schedule_date:
+            raise HTTPException(status_code=400, detail="New schedule date required for reschedule action")
+        
+        try:
+            update_result = db_client[db.db_name][SCHEDULED_CONTENT_COLL].update_many(
+                {"_id": {"$in": valid_ids}},
+                {"$set": {
+                    "schedule_date": new_schedule_date,
+                    "schedule_status": ScheduleStatus.SCHEDULED.value,
+                    "updated_at": datetime.utcnow()
+                }}
+            )
+            results["success_count"] = update_result.modified_count
+        except Exception as e:
+            results["error_count"] = len(content_ids)
+            results["errors"].append(f"Bulk reschedule failed: {str(e)}")
+    
+    elif action == "publish":
+        # Publish each item individually to handle errors gracefully
+        for content_id in valid_ids:
+            try:
+                # Get the scheduled content
+                scheduled = db_client[db.db_name][SCHEDULED_CONTENT_COLL].find_one({"_id": content_id})
+                if not scheduled:
+                    results["error_count"] += 1
+                    results["errors"].append(f"Content {content_id} not found")
+                    continue
+                
+                # Publish the content (similar to individual publish endpoint)
+                news_data = {
+                    "title": scheduled["title"],
+                    "content": scheduled["content"],
+                    "author_username": scheduled["author_username"],
+                    "categories": scheduled.get("categories", "धर्म"),
+                    "tags": scheduled.get("tags", []),
+                    "published": True,
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow(),
+                    "views": 0,
+                    "viewed_ips": [],
+                    "likes": 0,
+                    "liked_ips": [],
+                    "content_type": scheduled.get("content_type"),
+                    "schedule_date": scheduled.get("schedule_date"),
+                    "schedule_status": ScheduleStatus.PUBLISHED.value,
+                }
+                
+                # Add religious-specific data
+                for field in ["rashifal_data", "panchang_data", "history_data", "festival_data"]:
+                    if field in scheduled:
+                        news_data[field] = scheduled[field]
+                
+                # Generate SEO data
+                news_data["slug"] = _generate_seo_slug(scheduled["title"], "")
+                news_data["meta_title"] = scheduled["title"]
+                news_data["meta_description"] = _extract_meta_description(scheduled["content"])
+                news_data["keywords"] = _extract_keywords(
+                    scheduled["title"], 
+                    scheduled["content"], 
+                    scheduled.get("categories", "")
+                )
+                
+                # Insert into news collection
+                result = db_client[db.db_name][NEWS_COLL].insert_one(news_data)
+                news_id = str(result.inserted_id)
+                
+                # Update SEO slug with actual ID
+                news_data["slug"] = _generate_seo_slug(scheduled["title"], news_id)
+                db_client[db.db_name][NEWS_COLL].update_one(
+                    {"_id": ObjectId(news_id)},
+                    {"$set": {"slug": news_data["slug"]}}
+                )
+                
+                # Update scheduled content status
+                db_client[db.db_name][SCHEDULED_CONTENT_COLL].update_one(
+                    {"_id": content_id},
+                    {"$set": {
+                        "schedule_status": ScheduleStatus.PUBLISHED.value,
+                        "published_at": datetime.utcnow(),
+                        "published_news_id": news_id
+                    }}
+                )
+                
+                results["success_count"] += 1
+                
+            except Exception as e:
+                results["error_count"] += 1
+                results["errors"].append(f"Failed to publish {content_id}: {str(e)}")
+    
+    else:
+        raise HTTPException(status_code=400, detail="Invalid action. Use 'publish', 'delete', or 'reschedule'")
+    
+    return results
+
+@news_router.get("/admin/religious-content/performance", tags=["Admin"])
+async def get_religious_content_performance(
+    days: int = Query(30, ge=1, le=365),
+    current_user: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get performance metrics for religious content"""
+    
+    start_date = datetime.utcnow() - timedelta(days=days)
+    
+    # Get published religious content from news collection
+    published_religious = list(
+        db_client[db.db_name][NEWS_COLL].find({
+            "content_type": {"$exists": True},
+            "created_at": {"$gte": start_date}
+        })
+    )
+    
+    # Calculate metrics
+    total_views = sum(item.get("views", 0) for item in published_religious)
+    total_likes = sum(item.get("likes", 0) for item in published_religious)
+    avg_views = total_views / len(published_religious) if published_religious else 0
+    avg_likes = total_likes / len(published_religious) if published_religious else 0
+    
+    # Performance by content type
+    type_performance = {}
+    for content_type in ReligiousContentType:
+        type_items = [item for item in published_religious if item.get("content_type") == content_type.value]
+        if type_items:
+            type_performance[content_type.value] = {
+                "count": len(type_items),
+                "total_views": sum(item.get("views", 0) for item in type_items),
+                "total_likes": sum(item.get("likes", 0) for item in type_items),
+                "avg_views": sum(item.get("views", 0) for item in type_items) / len(type_items),
+                "avg_likes": sum(item.get("likes", 0) for item in type_items) / len(type_items),
+            }
+    
+    # Top performing content
+    top_viewed = sorted(published_religious, key=lambda x: x.get("views", 0), reverse=True)[:10]
+    top_liked = sorted(published_religious, key=lambda x: x.get("likes", 0), reverse=True)[:10]
+    
+    return {
+        "period_days": days,
+        "total_published": len(published_religious),
+        "total_views": total_views,
+        "total_likes": total_likes,
+        "avg_views_per_content": round(avg_views, 2),
+        "avg_likes_per_content": round(avg_likes, 2),
+        "performance_by_type": type_performance,
+        "top_viewed": [{"title": item["title"], "views": item.get("views", 0), "_id": str(item["_id"])} for item in top_viewed],
+        "top_liked": [{"title": item["title"], "likes": item.get("likes", 0), "_id": str(item["_id"])} for item in top_liked]
+    }
+
+# ------------------------- Quick Actions for UI -------------------------
+
+@news_router.post("/religious-content/quick-schedule", tags=["Religious Content"])
+async def quick_schedule_daily_content(
+    content_type: ReligiousContentType = Body(...),
+    days_ahead: int = Body(7, ge=1, le=30),
+    time_slot: str = Body("06:00"),  # Default morning time
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Quick schedule for daily content like rashifal, panchang for multiple days"""
+    
+    scheduled_items = []
+    
+    for day_offset in range(days_ahead):
+        target_date = date.today() + timedelta(days=day_offset + 1)
+        
+        # Create schedule datetime
+        time_parts = time_slot.split(":")
+        schedule_datetime = datetime.combine(
+            target_date,
+            datetime.min.time().replace(
+                hour=int(time_parts[0]),
+                minute=int(time_parts[1]) if len(time_parts) > 1 else 0
+            )
+        )
+        
+        # Generate content based on type
+        if content_type == ReligiousContentType.RASHIFAL:
+            title = f"आज का राशिफल - {target_date.strftime('%d %B %Y')}"
+            content = f"आज {target_date.strftime('%d %B %Y')} का राशिफल - सभी 12 राशियों के लिए विस्तृत भविष्यफल।"
+        elif content_type == ReligiousContentType.PANCHANG:
+            title = f"आज का पंचांग - {target_date.strftime('%d %B %Y')}"
+            content = f"आज {target_date.strftime('%d %B %Y')} का संपूर्ण पंचांग - तिथि, नक्षत्र, योग, करण और शुभ मुहूर्त।"
+        elif content_type == ReligiousContentType.THIS_DAY_HISTORY:
+            title = f"आज का इतिहास - {target_date.strftime('%d %B %Y')}"
+            content = f"इतिहास में आज {target_date.strftime('%d %B %Y')} के दिन क्या घटित हुआ था।"
+        else:
+            title = f"{content_type.value.title()} - {target_date.strftime('%d %B %Y')}"
+            content = f"Content for {target_date.strftime('%d %B %Y')}"
+        
+        scheduled_data = {
+            "content_type": content_type.value,
+            "title": title,
+            "content": content,
+            "schedule_date": schedule_datetime,
+            "schedule_status": ScheduleStatus.SCHEDULED.value,
+            "author_username": current_user.username,
+            "categories": "धर्म",
+            "tags": [content_type.value, "daily"],
+            "auto_publish": True,
+            "timezone": "Asia/Kolkata",
+            "created_at": datetime.utcnow(),
+            "is_recurring": False,
+        }
+        
+        scheduled_items.append(scheduled_data)
+    
+    # Bulk insert
+    if scheduled_items:
+        result = db_client[db.db_name][SCHEDULED_CONTENT_COLL].insert_many(scheduled_items)
+        return {
+            "message": f"Successfully scheduled {len(scheduled_items)} {content_type.value} items",
+            "scheduled_count": len(scheduled_items),
+            "scheduled_ids": [str(id) for id in result.inserted_ids]
+        }
+    
+    return {"message": "No items to schedule", "scheduled_count": 0}
+
+@news_router.get("/religious-content/template-suggestions", tags=["Religious Content"])
+async def get_template_suggestions(
+    content_type: ReligiousContentType = Query(...),
+    current_user: User = Depends(get_current_author_or_admin_user),
+):
+    """Get template suggestions for different religious content types"""
+    
+    templates = {
+        ReligiousContentType.RASHIFAL: {
+            "title_template": "आज का राशिफल - {{date}}",
+            "content_template": """
+आज {{date}} का संपूर्ण राशिफल:
+
+🌟 मेष राशि: {{mesh_prediction}}
+🌟 वृषभ राशि: {{vrishabh_prediction}}
+🌟 मिथुन राशि: {{mithun_prediction}}
+... (अन्य राशियां)
+
+आज का शुभ समय: {{auspicious_time}}
+बचने योग्य समय: {{avoid_time}}
+""",
+            "variables": ["date", "mesh_prediction", "vrishabh_prediction", "auspicious_time", "avoid_time"]
+        },
+        ReligiousContentType.PANCHANG: {
+            "title_template": "आज का पंचांग - {{date}}",
+            "content_template": """
+आज {{date}} का संपूर्ण पंचांग:
+
+📅 तिथि: {{tithi}}
+⭐ नक्षत्र: {{nakshatra}}
+🕉️ योग: {{yoga}}
+🌙 करण: {{karana}}
+
+🌅 सूर्योदय: {{sunrise}}
+🌇 सूर्यास्त: {{sunset}}
+
+शुभ मुहूर्त: {{auspicious_time}}
+अशुभ काल: {{inauspicious_time}}
+""",
+            "variables": ["date", "tithi", "nakshatra", "yoga", "karana", "sunrise", "sunset", "auspicious_time", "inauspicious_time"]
+        },
+        ReligiousContentType.THIS_DAY_HISTORY: {
+            "title_template": "आज का इतिहास - {{date}}",
+            "content_template": """
+इतिहास में आज {{date}} के दिन:
+
+📜 प्रमुख घटनाएं:
+• {{event_1}}
+• {{event_2}}
+• {{event_3}}
+
+🎭 जन्मदिन:
+• {{birthday_1}}
+• {{birthday_2}}
+
+📖 महत्वपूर्ण तथ्य:
+{{important_fact}}
+""",
+            "variables": ["date", "event_1", "event_2", "event_3", "birthday_1", "birthday_2", "important_fact"]
+        }
+    }
+    
+    return templates.get(content_type, {
+        "title_template": f"{content_type.value.title()} - {{{{date}}}}",
+        "content_template": f"Content for {content_type.value} on {{{{date}}}}",
+        "variables": ["date"]
+    })
