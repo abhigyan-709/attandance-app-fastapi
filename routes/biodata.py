@@ -81,9 +81,13 @@ BIODATA_COLLECTION = "biodata_profiles"
 
 def _serialize_for_mongodb(data: Dict[str, Any]) -> Dict[str, Any]:
     """Convert Pydantic model data to MongoDB-compatible format"""
+    from pydantic import HttpUrl
+    
     def convert_value(value):
         if isinstance(value, Enum):
             return value.value  # Convert enum to its string value
+        elif isinstance(value, HttpUrl):
+            return str(value)  # Convert HttpUrl to string
         elif isinstance(value, date):
             return value.isoformat()  # Convert date to ISO string
         elif isinstance(value, datetime):
