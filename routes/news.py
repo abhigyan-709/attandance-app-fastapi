@@ -4,7 +4,7 @@ import os
 import re
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, EmailStr, Field
 import boto3
@@ -27,7 +27,12 @@ from fastapi.responses import HTMLResponse
 from pymongo import MongoClient, DESCENDING
 
 from database.db import db
-from models.news import NewsPost, Comment, Category   # <-- use your new models
+from models.news import (
+    NewsPost, Comment, Category,
+    # Horoscope models
+    HoroscopePost, HoroscopeComment, CreateHoroscopeRequest, 
+    UpdateHoroscopeRequest, ZodiacSign, HoroscopeType, HindiZodiacDetails
+)
 from models.user import User
 from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
 from routes.user import get_current_user
@@ -1218,3 +1223,228 @@ async def get_news_paginated(
             "has_prev": page > 1,
         },
     }
+
+
+# ==================== HOROSCOPE ENDPOINTS ====================
+# Hindi horoscope system 
+
+HOROSCOPE_COLL = "horoscopes"
+HOROSCOPE_COMMENTS_COLL = "horoscope_comments"
+
+def get_current_admin_user_horoscope(current_user: User = Depends(get_current_user)):
+    """Admin/Author only access for horoscope management"""
+    if current_user.role not in ["admin", "author"]:
+        raise HTTPException(status_code=403, detail="Admin or Author access required")
+    return current_user
+
+def _serialize_horoscope_for_mongodb(data: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert horoscope data to MongoDB-compatible format"""
+    from enum import Enum
+    
+    def convert_value(value):
+        if isinstance(value, Enum):
+            return value.value
+        elif isinstance(value, date):
+            return value.isoformat()
+        elif isinstance(value, datetime):
+            return value
+        elif isinstance(value, dict):
+            return {k: convert_value(v) for k, v in value.items()}
+        elif isinstance(value, list):
+            return [convert_value(item) for item in value]
+        else:
+            return value
+    
+    return {k: convert_value(v) for k, v in data.items()}
+
+def _normalize_horoscope(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize horoscope document for response"""
+    if "_id" in doc:
+        doc["_id"] = str(doc["_id"])
+    
+    # Convert date strings back to date objects
+    if "horoscope_date" in doc and isinstance(doc["horoscope_date"], str):
+        try:
+            doc["horoscope_date"] = datetime.fromisoformat(doc["horoscope_date"]).date()
+        except:
+            pass
+    
+    # Convert datetime objects to ISO strings
+    for dt_field in ["created_at", "updated_at", "published_at"]:
+        if dt_field in doc and isinstance(doc[dt_field], datetime):
+            doc[dt_field] = doc[dt_field].isoformat()
+    
+    return doc
+
+# ==================== ADMIN HOROSCOPE ENDPOINTS ====================
+
+@news_router.post("/horoscopes", response_model=HoroscopePost, tags=["Horoscope Admin"])
+async def create_horoscope(
+    horoscope_data: CreateHoroscopeRequest,
+    current_user: User = Depends(get_current_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Create a new Hindi horoscope post (Admin/Author only)"""
+    try:
+        # Check if horoscope already exists for this date and type
+        existing = db_client[db.db_name][HOROSCOPE_COLL].find_one({
+            "horoscope_date": horoscope_data.horoscope_date.isoformat(),
+            "horoscope_type": horoscope_data.horoscope_type.value
+        })
+        
+        if existing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"इस तारीख ({horoscope_data.horoscope_date}) के लिए राशिफल पहले से मौजूद है"
+            )
+        
+        # Create horoscope document
+        horoscope_dict = horoscope_data.model_dump()
+        horoscope_dict["author_username"] = current_user.username
+        horoscope_dict["created_at"] = datetime.utcnow()
+        horoscope_dict["updated_at"] = datetime.utcnow()
+        
+        if horoscope_dict["published"]:
+            horoscope_dict["published_at"] = datetime.utcnow()
+        
+        # Serialize for MongoDB
+        horoscope_dict = _serialize_horoscope_for_mongodb(horoscope_dict)
+        
+        # Insert into database
+        result = db_client[db.db_name][HOROSCOPE_COLL].insert_one(horoscope_dict)
+        horoscope_dict["_id"] = str(result.inserted_id)
+        
+        return _normalize_horoscope(horoscope_dict)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create horoscope: {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल बनाने में त्रुटि")
+
+@news_router.get("/admin/horoscopes", response_model=List[HoroscopePost], tags=["Horoscope Admin"])
+async def get_all_horoscopes_admin(
+    current_user: User = Depends(get_current_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    horoscope_type: Optional[HoroscopeType] = None,
+    published: Optional[bool] = None,
+    author: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+):
+    """Get all horoscopes with admin filters"""
+    try:
+        # Build filter query
+        filter_query = {}
+        
+        if horoscope_type:
+            filter_query["horoscope_type"] = horoscope_type.value
+        if published is not None:
+            filter_query["published"] = published
+        if author:
+            filter_query["author_username"] = author
+        if date_from:
+            filter_query["horoscope_date"] = {"$gte": date_from.isoformat()}
+        if date_to:
+            if "horoscope_date" in filter_query:
+                filter_query["horoscope_date"]["$lte"] = date_to.isoformat()
+            else:
+                filter_query["horoscope_date"] = {"$lte": date_to.isoformat()}
+        
+        # Get total count
+        total = db_client[db.db_name][HOROSCOPE_COLL].count_documents(filter_query)
+        
+        # Get paginated results
+        skip = (page - 1) * limit
+        horoscopes = list(
+            db_client[db.db_name][HOROSCOPE_COLL]
+            .find(filter_query)
+            .sort("horoscope_date", DESCENDING)
+            .skip(skip)
+            .limit(limit)
+        )
+        
+        return [_normalize_horoscope(h) for h in horoscopes]
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch horoscopes: {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल लाने में त्रुटि")
+
+@news_router.get("/horoscopes/daily", response_model=HoroscopePost, tags=["Horoscope Public"])
+async def get_daily_horoscope(
+    target_date: Optional[date] = Query(None, description="राशिफल की तारीख (डिफ़ॉल्ट: आज)"),
+    zodiac_sign: Optional[ZodiacSign] = Query(None, description="विशिष्ट राशि के लिए फ़िल्टर"),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """आज का दैनिक राशिफल प्राप्त करें"""
+    if not target_date:
+        target_date = date.today()
+    
+    try:
+        horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one({
+            "horoscope_date": target_date.isoformat(),
+            "horoscope_type": "daily",
+            "published": True
+        })
+        
+        if not horoscope:
+            raise HTTPException(status_code=404, detail=f"{target_date} के लिए राशिफल उपलब्ध नहीं है")
+        
+        # Filter by zodiac sign if requested
+        if zodiac_sign:
+            zodiac_predictions = [
+                pred for pred in horoscope.get("zodiac_predictions", [])
+                if pred.get("sign") == zodiac_sign.value
+            ]
+            horoscope["zodiac_predictions"] = zodiac_predictions
+        
+        return _normalize_horoscope(horoscope)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch daily horoscope: {str(e)}")
+        raise HTTPException(status_code=500, detail="दैनिक राशिफल लाने में त्रुटि")
+
+@news_router.get("/horoscopes/archive", response_model=List[HoroscopePost], tags=["Horoscope Public"])
+async def get_horoscope_archive(
+    db_client: MongoClient = Depends(db.get_client),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=50),
+    horoscope_type: HoroscopeType = Query(HoroscopeType.daily),
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+):
+    """राशिफल का संग्रह (Archive) - Users can toggle dates to view old horoscopes"""
+    try:
+        # Build filter
+        filter_query = {
+            "horoscope_type": horoscope_type.value,
+            "published": True
+        }
+        
+        if date_from:
+            filter_query["horoscope_date"] = {"$gte": date_from.isoformat()}
+        if date_to:
+            if "horoscope_date" in filter_query:
+                filter_query["horoscope_date"]["$lte"] = date_to.isoformat()
+            else:
+                filter_query["horoscope_date"] = {"$lte": date_to.isoformat()}
+        
+        # Get paginated results
+        skip = (page - 1) * limit
+        horoscopes = list(
+            db_client[db.db_name][HOROSCOPE_COLL]
+            .find(filter_query)
+            .sort("horoscope_date", DESCENDING)
+            .skip(skip)
+            .limit(limit)
+        )
+        
+        return [_normalize_horoscope(h) for h in horoscopes]
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch horoscope archive: {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल संग्रह लाने में त्रुटि")
