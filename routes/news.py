@@ -1448,3 +1448,253 @@ async def get_horoscope_archive(
     except Exception as e:
         logger.error(f"Failed to fetch horoscope archive: {str(e)}")
         raise HTTPException(status_code=500, detail="राशिफल संग्रह लाने में त्रुटि")
+
+# ==================== SINGLE HOROSCOPE BY ID (PUBLIC) ====================
+
+@news_router.get("/horoscopes/{horoscope_id}", response_model=HoroscopePost, tags=["Horoscope Public"])
+async def get_horoscope_by_id(
+    horoscope_id: str,
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get specific horoscope by ID (Public)"""
+    if not ObjectId.is_valid(horoscope_id):
+        raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+    
+    try:
+        horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one({
+            "_id": ObjectId(horoscope_id),
+            "published": True  # Only published horoscopes for public access
+        })
+        
+        if not horoscope:
+            raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+        
+        return _normalize_horoscope(horoscope)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch horoscope by ID: {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल लाने में त्रुटि")
+
+# ==================== HOROSCOPE ENGAGEMENT (PUBLIC) ====================
+
+@news_router.patch("/horoscopes/{horoscope_id}/increment-view", response_model=dict, tags=["Horoscope Public"])
+async def increment_horoscope_views(
+    horoscope_id: str,
+    request: Request,
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Increment horoscope view count (Public)"""
+    if not ObjectId.is_valid(horoscope_id):
+        raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+    
+    try:
+        horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one({"_id": ObjectId(horoscope_id)})
+        if not horoscope:
+            raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+
+        # Get client IP
+        client_ip = request.headers.get("X-Forwarded-For", request.client.host)
+        if client_ip and "," in client_ip:
+            client_ip = client_ip.split(",")[0].strip()
+        if not client_ip:
+            logger.warning("No valid client IP detected for horoscope views")
+            client_ip = "unknown"
+
+        viewed_ips = horoscope.get("viewed_ips", [])
+        current_views = horoscope.get("views", 0)
+
+        if client_ip not in viewed_ips:
+            viewed_ips.append(client_ip)
+            current_views += 1
+            db_client[db.db_name][HOROSCOPE_COLL].update_one(
+                {"_id": ObjectId(horoscope_id)},
+                {"$set": {"viewed_ips": viewed_ips, "views": current_views}},
+            )
+
+        return {"views": current_views}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to increment horoscope views: {str(e)}")
+        raise HTTPException(status_code=500, detail="व्यू काउंट अपडेट करने में त्रुटि")
+
+@news_router.patch("/horoscopes/{horoscope_id}/increment-like", response_model=dict, tags=["Horoscope Public"])
+async def increment_horoscope_likes(
+    horoscope_id: str,
+    request: Request,
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Increment horoscope like count (Public)"""
+    if not ObjectId.is_valid(horoscope_id):
+        raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+    
+    try:
+        horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one({"_id": ObjectId(horoscope_id)})
+        if not horoscope:
+            raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+
+        # Get client IP
+        client_ip = request.headers.get("X-Forwarded-For", request.client.host)
+        if client_ip and "," in client_ip:
+            client_ip = client_ip.split(",")[0].strip()
+        if not client_ip:
+            logger.warning("No valid client IP detected for horoscope likes")
+            client_ip = "unknown"
+
+        liked_ips = horoscope.get("liked_ips", [])
+        current_likes = horoscope.get("likes", 0)
+
+        if client_ip not in liked_ips:
+            liked_ips.append(client_ip)
+            current_likes += 1
+            db_client[db.db_name][HOROSCOPE_COLL].update_one(
+                {"_id": ObjectId(horoscope_id)},
+                {"$set": {"liked_ips": liked_ips, "likes": current_likes}},
+            )
+
+        return {"likes": current_likes}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to increment horoscope likes: {str(e)}")
+        raise HTTPException(status_code=500, detail="लाइक काउंट अपडेट करने में त्रुटि")
+
+# ==================== RELATED HOROSCOPES (PUBLIC) ====================
+
+@news_router.get("/horoscopes/{horoscope_id}/related", response_model=List[HoroscopePost], tags=["Horoscope Public"])
+async def get_related_horoscopes(
+    horoscope_id: str,
+    limit: int = Query(5, ge=1, le=10),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get related horoscopes based on type and recent dates"""
+    if not ObjectId.is_valid(horoscope_id):
+        raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+    
+    try:
+        horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one({"_id": ObjectId(horoscope_id)})
+        if not horoscope:
+            raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+
+        # Get related horoscopes of same type, excluding current one
+        filter_query = {
+            "_id": {"$ne": ObjectId(horoscope_id)},
+            "horoscope_type": horoscope.get("horoscope_type", "daily"),
+            "published": True
+        }
+
+        related_horoscopes = list(
+            db_client[db.db_name][HOROSCOPE_COLL]
+            .find(filter_query)
+            .sort("horoscope_date", DESCENDING)
+            .limit(limit)
+        )
+
+        return [_normalize_horoscope(h) for h in related_horoscopes]
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch related horoscopes: {str(e)}")
+        raise HTTPException(status_code=500, detail="संबंधित राशिफल लाने में त्रुटि")
+
+# ==================== ADMIN HOROSCOPE CRUD OPERATIONS ====================
+
+@news_router.get("/horoscopes/{horoscope_id}/admin", response_model=HoroscopePost, tags=["Horoscope Admin"])
+async def get_horoscope_by_id_admin(
+    horoscope_id: str,
+    current_user: User = Depends(get_current_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get horoscope by ID (Admin - includes unpublished)"""
+    if not ObjectId.is_valid(horoscope_id):
+        raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+    
+    try:
+        horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one({"_id": ObjectId(horoscope_id)})
+        if not horoscope:
+            raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+        
+        return _normalize_horoscope(horoscope)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch horoscope by ID (admin): {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल लाने में त्रुटि")
+
+@news_router.put("/horoscopes/{horoscope_id}", response_model=HoroscopePost, tags=["Horoscope Admin"])
+async def update_horoscope(
+    horoscope_id: str,
+    horoscope_data: UpdateHoroscopeRequest,
+    current_user: User = Depends(get_current_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Update horoscope (Admin/Author only)"""
+    if not ObjectId.is_valid(horoscope_id):
+        raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+    
+    try:
+        existing = db_client[db.db_name][HOROSCOPE_COLL].find_one({"_id": ObjectId(horoscope_id)})
+        if not existing:
+            raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+
+        # Prepare update data
+        update_data = horoscope_data.model_dump(exclude_unset=True)
+        update_data["updated_at"] = datetime.utcnow()
+        
+        # Set published_at if publishing for the first time
+        if horoscope_data.published and not existing.get("published"):
+            update_data["published_at"] = datetime.utcnow()
+        
+        # Serialize for MongoDB
+        update_data = _serialize_horoscope_for_mongodb(update_data)
+        
+        # Update horoscope
+        db_client[db.db_name][HOROSCOPE_COLL].update_one(
+            {"_id": ObjectId(horoscope_id)},
+            {"$set": update_data}
+        )
+        
+        # Get updated horoscope
+        updated_horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one({"_id": ObjectId(horoscope_id)})
+        return _normalize_horoscope(updated_horoscope)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to update horoscope: {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल अपडेट करने में त्रुटि")
+
+@news_router.delete("/horoscopes/{horoscope_id}", tags=["Horoscope Admin"])
+async def delete_horoscope(
+    horoscope_id: str,
+    current_user: User = Depends(get_current_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Delete horoscope (Admin/Author only)"""
+    if not ObjectId.is_valid(horoscope_id):
+        raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+    
+    try:
+        existing = db_client[db.db_name][HOROSCOPE_COLL].find_one({"_id": ObjectId(horoscope_id)})
+        if not existing:
+            raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+        
+        # Delete horoscope
+        db_client[db.db_name][HOROSCOPE_COLL].delete_one({"_id": ObjectId(horoscope_id)})
+        
+        # Optionally delete related comments
+        db_client[db.db_name][HOROSCOPE_COMMENTS_COLL].delete_many({"horoscope_id": horoscope_id})
+        
+        return {"message": "राशिफल सफलतापूर्वक डिलीट कर दिया गया"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete horoscope: {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल डिलीट करने में त्रुटि")
