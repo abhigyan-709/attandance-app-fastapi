@@ -314,12 +314,44 @@ class Education(BaseModel):
     institute: Optional[str] = None
     graduation_year: Optional[int] = None
 
+    @field_validator('level', mode='before')
+    @classmethod
+    def handle_empty_level(cls, v):
+        """Handle empty string for education level"""
+        if v == "":
+            return None
+        return v
+
+    @field_validator('graduation_year', mode='before')
+    @classmethod
+    def handle_empty_graduation_year(cls, v):
+        """Handle empty string for graduation year"""
+        if v == "" or v is None:
+            return None
+        return v
+
 class Occupation(BaseModel):
     employment_type: Optional[EmploymentType] = None
     organization: Optional[str] = None
     designation: Optional[str] = None
     annual_income_value: Optional[float] = None
     annual_income_currency: Currency = Currency.INR
+
+    @field_validator('employment_type', mode='before')
+    @classmethod
+    def handle_empty_employment_type(cls, v):
+        """Handle empty string for employment type"""
+        if v == "":
+            return None
+        return v
+
+    @field_validator('annual_income_value', mode='before')
+    @classmethod
+    def handle_empty_income(cls, v):
+        """Handle empty string for annual income"""
+        if v == "" or v is None:
+            return None
+        return v
 
 class FamilyMember(BaseModel):
     relation: str           # e.g., Father, Mother, Brother, Sister
@@ -344,6 +376,22 @@ class PhysicalAttributes(BaseModel):
     complexion: Optional[Complexion] = None
     blood_group: Optional[str] = None
 
+    @field_validator('body_type', mode='before')
+    @classmethod
+    def handle_empty_body_type(cls, v):
+        """Handle empty string for body type"""
+        if v == "":
+            return None
+        return v
+
+    @field_validator('complexion', mode='before')
+    @classmethod
+    def handle_empty_complexion(cls, v):
+        """Handle empty string for complexion"""
+        if v == "":
+            return None
+        return v
+
 class Lifestyle(BaseModel):
     diet: Optional[Diet] = None
     drinking: Optional[Drinking] = None
@@ -359,6 +407,22 @@ class Horoscope(BaseModel):
     nakshatra: Optional[str] = None
     kundli_url: Optional[HttpUrl] = None   # if generated separately
 
+    @field_validator('date_of_birth', mode='before')
+    @classmethod
+    def handle_empty_date_of_birth(cls, v):
+        """Handle empty string for date of birth"""
+        if v == "" or v is None:
+            return None
+        return v
+
+    @field_validator('kundli_url', mode='before')
+    @classmethod
+    def handle_empty_kundli_url(cls, v):
+        """Handle empty string for kundli URL"""
+        if v == "" or v is None:
+            return None
+        return v
+
 class Languages(BaseModel):
     known: Dict[str, LanguageProficiency] = Field(
         default_factory=lambda: {"Hindi": LanguageProficiency.fluent, "English": LanguageProficiency.conversational}
@@ -371,25 +435,36 @@ class PartnerPreferences(BaseModel):
     max_height_cm: Optional[float] = None
     marital_status: Optional[List[MaritalStatus]] = None
     religion: Optional[List[Religion]] = None
-    caste: Optional[Union[str, List[str]]] = None
-    gotra: Optional[Union[str, List[str]]] = None
+    caste: Optional[List[str]] = None
+    gotra: Optional[List[str]] = None
     education_levels: Optional[List[EducationLevel]] = None
     occupations: Optional[List[EmploymentType]] = None
-    mother_tongues: Optional[Union[str, List[str]]] = None
-    preferred_locations: Optional[Union[str, List[str]]] = None
+    mother_tongues: Optional[List[str]] = None
+    preferred_locations: Optional[List[str]] = None
     diet: Optional[List[Diet]] = None
+
+    @field_validator('marital_status', 'religion', 'education_levels', 'occupations', 'diet', mode='before')
+    @classmethod
+    def convert_boolean_to_none_for_lists(cls, v):
+        """Convert boolean false to None for list fields"""
+        if v is False or v == "":
+            return None
+        return v
 
     @field_validator('caste', 'gotra', 'mother_tongues', 'preferred_locations', mode='before')
     @classmethod
     def convert_string_to_list(cls, v):
         """Convert string values to lists, handling comma-separated values"""
-        if v is None:
-            return v
+        if v is None or v is False or v == "":
+            return None
         if isinstance(v, str):
             if not v.strip():
                 return []
             # Split by comma and strip whitespace, filter out empty strings
             return [item.strip() for item in v.split(',') if item.strip()]
+        if isinstance(v, list):
+            return v
+        return v
         if isinstance(v, list):
             return v
         return v
