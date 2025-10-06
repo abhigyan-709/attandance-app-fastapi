@@ -1,8 +1,8 @@
 # app/models/biodata.py
 from __future__ import annotations
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from datetime import date, datetime
-from pydantic import BaseModel, Field, EmailStr, HttpUrl, field_serializer
+from pydantic import BaseModel, Field, EmailStr, HttpUrl, field_serializer, field_validator
 from enum import Enum
 
 # ---------------- Enums (India-focused) ----------------
@@ -371,13 +371,28 @@ class PartnerPreferences(BaseModel):
     max_height_cm: Optional[float] = None
     marital_status: Optional[List[MaritalStatus]] = None
     religion: Optional[List[Religion]] = None
-    caste: Optional[List[str]] = None
-    gotra: Optional[List[str]] = None
+    caste: Optional[Union[str, List[str]]] = None
+    gotra: Optional[Union[str, List[str]]] = None
     education_levels: Optional[List[EducationLevel]] = None
     occupations: Optional[List[EmploymentType]] = None
-    mother_tongues: Optional[List[str]] = None
-    preferred_locations: Optional[List[str]] = None
+    mother_tongues: Optional[Union[str, List[str]]] = None
+    preferred_locations: Optional[Union[str, List[str]]] = None
     diet: Optional[List[Diet]] = None
+
+    @field_validator('caste', 'gotra', 'mother_tongues', 'preferred_locations', mode='before')
+    @classmethod
+    def convert_string_to_list(cls, v):
+        """Convert string values to lists, handling comma-separated values"""
+        if v is None:
+            return v
+        if isinstance(v, str):
+            if not v.strip():
+                return []
+            # Split by comma and strip whitespace, filter out empty strings
+            return [item.strip() for item in v.split(',') if item.strip()]
+        if isinstance(v, list):
+            return v
+        return v
 
 # ---------------- Core candidate profile ----------------
 class CandidateProfile(BaseModel):
