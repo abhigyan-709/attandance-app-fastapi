@@ -1231,6 +1231,53 @@ async def get_news_paginated(
 HOROSCOPE_COLL = "horoscopes"
 HOROSCOPE_COMMENTS_COLL = "horoscope_comments"
 
+# ==================== IST TIMEZONE UTILITIES ====================
+import pytz
+from datetime import timezone, timedelta
+
+def get_ist_timezone():
+    """Get IST timezone object"""
+    return pytz.timezone('Asia/Kolkata')
+
+def convert_utc_to_ist(utc_dt: datetime) -> datetime:
+    """Convert UTC datetime to IST"""
+    if utc_dt.tzinfo is None:
+        utc_dt = utc_dt.replace(tzinfo=pytz.UTC)
+    ist_tz = get_ist_timezone()
+    return utc_dt.astimezone(ist_tz)
+
+def convert_ist_to_utc(ist_dt: datetime) -> datetime:
+    """Convert IST datetime to UTC for database storage"""
+    ist_tz = get_ist_timezone()
+    if ist_dt.tzinfo is None:
+        ist_dt = ist_tz.localize(ist_dt)
+    return ist_dt.astimezone(pytz.UTC).replace(tzinfo=None)
+
+def get_current_ist_time() -> datetime:
+    """Get current time in IST"""
+    utc_now = datetime.utcnow()
+    return convert_utc_to_ist(utc_now)
+
+def is_scheduled_publish_time_reached(scheduled_utc: datetime) -> bool:
+    """Check if scheduled publish time has been reached (IST comparison)"""
+    if not scheduled_utc:
+        return False
+    
+    current_utc = datetime.utcnow()
+    return current_utc >= scheduled_utc
+
+def determine_publish_status(horoscope_data: dict) -> str:
+    """Determine the publish status based on scheduling and published flag"""
+    if horoscope_data.get("published", False):
+        return "published"
+    elif horoscope_data.get("scheduled_publish_at") and horoscope_data.get("auto_publish_enabled", False):
+        if is_scheduled_publish_time_reached(horoscope_data["scheduled_publish_at"]):
+            return "published"
+        else:
+            return "scheduled"
+    else:
+        return "draft"
+
 def get_current_admin_user_horoscope(current_user: User = Depends(get_current_user)):
     """Admin/Author only access for horoscope management"""
     if current_user.role not in ["admin", "author"]:
@@ -1258,7 +1305,7 @@ def _serialize_horoscope_for_mongodb(data: Dict[str, Any]) -> Dict[str, Any]:
     return {k: convert_value(v) for k, v in data.items()}
 
 def _normalize_horoscope(doc: Dict[str, Any]) -> Dict[str, Any]:
-    """Normalize horoscope document for response"""
+    """Normalize horoscope document for response with IST timezone conversion"""
     if "_id" in doc:
         doc["_id"] = str(doc["_id"])
     
@@ -1269,10 +1316,29 @@ def _normalize_horoscope(doc: Dict[str, Any]) -> Dict[str, Any]:
         except:
             pass
     
-    # Convert datetime objects to ISO strings
-    for dt_field in ["created_at", "updated_at", "published_at"]:
+    # Convert datetime objects to ISO strings with IST conversion for display
+    for dt_field in ["created_at", "updated_at", "published_at", "scheduled_at"]:
         if dt_field in doc and isinstance(doc[dt_field], datetime):
             doc[dt_field] = doc[dt_field].isoformat()
+    
+    # Handle scheduled_publish_at - convert from UTC to IST for display
+    if "scheduled_publish_at" in doc and doc["scheduled_publish_at"]:
+        if isinstance(doc["scheduled_publish_at"], datetime):
+            # Convert UTC to IST for frontend display
+            ist_time = convert_utc_to_ist(doc["scheduled_publish_at"])
+            doc["scheduled_publish_at_ist"] = ist_time.isoformat()
+            doc["scheduled_publish_at"] = doc["scheduled_publish_at"].isoformat()
+        elif isinstance(doc["scheduled_publish_at"], str):
+            try:
+                utc_dt = datetime.fromisoformat(doc["scheduled_publish_at"])
+                ist_time = convert_utc_to_ist(utc_dt)
+                doc["scheduled_publish_at_ist"] = ist_time.isoformat()
+            except:
+                pass
+    
+    # Update publish status if needed
+    if doc.get("auto_publish_enabled") and doc.get("scheduled_publish_at"):
+        doc["publish_status"] = determine_publish_status(doc)
     
     return doc
 
@@ -1284,7 +1350,7 @@ async def create_horoscope(
     current_user: User = Depends(get_current_admin_user_horoscope),
     db_client: MongoClient = Depends(db.get_client),
 ):
-    """Create a new Hindi horoscope post (Admin/Author only)"""
+    """Create a new Hindi horoscope post with IST scheduling support (Admin/Author only)"""
     try:
         # Check if horoscope already exists for this date and type
         existing = db_client[db.db_name][HOROSCOPE_COLL].find_one({
@@ -1304,8 +1370,28 @@ async def create_horoscope(
         horoscope_dict["created_at"] = datetime.utcnow()
         horoscope_dict["updated_at"] = datetime.utcnow()
         
-        if horoscope_dict["published"]:
-            horoscope_dict["published_at"] = datetime.utcnow()
+        # Handle IST scheduling
+        if horoscope_data.scheduled_publish_at and horoscope_data.auto_publish_enabled:
+            # Convert IST scheduled time to UTC for storage
+            scheduled_utc = convert_ist_to_utc(horoscope_data.scheduled_publish_at)
+            horoscope_dict["scheduled_publish_at"] = scheduled_utc
+            horoscope_dict["scheduled_at"] = datetime.utcnow()
+            
+            # Check if scheduled time has already passed
+            if is_scheduled_publish_time_reached(scheduled_utc):
+                horoscope_dict["published"] = True
+                horoscope_dict["published_at"] = datetime.utcnow()
+                horoscope_dict["publish_status"] = "published"
+            else:
+                horoscope_dict["published"] = False
+                horoscope_dict["publish_status"] = "scheduled"
+        else:
+            # Regular publishing logic
+            if horoscope_dict["published"]:
+                horoscope_dict["published_at"] = datetime.utcnow()
+                horoscope_dict["publish_status"] = "published"
+            else:
+                horoscope_dict["publish_status"] = "draft"
         
         # Serialize for MongoDB
         horoscope_dict = _serialize_horoscope_for_mongodb(horoscope_dict)
@@ -1698,3 +1784,190 @@ async def delete_horoscope(
     except Exception as e:
         logger.error(f"Failed to delete horoscope: {str(e)}")
         raise HTTPException(status_code=500, detail="राशिफल डिलीट करने में त्रुटि")
+
+# ==================== HOROSCOPE SCHEDULING ENDPOINTS (IST) ====================
+
+@news_router.post("/horoscopes/{horoscope_id}/schedule", response_model=HoroscopePost, tags=["Horoscope Admin"])
+async def schedule_horoscope_publish(
+    horoscope_id: str,
+    scheduled_time: datetime = Body(..., description="IST timezone datetime for scheduling"),
+    auto_publish: bool = Body(True, description="Enable auto-publishing"),
+    current_user: User = Depends(get_current_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Schedule horoscope for future publishing (IST timezone)"""
+    if not ObjectId.is_valid(horoscope_id):
+        raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+    
+    try:
+        existing = db_client[db.db_name][HOROSCOPE_COLL].find_one({"_id": ObjectId(horoscope_id)})
+        if not existing:
+            raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+        
+        # Validate scheduled time (must be in future)
+        current_ist = get_current_ist_time()
+        if scheduled_time <= current_ist.replace(tzinfo=None):
+            raise HTTPException(
+                status_code=400, 
+                detail="अनुसूचित समय भविष्य में होना चाहिए (IST timezone में)"
+            )
+        
+        # Convert IST to UTC for storage
+        scheduled_utc = convert_ist_to_utc(scheduled_time)
+        
+        # Update scheduling fields
+        update_data = {
+            "scheduled_publish_at": scheduled_utc,
+            "auto_publish_enabled": auto_publish,
+            "scheduled_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+            "publish_status": "scheduled" if auto_publish else "draft"
+        }
+        
+        db_client[db.db_name][HOROSCOPE_COLL].update_one(
+            {"_id": ObjectId(horoscope_id)},
+            {"$set": update_data}
+        )
+        
+        # Get updated horoscope
+        updated = db_client[db.db_name][HOROSCOPE_COLL].find_one({"_id": ObjectId(horoscope_id)})
+        return _normalize_horoscope(updated)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to schedule horoscope: {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल को अनुसूचित करने में त्रुटि")
+
+@news_router.delete("/horoscopes/{horoscope_id}/schedule", response_model=HoroscopePost, tags=["Horoscope Admin"])
+async def cancel_horoscope_schedule(
+    horoscope_id: str,
+    current_user: User = Depends(get_current_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Cancel scheduled publishing for horoscope"""
+    if not ObjectId.is_valid(horoscope_id):
+        raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+    
+    try:
+        existing = db_client[db.db_name][HOROSCOPE_COLL].find_one({"_id": ObjectId(horoscope_id)})
+        if not existing:
+            raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+        
+        # Cancel scheduling
+        update_data = {
+            "scheduled_publish_at": None,
+            "auto_publish_enabled": False,
+            "scheduled_at": None,
+            "updated_at": datetime.utcnow(),
+            "publish_status": "published" if existing.get("published") else "draft"
+        }
+        
+        db_client[db.db_name][HOROSCOPE_COLL].update_one(
+            {"_id": ObjectId(horoscope_id)},
+            {"$set": update_data}
+        )
+        
+        # Get updated horoscope
+        updated = db_client[db.db_name][HOROSCOPE_COLL].find_one({"_id": ObjectId(horoscope_id)})
+        return _normalize_horoscope(updated)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to cancel horoscope schedule: {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल शेड्यूल रद्द करने में त्रुटि")
+
+@news_router.get("/admin/horoscopes/scheduled", response_model=List[HoroscopePost], tags=["Horoscope Admin"])
+async def get_scheduled_horoscopes(
+    current_user: User = Depends(get_current_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=50),
+):
+    """Get all scheduled horoscopes (Admin view)"""
+    try:
+        # Get horoscopes that are scheduled
+        filter_query = {
+            "publish_status": "scheduled",
+            "auto_publish_enabled": True,
+            "scheduled_publish_at": {"$ne": None}
+        }
+        
+        skip = (page - 1) * limit
+        scheduled_horoscopes = list(
+            db_client[db.db_name][HOROSCOPE_COLL]
+            .find(filter_query)
+            .sort("scheduled_publish_at", 1)  # Earliest first
+            .skip(skip)
+            .limit(limit)
+        )
+        
+        return [_normalize_horoscope(h) for h in scheduled_horoscopes]
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch scheduled horoscopes: {str(e)}")
+        raise HTTPException(status_code=500, detail="अनुसूचित राशिफल लाने में त्रुटि")
+
+@news_router.post("/admin/horoscopes/process-scheduled", response_model=dict, tags=["Horoscope Admin"])
+async def process_scheduled_horoscopes(
+    current_user: User = Depends(get_current_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Manually trigger processing of scheduled horoscopes (Admin only)"""
+    try:
+        current_utc = datetime.utcnow()
+        
+        # Find horoscopes that should be published now
+        ready_to_publish = list(
+            db_client[db.db_name][HOROSCOPE_COLL].find({
+                "publish_status": "scheduled",
+                "auto_publish_enabled": True,
+                "scheduled_publish_at": {"$lte": current_utc}
+            })
+        )
+        
+        published_count = 0
+        for horoscope in ready_to_publish:
+            # Update to published status
+            db_client[db.db_name][HOROSCOPE_COLL].update_one(
+                {"_id": horoscope["_id"]},
+                {
+                    "$set": {
+                        "published": True,
+                        "published_at": current_utc,
+                        "publish_status": "published",
+                        "updated_at": current_utc
+                    }
+                }
+            )
+            published_count += 1
+        
+        return {
+            "message": f"{published_count} राशिफल सफलतापूर्वक प्रकाशित किए गए",
+            "published_count": published_count,
+            "processed_at": current_utc.isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to process scheduled horoscopes: {str(e)}")
+        raise HTTPException(status_code=500, detail="अनुसूचित राशिफल प्रोसेस करने में त्रुटि")
+
+@news_router.get("/horoscopes/timezone-info", response_model=dict, tags=["Horoscope Public"])
+async def get_timezone_info():
+    """Get current IST time and timezone information for frontend"""
+    try:
+        current_ist = get_current_ist_time()
+        current_utc = datetime.utcnow()
+        
+        return {
+            "current_ist": current_ist.isoformat(),
+            "current_utc": current_utc.isoformat(),
+            "timezone": "Asia/Kolkata",
+            "timezone_offset": "+05:30",
+            "timezone_name": "Indian Standard Time (IST)"
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to get timezone info: {str(e)}")
+        raise HTTPException(status_code=500, detail="समयक्षेत्र की जानकारी लाने में त्रुटि")

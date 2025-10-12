@@ -114,10 +114,16 @@ class HoroscopePost(BaseModel):
     published: bool = False
     featured: bool = False       # विशेष राशिफल के लिए
     
+    # Scheduling System (IST Timezone)
+    scheduled_publish_at: Optional[datetime] = None  # IST scheduled publish time
+    auto_publish_enabled: bool = False              # Enable/disable auto-publishing
+    publish_status: str = "draft"                   # draft, scheduled, published, expired
+    
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
     published_at: Optional[datetime] = None
+    scheduled_at: Optional[datetime] = None         # When scheduling was set
     
     # Engagement metrics
     views: int = 0
@@ -171,6 +177,11 @@ class CreateHoroscopeRequest(BaseModel):
     zodiac_predictions: List[HindiZodiacDetails] = Field(default_factory=list)
     published: bool = False
     featured: bool = False
+    
+    # Scheduling fields (IST Timezone)
+    scheduled_publish_at: Optional[datetime] = None  # IST datetime for scheduling
+    auto_publish_enabled: bool = False              # Enable auto-publishing
+    
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
     hindi_keywords: List[str] = Field(default_factory=list)
@@ -186,6 +197,11 @@ class UpdateHoroscopeRequest(BaseModel):
     zodiac_predictions: Optional[List[HindiZodiacDetails]] = None
     published: Optional[bool] = None
     featured: Optional[bool] = None
+    
+    # Scheduling fields (IST Timezone)
+    scheduled_publish_at: Optional[datetime] = None
+    auto_publish_enabled: Optional[bool] = None
+    
     meta_title: Optional[str] = None
     meta_description: Optional[str] = None
     hindi_keywords: Optional[List[str]] = None
