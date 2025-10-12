@@ -1439,15 +1439,12 @@ async def get_all_horoscopes_admin(
             else:
                 filter_query["horoscope_date"] = {"$lte": date_to.isoformat()}
         
-        # Get total count
-        total = db_client[db.db_name][HOROSCOPE_COLL].count_documents(filter_query)
-        
         # Get paginated results
         skip = (page - 1) * limit
         horoscopes = list(
             db_client[db.db_name][HOROSCOPE_COLL]
             .find(filter_query)
-            .sort("horoscope_date", DESCENDING)
+            .sort("created_at", DESCENDING)
             .skip(skip)
             .limit(limit)
         )
