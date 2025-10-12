@@ -1479,7 +1479,7 @@ async def get_horoscope_by_id(
 
 # ==================== HOROSCOPE ENGAGEMENT (PUBLIC) ====================
 
-@news_router.patch("/horoscopes/{horoscope_id}/increment-view", response_model=dict, tags=["Horoscope Public"])
+@news_router.post("/horoscopes/{horoscope_id}/views", response_model=dict, tags=["Horoscope Public"])
 async def increment_horoscope_views(
     horoscope_id: str,
     request: Request,
@@ -1521,7 +1521,7 @@ async def increment_horoscope_views(
         logger.error(f"Failed to increment horoscope views: {str(e)}")
         raise HTTPException(status_code=500, detail="व्यू काउंट अपडेट करने में त्रुटि")
 
-@news_router.patch("/horoscopes/{horoscope_id}/increment-like", response_model=dict, tags=["Horoscope Public"])
+@news_router.post("/horoscopes/{horoscope_id}/likes", response_model=dict, tags=["Horoscope Public"])
 async def increment_horoscope_likes(
     horoscope_id: str,
     request: Request,
