@@ -1253,6 +1253,13 @@ def convert_ist_to_utc(ist_dt: datetime) -> datetime:
         ist_dt = ist_tz.localize(ist_dt)
     return ist_dt.astimezone(pytz.UTC).replace(tzinfo=None)
 
+def normalize_ist_datetime_input(dt: datetime) -> datetime:
+    """Ensure incoming datetime is timezone-aware in IST."""
+    ist_tz = get_ist_timezone()
+    if dt.tzinfo is None:
+        return ist_tz.localize(dt)
+    return dt.astimezone(ist_tz)
+
 def get_current_ist_time() -> datetime:
     """Get current time in IST"""
     utc_now = datetime.utcnow()
@@ -1292,16 +1299,22 @@ def is_scheduled_publish_time_reached(scheduled_utc: Union[datetime, str]) -> bo
     return current_utc >= parsed_datetime
 
 def determine_publish_status(horoscope_data: dict) -> str:
-    """Determine the publish status based on scheduling and published flag"""
+    """Determine publish status using normalized datetime comparisons"""
     if horoscope_data.get("published", False):
         return "published"
-    elif horoscope_data.get("scheduled_publish_at") and horoscope_data.get("auto_publish_enabled", False):
-        if is_scheduled_publish_time_reached(horoscope_data["scheduled_publish_at"]):
-            return "published"
-        else:
-            return "scheduled"
-    else:
+
+    if not horoscope_data.get("auto_publish_enabled", False):
         return "draft"
+
+    scheduled_value = horoscope_data.get("scheduled_publish_at")
+    if not scheduled_value:
+        return "draft"
+
+    scheduled_dt = _parse_scheduled_datetime(scheduled_value)
+    if scheduled_dt is None:
+        return "draft"
+
+    return "published" if is_scheduled_publish_time_reached(scheduled_dt) else "scheduled"
 
 def get_current_admin_user_horoscope(current_user: User = Depends(get_current_user)):
     """Admin/Author only access for horoscope management"""
@@ -1826,16 +1839,19 @@ async def schedule_horoscope_publish(
         if not existing:
             raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
         
+        # Normalize incoming datetime to IST-aware for comparison
+        scheduled_ist = normalize_ist_datetime_input(scheduled_time)
+
         # Validate scheduled time (must be in future)
         current_ist = get_current_ist_time()
-        if scheduled_time <= current_ist.replace(tzinfo=None):
+        if scheduled_ist <= current_ist:
             raise HTTPException(
                 status_code=400, 
                 detail="अनुसूचित समय भविष्य में होना चाहिए (IST timezone में)"
             )
         
         # Convert IST to UTC for storage
-        scheduled_utc = convert_ist_to_utc(scheduled_time)
+        scheduled_utc = convert_ist_to_utc(scheduled_ist)
         
         # Update scheduling fields
         update_data = {
