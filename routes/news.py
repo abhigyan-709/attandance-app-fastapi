@@ -5,7 +5,7 @@ import re
 import uuid
 import logging
 from datetime import datetime, date, timedelta
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, EmailStr, Field
 import boto3
 import requests
@@ -1258,13 +1258,38 @@ def get_current_ist_time() -> datetime:
     utc_now = datetime.utcnow()
     return convert_utc_to_ist(utc_now)
 
-def is_scheduled_publish_time_reached(scheduled_utc: datetime) -> bool:
+def _parse_scheduled_datetime(value: Union[datetime, str]) -> Optional[datetime]:
+    """Convert stored datetime values (string or datetime) into naive UTC datetime."""
+    if isinstance(value, datetime):
+        scheduled_dt = value
+    elif isinstance(value, str):
+        try:
+            # Support both naive and Z-suffixed ISO strings
+            normalized = value.replace("Z", "+00:00") if value.endswith("Z") else value
+            scheduled_dt = datetime.fromisoformat(normalized)
+        except ValueError:
+            logger.warning(f"Unable to parse scheduled_publish_at value: {value}")
+            return None
+    else:
+        return None
+
+    # Normalize to naive UTC for comparison
+    if scheduled_dt.tzinfo is not None:
+        return scheduled_dt.astimezone(pytz.UTC).replace(tzinfo=None)
+    return scheduled_dt
+
+
+def is_scheduled_publish_time_reached(scheduled_utc: Union[datetime, str]) -> bool:
     """Check if scheduled publish time has been reached (IST comparison)"""
     if not scheduled_utc:
         return False
-    
+
+    parsed_datetime = _parse_scheduled_datetime(scheduled_utc)
+    if parsed_datetime is None:
+        return False
+
     current_utc = datetime.utcnow()
-    return current_utc >= scheduled_utc
+    return current_utc >= parsed_datetime
 
 def determine_publish_status(horoscope_data: dict) -> str:
     """Determine the publish status based on scheduling and published flag"""
