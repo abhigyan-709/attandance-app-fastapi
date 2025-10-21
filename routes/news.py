@@ -155,6 +155,12 @@ def _normalize_news(doc: Dict[str, Any], db_client: MongoClient) -> Dict[str, An
     )
     for c in comments:
         c["_id"] = str(c["_id"])
+        # Normalize phone to string to satisfy response model (some entries may have numeric phones)
+        if "phone" in c and c["phone"] is not None:
+            try:
+                c["phone"] = str(c["phone"]).strip()
+            except Exception:
+                c["phone"] = None
     doc["comments"] = comments
     # counters
     doc["views"] = doc.get("views", 0)
@@ -597,6 +603,11 @@ async def list_comments_for_news(news_id: str, db_client: MongoClient = Depends(
     )
     for c in comments:
         c["_id"] = str(c["_id"])
+        if "phone" in c and c["phone"] is not None:
+            try:
+                c["phone"] = str(c["phone"]).strip()
+            except Exception:
+                c["phone"] = None
     return comments
 
 
@@ -625,7 +636,8 @@ async def create_comment_for_news(
         "news_id": news_id,
         "name": payload.name.strip(),
         "email": (payload.email or None),
-        "phone": (payload.phone or None),
+        # Store phone as string (some UIs may send numeric values)
+        "phone": str(payload.phone).strip() if payload.phone is not None else None,
         "content": payload.content.strip(),
         "created_at": datetime.utcnow(),
     }
