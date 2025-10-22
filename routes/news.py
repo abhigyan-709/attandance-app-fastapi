@@ -167,6 +167,26 @@ def _normalize_news(doc: Dict[str, Any], db_client: MongoClient) -> Dict[str, An
     doc["viewed_ips"] = doc.get("viewed_ips", [])
     doc["likes"] = doc.get("likes", 0)
     doc["liked_ips"] = doc.get("liked_ips", [])
+    raw_gallery = doc.get("content_images") or []
+    normalized_gallery = []
+    for entry in raw_gallery:
+        if isinstance(entry, dict):
+            url = entry.get("url")
+            caption = entry.get("caption")
+        elif isinstance(entry, str):
+            url = entry
+            caption = None
+        else:
+            continue
+        if not url:
+            continue
+        normalized_gallery.append(
+            {
+                "url": url,
+                "caption": caption if caption not in (None, "") else None,
+            }
+        )
+    doc["content_images"] = normalized_gallery
     
     # SEO fields (backward compatible - add if missing)
     if not doc.get("slug"):
@@ -194,6 +214,8 @@ async def create_news(
     tags: List[str] = Form([]),
     published: bool = Form(True),
     file: UploadFile = File(...),
+    content_images: Optional[List[UploadFile]] = File(None),
+    content_image_captions: Optional[List[str]] = Form(None),
     background_tasks: BackgroundTasks = None,
     current_user: User = Depends(get_current_author_or_admin_user),
     db_client: MongoClient = Depends(db.get_client),
@@ -212,6 +234,34 @@ async def create_news(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
 
+    gallery_entries: List[Dict[str, Optional[str]]] = []
+    if content_images:
+        captions = content_image_captions or []
+        for idx, gallery_file in enumerate(content_images):
+            if not gallery_file or not getattr(gallery_file, "file", None):
+                continue
+            file_extension = (gallery_file.filename or "image").split(".")[-1]
+            gallery_key = f"news/content/{uuid.uuid4()}.{file_extension}"
+            content_type = gallery_file.content_type or "application/octet-stream"
+            try:
+                s3_client.upload_fileobj(
+                    gallery_file.file,
+                    AWS_BUCKET_NAME,
+                    gallery_key,
+                    ExtraArgs={"ContentType": content_type},
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=f"Content image upload failed: {str(exc)}")
+
+            gallery_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{gallery_key}"
+            caption = None
+            if idx < len(captions):
+                candidate_caption = captions[idx]
+                if candidate_caption is not None:
+                    stripped_caption = candidate_caption.strip()
+                    caption = stripped_caption if stripped_caption else None
+            gallery_entries.append({"url": gallery_url, "caption": caption})
+
     news_data = {
         "title": title,
         "image_url": image_url,
@@ -226,6 +276,7 @@ async def create_news(
         "viewed_ips": [],
         "likes": 0,
         "liked_ips": [],
+        "content_images": gallery_entries,
     }
 
     inserted = db_client[db.db_name][NEWS_COLL].insert_one(news_data)

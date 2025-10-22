@@ -22,6 +22,11 @@ class Comment(BaseModel):
         alias_generator = lambda x: "_id" if x == "id" else x
 
 
+class NewsContentImage(BaseModel):
+    url: str
+    caption: Optional[str] = None
+
+
 class NewsPost(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
     title: str
@@ -30,6 +35,7 @@ class NewsPost(BaseModel):
     author_username: str
     categories: str
     tags: List[str] = Field(default_factory=list)          # ✅ safe default
+    content_images: List[NewsContentImage] = Field(default_factory=list)
     published: bool = False                                # ✅ draft/publish flag
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
