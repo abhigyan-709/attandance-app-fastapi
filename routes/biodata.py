@@ -211,6 +211,14 @@ class BiodataPDFService:
             logger.error(f"Error extracting PDF data for user {username}: {str(e)}")
             return None
     
+    def _safe_title(self, value: Any) -> str:
+        """Safely convert a value to title case, handling None values"""
+        return (value or "").title() if value is not None else ""
+    
+    def _safe_replace_title(self, value: Any, old: str, new: str) -> str:
+        """Safely replace and title case a value, handling None values"""
+        return (value or "").replace(old, new).title() if value is not None else ""
+    
     def _transform_for_pdf(self, profile: Dict[str, Any]) -> Dict[str, Any]:
         """Transform MongoDB document to PDF-ready format"""
         try:
@@ -228,18 +236,18 @@ class BiodataPDFService:
                     "full_name": f"{profile.get('first_name', '')} {profile.get('last_name', '')}".strip(),
                     "first_name": profile.get("first_name", ""),
                     "last_name": profile.get("last_name", ""),
-                    "gender": profile.get("gender", "").title(),
+                    "gender": self._safe_title(profile.get("gender")),
                     "date_of_birth": self._format_date(profile.get("dob")),
                     "age": self._calculate_age(profile.get("dob")),
-                    "religion": profile.get("religion", "").title(),
+                    "religion": self._safe_title(profile.get("religion")),
                     "caste": profile.get("caste", ""),
                     "caste_category": profile.get("caste_category", ""),
                     "gotra": profile.get("gotra", ""),
                     "mother_tongue": profile.get("mother_tongue", ""),
-                    "marital_status": profile.get("marital_status", "").replace("_", " ").title(),
+                    "marital_status": self._safe_replace_title(profile.get("marital_status"), "_", " "),
                     "about_me": profile.get("about_me", ""),
                     "profile_owner_relation": profile.get("profile_owner_relation", ""),
-                    "biodata_type": profile.get("biodata_type", "").title()
+                    "biodata_type": self._safe_title(profile.get("biodata_type"))
                 },
             
                 # Photos with S3 URLs
@@ -365,7 +373,7 @@ class BiodataPDFService:
             return {}
             
         return {
-            "level": education.get("level", "").title(),
+            "level": self._safe_title(education.get("level")),
             "degree": education.get("degree", ""),
             "institute": education.get("institute", ""),
             "graduation_year": education.get("graduation_year", ""),
@@ -382,7 +390,7 @@ class BiodataPDFService:
         currency = occupation.get("annual_income_currency", "INR")
         
         return {
-            "employment_type": occupation.get("employment_type", "").title(),
+            "employment_type": self._safe_title(occupation.get("employment_type")),
             "organization": occupation.get("organization", ""),
             "designation": occupation.get("designation", ""),
             "annual_income": f"{annual_income} {currency}" if annual_income else "",
@@ -432,8 +440,8 @@ class BiodataPDFService:
             "height_cm": height_cm,
             "height_feet": height_feet,
             "weight_kg": physical.get("weight_kg", ""),
-            "body_type": physical.get("body_type", "").title(),
-            "complexion": physical.get("complexion", "").title(),
+            "body_type": (physical.get("body_type") or "").title(),
+            "complexion": (physical.get("complexion") or "").title(),
             "blood_group": physical.get("blood_group", "")
         }
     
@@ -443,9 +451,9 @@ class BiodataPDFService:
             return {}
             
         return {
-            "diet": lifestyle.get("diet", "").replace("_", " ").title(),
-            "drinking": lifestyle.get("drinking", "").title(),
-            "smoking": lifestyle.get("smoking", "").title()
+            "diet": self._safe_replace_title(lifestyle.get("diet"), "_", " "),
+            "drinking": self._safe_title(lifestyle.get("drinking")),
+            "smoking": self._safe_title(lifestyle.get("smoking"))
         }
     
     def _extract_horoscope(self, horoscope: Dict) -> Dict[str, Any]:
@@ -456,10 +464,10 @@ class BiodataPDFService:
         return {
             "birth_time": horoscope.get("time_of_birth", ""),
             "birth_place": horoscope.get("place_of_birth", ""),
-            "manglik": horoscope.get("manglik", "").title(),
+            "manglik": self._safe_title(horoscope.get("manglik")),
             "gotra": horoscope.get("gotra", ""),
-            "rashi": horoscope.get("rashi", "").title(),
-            "nakshatra": horoscope.get("nakshatra", "").title(),
+            "rashi": self._safe_title(horoscope.get("rashi")),
+            "nakshatra": self._safe_title(horoscope.get("nakshatra")),
             "kundli_url": horoscope.get("kundli_url", "")
         }
     
@@ -494,9 +502,9 @@ class BiodataPDFService:
             return {}
             
         return {
-            "varna": religious_info.get("varna", "").title(),
+            "varna": self._safe_title(religious_info.get("varna")),
             "sub_caste": religious_info.get("sub_caste", ""),
-            "religious_sect": religious_info.get("religious_sect", "").title(),
+            "religious_sect": self._safe_title(religious_info.get("religious_sect")),
             "temple_association": religious_info.get("temple_association", ""),
             "spiritual_practices": ", ".join(religious_info.get("spiritual_practices", [])),
             "festivals_observed": ", ".join(religious_info.get("festivals_observed", [])),
