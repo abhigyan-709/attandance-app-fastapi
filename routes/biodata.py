@@ -1045,22 +1045,24 @@ async def get_biodata_pdf_summary(
         if not summary_data:
             raise HTTPException(status_code=404, detail="Failed to generate PDF summary")
         
-        # Debug: Log the type and structure of summary_data
-        logger.info(f"PDF summary data type: {type(summary_data)}")
-        logger.info(f"PDF summary data keys: {list(summary_data.keys()) if isinstance(summary_data, dict) else 'Not a dict'}")
+        # Extract summary fields for PDF header/footer using correct nested structure
+        personal = summary_data.get('personal', {})
+        contact = summary_data.get('contact', {})
+        education = summary_data.get('education', {})
+        occupation = summary_data.get('occupation', {})
+        photos = summary_data.get('photos', [])
         
-        # Extract summary fields for PDF header/footer
         summary = {
             "profile_id": profile_id,
-            "full_name": f"{summary_data.get('first_name', '')} {summary_data.get('last_name', '')}".strip(),
-            "age": summary_data.get('age', 0),
-            "gender": summary_data.get('gender', ''),
-            "religion": summary_data.get('religion', ''),
-            "caste": summary_data.get('caste', ''),
-            "education": summary_data.get('highest_education', ''),
-            "occupation": summary_data.get('occupation', ''),
-            "location": summary_data.get('current_location', ''),
-            "main_photo_url": next((photo.get('s3_url') for photo in summary_data.get('photos', []) if photo.get('is_main')), '')
+            "full_name": f"{personal.get('first_name', '')} {personal.get('last_name', '')}".strip(),
+            "age": personal.get('age', 0),
+            "gender": personal.get('gender', ''),
+            "religion": personal.get('religion', ''),
+            "caste": personal.get('caste', ''),
+            "education": education.get('level', ''),
+            "occupation": occupation.get('designation', ''),
+            "location": contact.get('current_location', ''),
+            "main_photo_url": next((photo.get('s3_url') for photo in photos if isinstance(photo, dict) and photo.get('is_main')), '')
         }
         
         return JSONResponse(content=summary)
@@ -1187,10 +1189,6 @@ async def validate_pdf_readiness(
         if not profile_data:
             raise HTTPException(status_code=404, detail="Failed to process biodata for PDF")
         
-        # Debug: Log the type and structure of profile_data
-        logger.info(f"PDF validate data type: {type(profile_data)}")
-        logger.info(f"PDF validate data keys: {list(profile_data.keys()) if isinstance(profile_data, dict) else 'Not a dict'}")
-        
         # Validate PDF readiness
         validation_result = {
             "profile_id": profile_id,
@@ -1202,17 +1200,18 @@ async def validate_pdf_readiness(
             "critical_missing": []
         }
         
-        # Check critical fields
+        # Check critical fields using correct nested structure
+        personal = profile_data.get('personal', {})
         critical_fields = ["first_name", "last_name", "gender", "dob"]
-        missing_critical = [field for field in critical_fields if not profile_data.get(field)]
+        missing_critical = [field for field in critical_fields if not personal.get(field)]
         validation_result["critical_missing"] = missing_critical
         
         # Check photos
         photos = profile_data.get("photos", [])
         validation_result["photo_status"] = {
             "total_photos": len(photos),
-            "photos_with_s3": sum(1 for photo in photos if photo.get("s3_url")),
-            "has_main_photo": any(photo.get("is_main", False) for photo in photos)
+            "photos_with_s3": sum(1 for photo in photos if isinstance(photo, dict) and photo.get("s3_url")),
+            "has_main_photo": any(isinstance(photo, dict) and photo.get("is_main", False) for photo in photos)
         }
         
         # Calculate readiness score
