@@ -789,9 +789,13 @@ async def upload_biodata_photo(
             }
         )
         
+        # Convert datetime to string for JSON response
+        photo_response = photo_data.copy()
+        photo_response["uploaded_at"] = photo_data["uploaded_at"].isoformat()
+        
         return JSONResponse(content={
             "message": "Photo uploaded successfully",
-            "photo": photo_data
+            "photo": photo_response
         }, status_code=201)
         
     except Exception as e:
@@ -1666,9 +1670,13 @@ async def replace_biodata_photo(
             }
         )
         
+        # Convert datetime to string for JSON response
+        photo_response = new_photo_data.copy()
+        photo_response["uploaded_at"] = new_photo_data["uploaded_at"].isoformat()
+        
         return JSONResponse(content={
             "message": "Photo replaced successfully",
-            "photo": new_photo_data
+            "photo": photo_response
         }, status_code=200)
         
     except HTTPException:
@@ -3212,14 +3220,23 @@ async def get_all_detailed_profiles(
             .limit(limit)
         )
         
-        # Convert ObjectId to string
+        # Convert ObjectId to string and format all datetime fields
         for profile in profiles:
             profile["_id"] = str(profile["_id"])
-            # Format dates
-            if "created_at" in profile:
-                profile["created_at"] = profile["created_at"].isoformat() if isinstance(profile["created_at"], datetime) else str(profile["created_at"])
-            if "updated_at" in profile:
-                profile["updated_at"] = profile["updated_at"].isoformat() if isinstance(profile["updated_at"], datetime) else str(profile["updated_at"])
+            
+            # Format all datetime fields recursively
+            def format_datetimes(obj):
+                if isinstance(obj, dict):
+                    for key, value in obj.items():
+                        if isinstance(value, datetime):
+                            obj[key] = value.isoformat()
+                        elif isinstance(value, (list, dict)):
+                            format_datetimes(value)
+                elif isinstance(obj, list):
+                    for item in obj:
+                        format_datetimes(item)
+                        
+            format_datetimes(profile)
         
         total_count = collection.count_documents(filter_query)
         

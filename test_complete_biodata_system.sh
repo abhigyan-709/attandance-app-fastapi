@@ -388,7 +388,7 @@ test_endpoint_complete "PATCH" "/biodata/$PROFILE_ID/horoscope" "Update horoscop
 test_endpoint_complete "GET" "/biodata/$PROFILE_ID/horoscope" "Get horoscope info" "$ADMIN_TOKEN"
 
 # Test 28: PATCH /biodata/{profile_id}/languages
-test_endpoint_complete "PATCH" "/biodata/{profile_id}/languages" "Update languages" "$ADMIN_TOKEN" '{
+test_endpoint_complete "PATCH" "/biodata/$PROFILE_ID/languages" "Update languages" "$ADMIN_TOKEN" '{
     "known": {
         "Hindi": "native",
         "English": "fluent",
