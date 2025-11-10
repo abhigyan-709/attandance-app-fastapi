@@ -213,32 +213,31 @@ class BiodataPDFService:
     
     def _transform_for_pdf(self, profile: Dict[str, Any]) -> Dict[str, Any]:
         """Transform MongoDB document to PDF-ready format"""
-        
         # Clean and organize data for PDF
         pdf_data = {
-            # Basic Information
-            "profile_id": str(profile.get("_id", "")),
-            "created_at": self._format_datetime(profile.get("created_at")),
-            "updated_at": self._format_datetime(profile.get("updated_at")),
-            
-            # Personal Details
-            "personal": {
-                "full_name": f"{profile.get('first_name', '')} {profile.get('last_name', '')}".strip(),
-                "first_name": profile.get("first_name", ""),
-                "last_name": profile.get("last_name", ""),
-                "gender": profile.get("gender", "").title(),
-                "date_of_birth": self._format_date(profile.get("dob")),
-                "age": self._calculate_age(profile.get("dob")),
-                "religion": profile.get("religion", "").title(),
-                "caste": profile.get("caste", ""),
-                "caste_category": profile.get("caste_category", ""),
-                "gotra": profile.get("gotra", ""),
-                "mother_tongue": profile.get("mother_tongue", ""),
-                "marital_status": profile.get("marital_status", "").replace("_", " ").title(),
-                "about_me": profile.get("about_me", ""),
-                "profile_owner_relation": profile.get("profile_owner_relation", ""),
-                "biodata_type": profile.get("biodata_type", "").title()
-            },
+                # Basic Information
+                "profile_id": str(profile.get("_id", "")),
+                "created_at": self._format_datetime(profile.get("created_at")),
+                "updated_at": self._format_datetime(profile.get("updated_at")),
+                
+                # Personal Details
+                "personal": {
+                    "full_name": f"{profile.get('first_name', '')} {profile.get('last_name', '')}".strip(),
+                    "first_name": profile.get("first_name", ""),
+                    "last_name": profile.get("last_name", ""),
+                    "gender": profile.get("gender", "").title(),
+                    "date_of_birth": self._format_date(profile.get("dob")),
+                    "age": self._calculate_age(profile.get("dob")),
+                    "religion": profile.get("religion", "").title(),
+                    "caste": profile.get("caste", ""),
+                    "caste_category": profile.get("caste_category", ""),
+                    "gotra": profile.get("gotra", ""),
+                    "mother_tongue": profile.get("mother_tongue", ""),
+                    "marital_status": profile.get("marital_status", "").replace("_", " ").title(),
+                    "about_me": profile.get("about_me", ""),
+                    "profile_owner_relation": profile.get("profile_owner_relation", ""),
+                    "biodata_type": profile.get("biodata_type", "").title()
+                },
             
             # Photos with S3 URLs
             "photos": self._extract_photos(profile.get("photos", [])),
