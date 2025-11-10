@@ -340,6 +340,10 @@ class BiodataPDFService:
             return {}
             
         address = contact.get("address", {})
+        # Handle case where address might be None
+        if address is None:
+            address = {}
+            
         return {
             "email": contact.get("email", ""),
             "phone": f"{contact.get('phone_country_code', '')}{contact.get('phone_number', '')}".strip(),
