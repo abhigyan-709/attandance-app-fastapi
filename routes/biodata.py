@@ -328,6 +328,48 @@ async def get_my_biodata_profile(
     
     return _normalize_biodata(profile)
 
+# ------------------------- Search Profiles (SPECIFIC ROUTE BEFORE GENERIC) -------------------------
+
+@biodata_router.get("/biodata/search", response_model=List[CandidateProfile], tags=["Biodata"])
+async def search_biodata_profiles(
+    q: str = Query(..., min_length=2, description="Search query"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Search biodata profiles by name, occupation, education, etc."""
+    # Create text search query
+    query = {
+        "is_active": True,
+        "$or": [
+            {"first_name": {"$regex": q, "$options": "i"}},
+            {"last_name": {"$regex": q, "$options": "i"}},
+            {"occupation.organization": {"$regex": q, "$options": "i"}},
+            {"occupation.designation": {"$regex": q, "$options": "i"}},
+            {"education.degree": {"$regex": q, "$options": "i"}},
+            {"education.institute": {"$regex": q, "$options": "i"}},
+            {"contact.address.city": {"$regex": q, "$options": "i"}},
+            {"contact.address.state": {"$regex": q, "$options": "i"}},
+            {"caste": {"$regex": q, "$options": "i"}},
+            {"mother_tongue": {"$regex": q, "$options": "i"}}
+        ]
+    }
+    
+    try:
+        profiles = list(
+            db_client[db.db_name][BIODATA_COLLECTION]
+            .find(query)
+            .sort("created_at", DESCENDING)
+            .skip(skip)
+            .limit(limit)
+        )
+        
+        return [_normalize_biodata(profile) for profile in profiles]
+    except Exception as e:
+        logger.error(f"Search failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Search failed")
+
 # ------------------------- Get Single Biodata Profile (GENERIC ROUTE LAST) -------------------------
 
 @biodata_router.get("/biodata/{profile_id}", response_model=CandidateProfile, tags=["Biodata"])
@@ -1444,48 +1486,6 @@ async def get_biodata_stats(
         "marital_status_distribution": {stat["_id"]: stat["count"] for stat in marital_stats}
     }
 
-# ------------------------- Search Profiles -------------------------
-
-@biodata_router.get("/biodata/search", response_model=List[CandidateProfile], tags=["Biodata"])
-async def search_biodata_profiles(
-    q: str = Query(..., min_length=2, description="Search query"),
-    skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    """Search biodata profiles by name, occupation, education, etc."""
-    # Create text search query
-    query = {
-        "is_active": True,
-        "$or": [
-            {"first_name": {"$regex": q, "$options": "i"}},
-            {"last_name": {"$regex": q, "$options": "i"}},
-            {"occupation.organization": {"$regex": q, "$options": "i"}},
-            {"occupation.designation": {"$regex": q, "$options": "i"}},
-            {"education.degree": {"$regex": q, "$options": "i"}},
-            {"education.institute": {"$regex": q, "$options": "i"}},
-            {"contact.address.city": {"$regex": q, "$options": "i"}},
-            {"contact.address.state": {"$regex": q, "$options": "i"}},
-            {"caste": {"$regex": q, "$options": "i"}},
-            {"mother_tongue": {"$regex": q, "$options": "i"}}
-        ]
-    }
-    
-    try:
-        profiles = list(
-            db_client[db.db_name][BIODATA_COLLECTION]
-            .find(query)
-            .sort("created_at", DESCENDING)
-            .skip(skip)
-            .limit(limit)
-        )
-        
-        return [_normalize_biodata(profile) for profile in profiles]
-    except Exception as e:
-        logger.error(f"Search failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Search failed")
-
 # ------------------------- Verification -------------------------
 
 @biodata_router.patch("/biodata/{profile_id}/verify", tags=["Biodata"])
@@ -1900,6 +1900,46 @@ async def remove_extended_family_member(
         raise HTTPException(status_code=400, detail="Failed to remove family member")
     
     return JSONResponse(content={"message": "Extended family member removed successfully"})
+
+
+@biodata_router.patch("/biodata/{profile_id}/extended-family", tags=["Enhanced Biodata"])
+async def update_extended_family(
+    profile_id: str,
+    extended_family_data: dict,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Update extended family information in bulk"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check ownership
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Access denied")
+    
+    # Validate extended family data
+    if "extended_family" not in extended_family_data:
+        raise HTTPException(status_code=400, detail="extended_family field required")
+    
+    # Update extended family
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$set": {
+                "detailed_family_background.extended_family": extended_family_data["extended_family"],
+                "updated_at": datetime.utcnow()
+            }
+        }
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Failed to update extended family")
+    
+    return JSONResponse(content={"message": "Extended family updated successfully"})
 
 
 # ==================== TRADITIONAL PREFERENCES CRUD ====================
