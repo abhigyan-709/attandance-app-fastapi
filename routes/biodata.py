@@ -213,8 +213,11 @@ class BiodataPDFService:
     
     def _transform_for_pdf(self, profile: Dict[str, Any]) -> Dict[str, Any]:
         """Transform MongoDB document to PDF-ready format"""
-        # Clean and organize data for PDF
-        pdf_data = {
+        try:
+            logger.info(f"Starting PDF transform for profile with keys: {list(profile.keys())}")
+            
+            # Clean and organize data for PDF
+            pdf_data = {
                 # Basic Information
                 "profile_id": str(profile.get("_id", "")),
                 "created_at": self._format_datetime(profile.get("created_at")),
@@ -239,62 +242,70 @@ class BiodataPDFService:
                     "biodata_type": profile.get("biodata_type", "").title()
                 },
             
-            # Photos with S3 URLs
-            "photos": self._extract_photos(profile.get("photos", [])),
-            
-            # Contact Information
-            "contact": self._extract_contact(profile.get("contact", {})),
-            
-            # Education
-            "education": self._extract_education(profile.get("education", {})),
-            
-            # Occupation
-            "occupation": self._extract_occupation(profile.get("occupation", {})),
-            
-            # Family Details
-            "family": self._extract_family(profile.get("family", {})),
-            
-            # Physical Attributes
-            "physical": self._extract_physical(profile.get("physical", {})),
-            
-            # Lifestyle
-            "lifestyle": self._extract_lifestyle(profile.get("lifestyle", {})),
-            
-            # Horoscope
-            "horoscope": self._extract_horoscope(profile.get("horoscope", {})),
-            
-            # Languages
-            "languages": self._extract_languages(profile.get("languages", {})),
-            
-            # Partner Preferences
-            "partner_preferences": self._extract_partner_preferences(profile.get("partner_preferences", {})),
-            
-            # Advanced Religious Information (for detailed profiles)
-            "religious_details": self._extract_religious_details(profile.get("detailed_religious_info", {})),
-            
-            # Advanced Astrology (for detailed profiles)
-            "astrology_details": self._extract_astrology_details(profile.get("detailed_astrology", {})),
-            
-            # Extended Family (for detailed profiles)
-            "extended_family": self._extract_extended_family(profile.get("detailed_family_background", {})),
-            
-            # Traditional Preferences
-            "traditional_preferences": self._extract_traditional_preferences(profile.get("traditional_preferences", {})),
-            
-            # Marriage Planning
-            "marriage_planning": self._extract_marriage_planning(profile.get("marriage_planning", {})),
-            
-            # Metadata
-            "metadata": {
-                "profile_completeness": profile.get("profile_completeness_score", 0),
-                "profile_views": profile.get("profile_views", 0),
-                "is_verified": profile.get("is_verified", False),
-                "verification_status": profile.get("verification_status", ""),
-                "last_activity": self._format_datetime(profile.get("last_activity"))
+                # Photos with S3 URLs
+                "photos": self._extract_photos(profile.get("photos", [])),
+                
+                # Contact Information
+                "contact": self._extract_contact(profile.get("contact", {})),
+                
+                # Education
+                "education": self._extract_education(profile.get("education", {})),
+                
+                # Occupation
+                "occupation": self._extract_occupation(profile.get("occupation", {})),
+                
+                # Family Details
+                "family": self._extract_family(profile.get("family", {})),
+                
+                # Physical Attributes
+                "physical": self._extract_physical(profile.get("physical", {})),
+                
+                # Lifestyle
+                "lifestyle": self._extract_lifestyle(profile.get("lifestyle", {})),
+                
+                # Horoscope
+                "horoscope": self._extract_horoscope(profile.get("horoscope", {})),
+                
+                # Languages
+                "languages": self._extract_languages(profile.get("languages", {})),
+                
+                # Partner Preferences
+                "partner_preferences": self._extract_partner_preferences(profile.get("partner_preferences", {})),
+                
+                # Advanced Religious Information (for detailed profiles)
+                "religious_details": self._extract_religious_details(profile.get("detailed_religious_info", {})),
+                
+                # Advanced Astrology (for detailed profiles)
+                "astrology_details": self._extract_astrology_details(profile.get("detailed_astrology", {})),
+                
+                # Extended Family (for detailed profiles)
+                "extended_family": self._extract_extended_family(profile.get("detailed_family_background", {})),
+                
+                # Traditional Preferences
+                "traditional_preferences": self._extract_traditional_preferences(profile.get("traditional_preferences", {})),
+                
+                # Marriage Planning
+                "marriage_planning": self._extract_marriage_planning(profile.get("marriage_planning", {})),
+                
+                # Metadata
+                "metadata": {
+                    "profile_completeness": profile.get("profile_completeness_score", 0),
+                    "profile_views": profile.get("profile_views", 0),
+                    "is_verified": profile.get("is_verified", False),
+                    "verification_status": profile.get("verification_status", ""),
+                    "last_activity": self._format_datetime(profile.get("last_activity"))
+                }
             }
-        }
-        
-        return pdf_data
+            
+            logger.info(f"Successfully transformed PDF data with {len(pdf_data)} sections")
+            return pdf_data
+            
+        except Exception as e:
+            logger.error(f"Error in _transform_for_pdf: {str(e)}")
+            logger.error(f"Profile keys available: {list(profile.keys()) if profile else 'None'}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            return None
     
     def _extract_photos(self, photos: List[Dict]) -> Dict[str, Any]:
         """Extract photo information with S3 URLs"""
