@@ -152,13 +152,33 @@ test_endpoint_complete() {
     
     # Handle different request types
     if [ "$file_upload" = "true" ]; then
-        # Create test image file
-        echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" | base64 -d > /tmp/test_image.png
-        response=$(curl -s -w "HTTPSTATUS:%{http_code}" -X $method \
-            -H "Authorization: Bearer $auth_token" \
-            -F "file=@/tmp/test_image.png" \
-            "$BASE_URL$endpoint")
-        rm -f /tmp/test_image.png
+        # Determine file type and field name based on endpoint
+        if [[ "$endpoint" == *"upload-kundli"* ]]; then
+            # Create test PDF file for kundli
+            echo "%PDF-1.4 1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>endobj xref 0 4 0000000000 65535 f 0000000015 00000 n 0000000074 00000 n 0000000120 00000 n trailer<</Size 4/Root 1 0 R>> startxref 229 %%EOF" > /tmp/test_kundli.pdf
+            response=$(curl -s -w "HTTPSTATUS:%{http_code}" -X $method \
+                -H "Authorization: Bearer $auth_token" \
+                -F "kundli_file=@/tmp/test_kundli.pdf" \
+                "$BASE_URL$endpoint")
+            rm -f /tmp/test_kundli.pdf
+        elif [[ "$endpoint" == *"upload-document"* ]]; then
+            # Create test PDF file for document
+            echo "%PDF-1.4 1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj 3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>endobj xref 0 4 0000000000 65535 f 0000000015 00000 n 0000000074 00000 n 0000000120 00000 n trailer<</Size 4/Root 1 0 R>> startxref 229 %%EOF" > /tmp/test_document.pdf
+            response=$(curl -s -w "HTTPSTATUS:%{http_code}" -X $method \
+                -H "Authorization: Bearer $auth_token" \
+                -F "document_type=birth_certificate" \
+                -F "document_file=@/tmp/test_document.pdf" \
+                "$BASE_URL$endpoint")
+            rm -f /tmp/test_document.pdf
+        else
+            # Default photo upload
+            echo "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==" | base64 -d > /tmp/test_image.png
+            response=$(curl -s -w "HTTPSTATUS:%{http_code}" -X $method \
+                -H "Authorization: Bearer $auth_token" \
+                -F "file=@/tmp/test_image.png" \
+                "$BASE_URL$endpoint")
+            rm -f /tmp/test_image.png
+        fi
     elif [ "$method" = "GET" ]; then
         response=$(curl -s -w "HTTPSTATUS:%{http_code}" -X GET \
             -H "Authorization: Bearer $auth_token" \

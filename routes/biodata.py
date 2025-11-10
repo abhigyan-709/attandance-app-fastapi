@@ -178,19 +178,24 @@ class BiodataPDFService:
         """
         try:
             if not ObjectId.is_valid(profile_id):
+                logger.error(f"Invalid ObjectId format: {profile_id}")
                 return None
                 
             profile = self.collection.find_one({"_id": ObjectId(profile_id)})
             if not profile:
+                logger.error(f"Profile not found: {profile_id}")
                 return None
             
             # Transform data for PDF generation
             pdf_data = self._transform_for_pdf(profile)
+            logger.info(f"Successfully generated PDF data for profile: {profile_id}")
             
             return pdf_data
             
         except Exception as e:
             logger.error(f"Error extracting PDF data for profile {profile_id}: {str(e)}")
+            logger.error(f"Exception type: {type(e).__name__}")
+            logger.error(f"Full traceback: {e.__class__.__module__}.{e.__class__.__name__}: {str(e)}")
             return None
     
     def get_user_biodata_for_pdf(self, username: str) -> Optional[Dict[str, Any]]:
@@ -258,6 +263,9 @@ class BiodataPDFService:
             
             # Horoscope
             "horoscope": self._extract_horoscope(profile.get("horoscope", {})),
+            
+            # Languages
+            "languages": self._extract_languages(profile.get("languages", {})),
             
             # Partner Preferences
             "partner_preferences": self._extract_partner_preferences(profile.get("partner_preferences", {})),
@@ -439,6 +447,14 @@ class BiodataPDFService:
             "rashi": horoscope.get("rashi", "").title(),
             "nakshatra": horoscope.get("nakshatra", "").title(),
             "kundli_url": horoscope.get("kundli_url", "")
+        }
+    
+    def _extract_languages(self, languages: Dict) -> Dict[str, Any]:
+        """Extract languages information"""
+        return {
+            "known": languages.get("known", {}),
+            "learning": languages.get("learning", []),
+            "interested": languages.get("interested", [])
         }
     
     def _extract_partner_preferences(self, preferences: Dict) -> Dict[str, Any]:
@@ -1557,6 +1573,57 @@ async def get_biodata_photos(
     
     return {"photos": profile.get("photos", [])}
 
+@biodata_router.patch("/biodata/{profile_id}/photos/reorder", tags=["Biodata"])
+async def reorder_biodata_photos(
+    profile_id: str,
+    request: Dict[str, List[int]] = Body(...),
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Reorder photos in the profile"""
+    try:
+        if not ObjectId.is_valid(profile_id):
+            raise HTTPException(status_code=404, detail="Profile not found")
+        
+        photo_order = request.get("new_order", [])
+        
+        collection = db_client["testdb"][BIODATA_COLLECTION]
+        profile = collection.find_one({"_id": ObjectId(profile_id)})
+        if not profile:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        
+        # Check permission
+        if profile.get("user_id") != current_user.username and current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="Permission denied")
+        
+        photos = profile.get("photos", [])
+        
+        # Validate photo_order
+        if len(photo_order) != len(photos):
+            raise HTTPException(status_code=400, detail="Photo order length must match current photos count")
+        
+        if set(photo_order) != set(range(len(photos))):
+            raise HTTPException(status_code=400, detail="Invalid photo order indices")
+        
+        # Reorder photos
+        reordered_photos = [photos[i] for i in photo_order]
+        
+        collection.update_one(
+            {"_id": ObjectId(profile_id)},
+            {
+                "$set": {
+                    "photos": reordered_photos,
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+        
+        return {"message": "Photos reordered successfully"}
+    
+    except Exception as e:
+        logger.error(f"Failed to reorder photos: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to reorder photos: {str(e)}")
+
 @biodata_router.patch("/biodata/{profile_id}/photos/{photo_index}", tags=["Biodata"])
 async def update_biodata_photo(
     profile_id: str,
@@ -1684,59 +1751,6 @@ async def replace_biodata_photo(
     except Exception as e:
         logger.error(f"Failed to replace photo: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to replace photo: {str(e)}")
-
-@biodata_router.patch("/biodata/{profile_id}/photos/reorder", tags=["Biodata"])
-async def reorder_biodata_photos(
-    profile_id: str,
-    request: Dict[str, List[int]] = Body(...),
-    current_user: User = Depends(get_current_user),
-    db_client: MongoClient = Depends(db.get_client),
-):
-    """Reorder photos in the profile"""
-    try:
-        if not ObjectId.is_valid(profile_id):
-            raise HTTPException(status_code=404, detail="Profile not found")
-        
-        photo_order = request.get("new_order", [])
-        
-        collection = db_client["testdb"][BIODATA_COLLECTION]
-        profile = collection.find_one({"_id": ObjectId(profile_id)})
-        if not profile:
-            raise HTTPException(status_code=404, detail="Profile not found")
-        
-        # Check permission
-        if profile.get("user_id") != current_user.username and current_user.role != "admin":
-            raise HTTPException(status_code=403, detail="Permission denied")
-        
-        photos = profile.get("photos", [])
-        
-        # Validate photo_order
-        if len(photo_order) != len(photos):
-            raise HTTPException(status_code=400, detail="Photo order length must match current photos count")
-        
-        if set(photo_order) != set(range(len(photos))):
-            raise HTTPException(status_code=400, detail="Invalid photo order indices")
-        
-        # Reorder photos
-        reordered_photos = [photos[i] for i in photo_order]
-        
-        collection.update_one(
-            {"_id": ObjectId(profile_id)},
-            {
-                "$set": {
-                    "photos": reordered_photos,
-                    "updated_at": datetime.utcnow()
-                }
-            }
-        )
-        
-        return JSONResponse(content={"message": "Photos reordered successfully"})
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to reorder photos: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to reorder photos: {str(e)}")
 
 # ------------------------- Get Individual Sections -------------------------
 
