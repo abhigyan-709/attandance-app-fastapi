@@ -1,0 +1,448 @@
+[0;36m🔥 ULTIMATE BIODATA API TESTING - ALL 68+ ENDPOINTS[0m
+=================================================================
+[0;34m📅 Date: Mon Nov 10 21:04:46 IST 2025[0m
+[0;34m🌐 Base URL: https://api.projectdevops.in[0m
+[0;34m👤 Admin User: admin[0m
+[0;34m🧑‍💻 Test User: biodata_test_comprehensive[0m
+
+[0;35m🔐 PHASE 1: AUTHENTICATION SETUP[0m
+[0;35m===============================[0m
+[0;34mℹ️  Creating test user: biodata_test_comprehensive[0m
+[0;32m✅ Test user setup completed[0m
+[0;32m✅ Admin authentication successful[0m
+
+[0;35m📋 PHASE 2: BASIC BIODATA OPERATIONS[0m
+[0;35m===================================[0m
+
+[0;34mℹ️  Test #1: Create biodata profile[0m
+📍 POST /biodata
+📊 Status: 200 (Expected: 200)
+📄 Response: {"_id":"6912061706e823975585e328","created_at":"2025-11-10T15:34:47.651163","updated_at":"2025-11-10T15:34:47.651164","biodata_type":"basic","first_na... [truncated]
+[0;32m✅ Create biodata profile[0m
+[0;34mℹ️  Using Profile ID: 6912061706e823975585e328[0m
+
+[0;34mℹ️  Test #2: Get all biodata profiles[0m
+📍 GET /biodata
+📊 Status: 200 (Expected: 200)
+📄 Response: [{"_id":"6912061706e823975585e328","created_at":"2025-11-10T15:34:47.651163","updated_at":"2025-11-10T15:34:47.651164","biodata_type":"basic","first_n... [truncated]
+[0;32m✅ Get all biodata profiles[0m
+
+[0;34mℹ️  Test #3: Get my biodata profile[0m
+📍 GET /biodata/my/profile
+📊 Status: 400 (Expected: 200)
+📄 Response: Invalid HTTP request received.
+[0;31m❌ Get my biodata profile (Expected 200, got 400)[0m
+
+[0;34mℹ️  Test #4: Search biodata profiles[0m
+📍 GET /biodata/search?q=Test&limit=5
+📊 Status: 200 (Expected: 200)
+📄 Response: [{"_id":"6912061706e823975585e328","created_at":"2025-11-10T15:34:47.651163","updated_at":"2025-11-10T15:34:47.651164","biodata_type":"basic","first_n... [truncated]
+[0;32m✅ Search biodata profiles[0m
+
+[0;34mℹ️  Test #5: Get specific biodata profile[0m
+📍 GET /biodata/6912061706e823975585e328
+📊 Status: 200 (Expected: 200)
+📄 Response: {"_id":"6912061706e823975585e328","created_at":"2025-11-10T15:34:47.651163","updated_at":"2025-11-10T15:34:47.651164","biodata_type":"basic","first_na... [truncated]
+[0;32m✅ Get specific biodata profile[0m
+
+[0;34mℹ️  Test #6: Update biodata profile[0m
+📍 PUT /biodata/6912061706e823975585e328
+📊 Status: 422 (Expected: 200)
+📄 Response: {"detail":[{"type":"missing","loc":["body","first_name"],"msg":"Field required","input":{"about_me":"Updated comprehensive test profile","mother_tongu... [truncated]
+[0;31m❌ Update biodata profile (Expected 200, got 422)[0m
+
+[0;35m📸 PHASE 3: PHOTO MANAGEMENT OPERATIONS[0m
+[0;35m======================================[0m
+
+[0;34mℹ️  Test #7: Get biodata photos[0m
+📍 GET /biodata/6912061706e823975585e328/photos
+📊 Status: 200 (Expected: 200)
+📄 Response: {"photos":[]}
+[0;32m✅ Get biodata photos[0m
+
+[0;34mℹ️  Test #8: Upload biodata photo[0m
+📍 POST /biodata/6912061706e823975585e328/photos
+📊 Status: 400 (Expected: 201)
+📄 Response: {"detail":"Only image files are allowed"}
+[0;31m❌ Upload biodata photo (Expected 201, got 400)[0m
+
+[0;35m🔧 PHASE 4: SECTION MANAGEMENT (PATCH/GET/DELETE)[0m
+[0;35m================================================[0m
+
+[0;34mℹ️  Test #9: Update contact info[0m
+📍 PATCH /biodata/6912061706e823975585e328/contact
+📊 Status: 422 (Expected: 200)
+📄 Response: {"detail":[{"type":"model_attributes_type","loc":["body","address"],"msg":"Input should be a valid dictionary or object to extract fields from","input... [truncated]
+[0;31m❌ Update contact info (Expected 200, got 422)[0m
+
+[0;34mℹ️  Test #10: Get contact info[0m
+📍 GET /biodata/6912061706e823975585e328/contact
+📊 Status: 404 (Expected: 200)
+📄 Response: {"detail":"Contact information not found"}
+[0;31m❌ Get contact info (Expected 200, got 404)[0m
+
+[0;34mℹ️  Test #11: Update education[0m
+📍 PATCH /biodata/6912061706e823975585e328/education
+📊 Status: 200 (Expected: 200)
+📄 Response: {"message":"Education information updated successfully"}
+[0;32m✅ Update education[0m
+
+[0;34mℹ️  Test #12: Get education info[0m
+📍 GET /biodata/6912061706e823975585e328/education
+📊 Status: 200 (Expected: 200)
+📄 Response: {"level":null,"degree":null,"institute":null,"graduation_year":null}
+[0;32m✅ Get education info[0m
+
+[0;34mℹ️  Test #13: Update occupation[0m
+📍 PATCH /biodata/6912061706e823975585e328/occupation
+📊 Status: 200 (Expected: 200)
+📄 Response: {"message":"Occupation information updated successfully"}
+[0;32m✅ Update occupation[0m
+
+[0;34mℹ️  Test #14: Get occupation info[0m
+📍 GET /biodata/6912061706e823975585e328/occupation
+📊 Status: 200 (Expected: 200)
+📄 Response: {"employment_type":null,"organization":null,"designation":null,"annual_income_value":null,"annual_income_currency":"INR"}
+[0;32m✅ Get occupation info[0m
+
+[0;34mℹ️  Test #15: Update family info[0m
+📍 PATCH /biodata/6912061706e823975585e328/family
+📊 Status: 422 (Expected: 200)
+📄 Response: {"detail":[{"type":"list_type","loc":["body","siblings"],"msg":"Input should be a valid list","input":"2 brothers","url":"https://errors.pydantic.dev/... [truncated]
+[0;31m❌ Update family info (Expected 200, got 422)[0m
+
+[0;34mℹ️  Test #16: Get family details[0m
+📍 GET /biodata/6912061706e823975585e328/family
+📊 Status: 404 (Expected: 200)
+📄 Response: {"detail":"Family details not found"}
+[0;31m❌ Get family details (Expected 200, got 404)[0m
+
+[0;34mℹ️  Test #17: Update physical attributes[0m
+📍 PATCH /biodata/6912061706e823975585e328/physical
+📊 Status: 200 (Expected: 200)
+📄 Response: {"message":"Physical attributes updated successfully"}
+[0;32m✅ Update physical attributes[0m
+
+[0;34mℹ️  Test #18: Get physical attributes[0m
+📍 GET /biodata/6912061706e823975585e328/physical
+📊 Status: 200 (Expected: 200)
+📄 Response: {"height_cm":null,"weight_kg":null,"body_type":null,"complexion":"wheatish","blood_group":null}
+[0;32m✅ Get physical attributes[0m
+
+[0;34mℹ️  Test #19: Update lifestyle[0m
+📍 PATCH /biodata/6912061706e823975585e328/lifestyle
+📊 Status: 200 (Expected: 200)
+📄 Response: {"message":"Lifestyle updated successfully"}
+[0;32m✅ Update lifestyle[0m
+
+[0;34mℹ️  Test #20: Get lifestyle info[0m
+📍 GET /biodata/6912061706e823975585e328/lifestyle
+📊 Status: 200 (Expected: 200)
+📄 Response: {"diet":"vegetarian","drinking":"no","smoking":"no"}
+[0;32m✅ Get lifestyle info[0m
+
+[0;34mℹ️  Test #21: Update horoscope[0m
+📍 PATCH /biodata/6912061706e823975585e328/horoscope
+📊 Status: 200 (Expected: 200)
+📄 Response: {"message":"Horoscope updated successfully"}
+[0;32m✅ Update horoscope[0m
+
+[0;34mℹ️  Test #22: Get horoscope info[0m
+📍 GET /biodata/6912061706e823975585e328/horoscope
+📊 Status: 200 (Expected: 200)
+📄 Response: {"date_of_birth":null,"time_of_birth":null,"place_of_birth":null,"manglik":null,"gotra":null,"rashi":null,"nakshatra":null,"kundli_url":null}
+[0;32m✅ Get horoscope info[0m
+
+[0;34mℹ️  Test #23: Update languages[0m
+📍 PATCH /biodata/6912061706e823975585e328/languages
+📊 Status: 200 (Expected: 200)
+📄 Response: {"message":"Languages updated successfully"}
+[0;32m✅ Update languages[0m
+
+[0;34mℹ️  Test #24: Get languages info[0m
+📍 GET /biodata/6912061706e823975585e328/languages
+📊 Status: 200 (Expected: 200)
+📄 Response: {"known":{"Hindi":"fluent","English":"conversational"}}
+[0;32m✅ Get languages info[0m
+
+[0;34mℹ️  Test #25: Update partner preferences[0m
+📍 PATCH /biodata/6912061706e823975585e328/partner-preferences
+📊 Status: 200 (Expected: 200)
+📄 Response: {"message":"Partner preferences updated successfully"}
+[0;32m✅ Update partner preferences[0m
+
+[0;34mℹ️  Test #26: Get partner preferences[0m
+📍 GET /biodata/6912061706e823975585e328/partner-preferences
+📊 Status: 200 (Expected: 200)
+📄 Response: {"min_age":25,"max_age":35,"min_height_cm":null,"max_height_cm":null,"marital_status":null,"religion":null,"caste":null,"gotra":null,"education_levels... [truncated]
+[0;32m✅ Get partner preferences[0m
+
+[0;35m🚀 PHASE 5: ENHANCED BIODATA FEATURES[0m
+[0;35m====================================[0m
+
+[0;34mℹ️  Test #27: Upgrade to detailed biodata[0m
+📍 PATCH /biodata/6912061706e823975585e328/upgrade-to-detailed
+📊 Status: 200 (Expected: 200)
+📄 Response: {"message":"Profile upgraded to detailed biodata successfully"}
+[0;32m✅ Upgrade to detailed biodata[0m
+
+[0;34mℹ️  Test #28: Update detailed religious info[0m
+📍 PATCH /biodata/6912061706e823975585e328/detailed-religious-info
+📊 Status: 422 (Expected: 200)
+📄 Response: {"detail":[{"type":"enum","loc":["body","religious_sect"],"msg":"Input should be 'shaivism', 'vaishnavism', 'shaktism', 'smartism', 'arya_samaj', 'bra... [truncated]
+[0;31m❌ Update detailed religious info (Expected 200, got 422)[0m
+
+[0;34mℹ️  Test #29: Get detailed religious info[0m
+📍 GET /biodata/6912061706e823975585e328/detailed-religious-info
+📊 Status: 404 (Expected: 200)
+📄 Response: {"detail":"Detailed religious information not found"}
+[0;31m❌ Get detailed religious info (Expected 200, got 404)[0m
+
+[0;34mℹ️  Test #30: Update detailed astrology[0m
+📍 PATCH /biodata/6912061706e823975585e328/detailed-astrology
+📊 Status: 200 (Expected: 200)
+📄 Response: {"message":"Detailed astrology information updated successfully"}
+[0;32m✅ Update detailed astrology[0m
+
+[0;34mℹ️  Test #31: Get detailed astrology[0m
+📍 GET /biodata/6912061706e823975585e328/detailed-astrology
+📊 Status: 200 (Expected: 200)
+📄 Response: {"birth_time":null,"birth_place_coordinates":null,"rashi_detailed":null,"nakshatra_detailed":null,"lagna":null,"navamsa":null,"dasha_period":null,"dos... [truncated]
+[0;32m✅ Get detailed astrology[0m
+
+[0;34mℹ️  Test #32: Upload kundli document[0m
+📍 POST /biodata/6912061706e823975585e328/upload-kundli
+📊 Status: 422 (Expected: 201)
+📄 Response: {"detail":[{"type":"missing","loc":["body","kundli_file"],"msg":"Field required","input":null,"url":"https://errors.pydantic.dev/2.10/v/missing"}]}
+[0;31m❌ Upload kundli document (Expected 201, got 422)[0m
+
+[0;34mℹ️  Test #33: Update detailed family background[0m
+📍 PATCH /biodata/6912061706e823975585e328/detailed-family-background
+📊 Status: 200 (Expected: 200)
+📄 Response: {"message":"Detailed family background updated successfully"}
+[0;32m✅ Update detailed family background[0m
+
+[0;34mℹ️  Test #34: Add extended family member[0m
+📍 POST /biodata/6912061706e823975585e328/extended-family-member
+📊 Status: 200 (Expected: 201)
+📄 Response: {"message":"Extended family member added successfully"}
+[0;31m❌ Add extended family member (Expected 201, got 200)[0m
+
+[0;34mℹ️  Test #35: Update traditional preferences[0m
+📍 PATCH /biodata/6912061706e823975585e328/traditional-preferences
+📊 Status: 200 (Expected: 200)
+📄 Response: {"message":"Traditional preferences updated successfully"}
+[0;32m✅ Update traditional preferences[0m
+
+[0;34mℹ️  Test #36: Get traditional preferences[0m
+📍 GET /biodata/6912061706e823975585e328/traditional-preferences
+📊 Status: 200 (Expected: 200)
+📄 Response: {"same_caste_only":true,"inter_caste_acceptable":[],"gotra_restrictions":[],"regional_preference":[],"joint_family_preference":true,"traditional_gende... [truncated]
+[0;32m✅ Get traditional preferences[0m
+
+[0;34mℹ️  Test #37: Update marriage planning[0m
+📍 PATCH /biodata/6912061706e823975585e328/marriage-planning
+📊 Status: 200 (Expected: 200)
+📄 Response: {"message":"Marriage planning details updated successfully"}
+[0;32m✅ Update marriage planning[0m
+
+[0;34mℹ️  Test #38: Get marriage planning[0m
+📍 GET /biodata/6912061706e823975585e328/marriage-planning
+📊 Status: 200 (Expected: 200)
+📄 Response: {"preferred_wedding_season":null,"guest_count_expectation":null,"venue_preference":null,"budget_range":null,"rituals_to_include":[],"cultural_requirem... [truncated]
+[0;32m✅ Get marriage planning[0m
+
+[0;34mℹ️  Test #39: Update verification documents[0m
+📍 PATCH /biodata/6912061706e823975585e328/verification-documents
+📊 Status: 200 (Expected: 200)
+📄 Response: {"message":"Verification documents updated successfully"}
+[0;32m✅ Update verification documents[0m
+
+[0;34mℹ️  Test #40: Upload verification document[0m
+📍 POST /biodata/6912061706e823975585e328/upload-document
+📊 Status: 422 (Expected: 201)
+📄 Response: {"detail":[{"type":"missing","loc":["body","document_type"],"msg":"Field required","input":null,"url":"https://errors.pydantic.dev/2.10/v/missing"},{"... [truncated]
+[0;31m❌ Upload verification document (Expected 201, got 422)[0m
+
+[0;34mℹ️  Test #41: Get verification documents[0m
+📍 GET /biodata/6912061706e823975585e328/verification-documents
+📊 Status: 200 (Expected: 200)
+📄 Response: {"birth_certificate_url":null,"caste_certificate_url":null,"education_certificates":[],"income_proof_url":null,"id_proof_url":null,"address_proof_url"... [truncated]
+[0;32m✅ Get verification documents[0m
+
+[0;35m👑 PHASE 6: ADMIN-ONLY OPERATIONS[0m
+[0;35m================================[0m
+
+[0;34mℹ️  Test #42: Get biodata stats overview[0m
+📍 GET /biodata/stats/overview
+📊 Status: 200 (Expected: 200)
+📄 Response: {"total_profiles":13,"active_profiles":5,"verified_profiles":0,"gender_distribution":{"male":5},"religion_distribution":{"hindu":5},"marital_status_di... [truncated]
+[0;32m✅ Get biodata stats overview[0m
+
+[0;34mℹ️  Test #43: Get profile analytics[0m
+📍 GET /biodata/6912061706e823975585e328/analytics
+📊 Status: 200 (Expected: 200)
+📄 Response: {"profile_views":0,"interests_received":0,"interests_sent":0,"profile_completeness_score":25.0,"last_activity":null,"biodata_type":"detailed","is_veri... [truncated]
+[0;32m✅ Get profile analytics[0m
+
+[0;34mℹ️  Test #44: Verify profile[0m
+📍 PATCH /biodata/6912061706e823975585e328/verify
+📊 Status: 200 (Expected: 200)
+📄 Response: {"message":"Profile verified successfully"}
+[0;32m✅ Verify profile[0m
+
+[0;34mℹ️  Test #45: Unverify profile[0m
+📍 PATCH /biodata/6912061706e823975585e328/unverify
+📊 Status: 200 (Expected: 200)
+📄 Response: {"message":"Profile verification removed"}
+[0;32m✅ Unverify profile[0m
+
+[0;34mℹ️  Test #46: Get admin detailed profiles[0m
+📍 GET /admin/biodata/detailed-profiles
+📊 Status: 500 (Expected: 200)
+📄 Response: Internal Server Error
+[0;31m❌ Get admin detailed profiles (Expected 200, got 500)[0m
+
+[0;34mℹ️  Test #47: Update admin verification status[0m
+📍 PATCH /admin/biodata/6912061706e823975585e328/verification-status
+📊 Status: 200 (Expected: 200)
+📄 Response: {"message":"Verification status updated to 'verified'","verified_by":"admin"}
+[0;32m✅ Update admin verification status[0m
+
+[0;35m📊 PHASE 7: PDF GENERATION SYSTEM[0m
+[0;35m================================[0m
+
+[0;34mℹ️  Test #48: Get PDF data[0m
+📍 GET /biodata/6912061706e823975585e328/pdf-data
+📊 Status: 404 (Expected: 200)
+📄 Response: {"detail":"Not Found"}
+[0;31m❌ Get PDF data (Expected 200, got 404)[0m
+
+[0;34mℹ️  Test #49: Get PDF summary[0m
+📍 GET /biodata/6912061706e823975585e328/pdf-summary
+📊 Status: 404 (Expected: 200)
+📄 Response: {"detail":"Not Found"}
+[0;31m❌ Get PDF summary (Expected 200, got 404)[0m
+
+[0;34mℹ️  Test #50: Check storage status[0m
+📍 GET /biodata/6912061706e823975585e328/storage-status
+📊 Status: 404 (Expected: 200)
+📄 Response: {"detail":"Not Found"}
+[0;31m❌ Check storage status (Expected 200, got 404)[0m
+
+[0;34mℹ️  Test #51: Validate PDF readiness[0m
+📍 POST /biodata/6912061706e823975585e328/validate-pdf-readiness
+📊 Status: 404 (Expected: 200)
+📄 Response: {"detail":"Not Found"}
+[0;31m❌ Validate PDF readiness (Expected 200, got 404)[0m
+
+[0;35m🗑️ PHASE 8: DELETE OPERATIONS[0m
+[0;35m=============================[0m
+
+[0;34mℹ️  Test #52: Delete contact info[0m
+📍 DELETE /biodata/6912061706e823975585e328/contact
+📊 Status: 200 (Expected: 204)
+📄 Response: {"message":"Contact information deleted successfully"}
+[0;31m❌ Delete contact info (Expected 204, got 200)[0m
+
+[0;34mℹ️  Test #53: Delete education info[0m
+📍 DELETE /biodata/6912061706e823975585e328/education
+📊 Status: 200 (Expected: 204)
+📄 Response: {"message":"Education information deleted successfully"}
+[0;31m❌ Delete education info (Expected 204, got 200)[0m
+
+[0;34mℹ️  Test #54: Delete occupation info[0m
+📍 DELETE /biodata/6912061706e823975585e328/occupation
+📊 Status: 200 (Expected: 204)
+📄 Response: {"message":"Occupation information deleted successfully"}
+[0;31m❌ Delete occupation info (Expected 204, got 200)[0m
+
+[0;34mℹ️  Test #55: Delete physical attributes[0m
+📍 DELETE /biodata/6912061706e823975585e328/physical
+📊 Status: 200 (Expected: 204)
+📄 Response: {"message":"Physical attributes deleted successfully"}
+[0;31m❌ Delete physical attributes (Expected 204, got 200)[0m
+
+[0;34mℹ️  Test #56: Delete lifestyle info[0m
+📍 DELETE /biodata/6912061706e823975585e328/lifestyle
+📊 Status: 200 (Expected: 204)
+📄 Response: {"message":"Lifestyle information deleted successfully"}
+[0;31m❌ Delete lifestyle info (Expected 204, got 200)[0m
+
+[0;34mℹ️  Test #57: Delete horoscope info[0m
+📍 DELETE /biodata/6912061706e823975585e328/horoscope
+📊 Status: 200 (Expected: 204)
+📄 Response: {"message":"Horoscope information deleted successfully"}
+[0;31m❌ Delete horoscope info (Expected 204, got 200)[0m
+
+[0;34mℹ️  Test #58: Delete languages info[0m
+📍 DELETE /biodata/6912061706e823975585e328/languages
+📊 Status: 200 (Expected: 204)
+📄 Response: {"message":"Languages information deleted successfully"}
+[0;31m❌ Delete languages info (Expected 204, got 200)[0m
+
+[0;34mℹ️  Test #59: Delete partner preferences[0m
+📍 DELETE /biodata/6912061706e823975585e328/partner-preferences
+📊 Status: 200 (Expected: 204)
+📄 Response: {"message":"Partner preferences deleted successfully"}
+[0;31m❌ Delete partner preferences (Expected 204, got 200)[0m
+
+[0;34mℹ️  Test #60: Soft delete biodata profile[0m
+📍 DELETE /biodata/6912061706e823975585e328
+📊 Status: 200 (Expected: 204)
+📄 Response: {"message":"Profile deleted successfully"}
+[0;31m❌ Soft delete biodata profile (Expected 204, got 200)[0m
+
+[0;35m📊 FINAL COMPREHENSIVE TEST RESULTS[0m
+[0;35m==================================[0m
+
+[0;36m╔══════════════════════════════════════╗[0m
+[0;36m║           TEST SUMMARY               ║[0m
+[0;36m╠══════════════════════════════════════╣[0m
+[0;36m║[0m Total Tests:      [1;33m60[0m               [0;36m║[0m
+[0;36m║[0m Passed Tests:     [0;32m34[0m               [0;36m║[0m
+[0;36m║[0m Failed Tests:     [0;31m26[0m               [0;36m║[0m
+[0;36m╚══════════════════════════════════════╝[0m
+[0;36m📈 Success Rate: [0;32m56.6%[0m
+
+[0;31m❌ FAILED ENDPOINTS:[0m
+[0;31m===================[0m
+[0;31m• GET /biodata/my/profile - Get my biodata profile[0m
+[0;31m• PUT /biodata/6912061706e823975585e328 - Update biodata profile[0m
+[0;31m• POST /biodata/6912061706e823975585e328/photos - Upload biodata photo[0m
+[0;31m• PATCH /biodata/6912061706e823975585e328/contact - Update contact info[0m
+[0;31m• GET /biodata/6912061706e823975585e328/contact - Get contact info[0m
+[0;31m• PATCH /biodata/6912061706e823975585e328/family - Update family info[0m
+[0;31m• GET /biodata/6912061706e823975585e328/family - Get family details[0m
+[0;31m• PATCH /biodata/6912061706e823975585e328/detailed-religious-info - Update detailed religious info[0m
+[0;31m• GET /biodata/6912061706e823975585e328/detailed-religious-info - Get detailed religious info[0m
+[0;31m• POST /biodata/6912061706e823975585e328/upload-kundli - Upload kundli document[0m
+[0;31m• POST /biodata/6912061706e823975585e328/extended-family-member - Add extended family member[0m
+[0;31m• POST /biodata/6912061706e823975585e328/upload-document - Upload verification document[0m
+[0;31m• GET /admin/biodata/detailed-profiles - Get admin detailed profiles[0m
+[0;31m• GET /biodata/6912061706e823975585e328/pdf-data - Get PDF data[0m
+[0;31m• GET /biodata/6912061706e823975585e328/pdf-summary - Get PDF summary[0m
+[0;31m• GET /biodata/6912061706e823975585e328/storage-status - Check storage status[0m
+[0;31m• POST /biodata/6912061706e823975585e328/validate-pdf-readiness - Validate PDF readiness[0m
+[0;31m• DELETE /biodata/6912061706e823975585e328/contact - Delete contact info[0m
+[0;31m• DELETE /biodata/6912061706e823975585e328/education - Delete education info[0m
+[0;31m• DELETE /biodata/6912061706e823975585e328/occupation - Delete occupation info[0m
+[0;31m• DELETE /biodata/6912061706e823975585e328/physical - Delete physical attributes[0m
+[0;31m• DELETE /biodata/6912061706e823975585e328/lifestyle - Delete lifestyle info[0m
+[0;31m• DELETE /biodata/6912061706e823975585e328/horoscope - Delete horoscope info[0m
+[0;31m• DELETE /biodata/6912061706e823975585e328/languages - Delete languages info[0m
+[0;31m• DELETE /biodata/6912061706e823975585e328/partner-preferences - Delete partner preferences[0m
+[0;31m• DELETE /biodata/6912061706e823975585e328 - Soft delete biodata profile[0m
+
+[0;36m🔍 TEST ENVIRONMENT DETAILS[0m
+[0;36m===========================[0m
+[0;34m• API Base URL: https://api.projectdevops.in[0m
+[0;34m• Admin Token: eyJhbGciOiJIUzI1NiIsInR5cCI6Ik...[0m
+[0;34m• Test Profile ID: 6912061706e823975585e328[0m
+[0;34m• Execution Time: Mon Nov 10 21:05:02 IST 2025[0m
+
+[1;33m⚠️  SOME ENDPOINTS NEED ATTENTION[0m
+[1;33m📋 Review failed endpoints above[0m
+[1;33m🔧 Most likely causes: Authentication, server restart needed, or data validation[0m
+
+[0;35m🏁 COMPREHENSIVE BIODATA API TESTING COMPLETED[0m
