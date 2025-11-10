@@ -1045,6 +1045,10 @@ async def get_biodata_pdf_summary(
         if not summary_data:
             raise HTTPException(status_code=404, detail="Failed to generate PDF summary")
         
+        # Debug: Log the type and structure of summary_data
+        logger.info(f"PDF summary data type: {type(summary_data)}")
+        logger.info(f"PDF summary data keys: {list(summary_data.keys()) if isinstance(summary_data, dict) else 'Not a dict'}")
+        
         # Extract summary fields for PDF header/footer
         summary = {
             "profile_id": profile_id,
@@ -1182,6 +1186,10 @@ async def validate_pdf_readiness(
         
         if not profile_data:
             raise HTTPException(status_code=404, detail="Failed to process biodata for PDF")
+        
+        # Debug: Log the type and structure of profile_data
+        logger.info(f"PDF validate data type: {type(profile_data)}")
+        logger.info(f"PDF validate data keys: {list(profile_data.keys()) if isinstance(profile_data, dict) else 'Not a dict'}")
         
         # Validate PDF readiness
         validation_result = {
