@@ -219,6 +219,16 @@ class BiodataPDFService:
         """Safely replace and title case a value, handling None values"""
         return (value or "").replace(old, new).title() if value is not None else ""
     
+    def _safe_join(self, value, separator=", "):
+        """Safely join values that might be strings or lists"""
+        if value is None:
+            return ""
+        if isinstance(value, str):
+            return value
+        if isinstance(value, (list, tuple)):
+            return separator.join(str(v) for v in value if v is not None)
+        return str(value)
+    
     def _transform_for_pdf(self, profile: Dict[str, Any]) -> Dict[str, Any]:
         """Transform MongoDB document to PDF-ready format"""
         try:
@@ -487,13 +497,13 @@ class BiodataPDFService:
         return {
             "age_range": f"{preferences.get('min_age', '')}-{preferences.get('max_age', '')} years",
             "height_range": f"{preferences.get('min_height_cm', '')}-{preferences.get('max_height_cm', '')} cm",
-            "marital_status": ", ".join(preferences.get("marital_status", [])),
-            "religion": ", ".join(preferences.get("religion", [])),
-            "caste": ", ".join(preferences.get("caste", [])),
-            "education": ", ".join(preferences.get("education_levels", [])),
-            "occupation": ", ".join(preferences.get("occupations", [])),
-            "locations": ", ".join(preferences.get("preferred_locations", [])),
-            "diet": ", ".join(preferences.get("diet", []))
+            "marital_status": self._safe_join(preferences.get("marital_status", [])),
+            "religion": self._safe_join(preferences.get("religion", [])),
+            "caste": self._safe_join(preferences.get("caste", [])),
+            "education": self._safe_join(preferences.get("education_levels", [])),
+            "occupation": self._safe_join(preferences.get("occupations", [])),
+            "locations": self._safe_join(preferences.get("preferred_locations", [])),
+            "diet": self._safe_join(preferences.get("diet", []))
         }
     
     def _extract_religious_details(self, religious_info: Dict) -> Dict[str, Any]:
@@ -506,8 +516,8 @@ class BiodataPDFService:
             "sub_caste": religious_info.get("sub_caste", ""),
             "religious_sect": self._safe_title(religious_info.get("religious_sect")),
             "temple_association": religious_info.get("temple_association", ""),
-            "spiritual_practices": ", ".join(religious_info.get("spiritual_practices", [])),
-            "festivals_observed": ", ".join(religious_info.get("festivals_observed", [])),
+            "spiritual_practices": self._safe_join(religious_info.get("spiritual_practices", [])),
+            "festivals_observed": self._safe_join(religious_info.get("festivals_observed", [])),
             "daily_prayers": religious_info.get("daily_prayers", False),
             "vegetarian_since": religious_info.get("vegetarian_since", "")
         }
@@ -523,7 +533,7 @@ class BiodataPDFService:
             "rashi_detailed": astrology.get("rashi_detailed", ""),
             "nakshatra_detailed": astrology.get("nakshatra_detailed", ""),
             "lagna": astrology.get("lagna", ""),
-            "doshas": ", ".join(astrology.get("doshas", [])),
+            "doshas": self._safe_join(astrology.get("doshas", [])),
             "guna_milan_score": astrology.get("guna_milan_score", ""),
             "auspicious_time": astrology.get("auspicious_time_preference", "")
         }
@@ -555,7 +565,7 @@ class BiodataPDFService:
             
         return {
             "wedding_type": traditional.get("wedding_type", ""),
-            "ceremony_preferences": ", ".join(traditional.get("ceremony_preferences", [])),
+            "ceremony_preferences": self._safe_join(traditional.get("ceremony_preferences", [])),
             "cultural_values": traditional.get("cultural_values", ""),
             "lifestyle_expectations": traditional.get("lifestyle_expectations", "")
         }
@@ -568,7 +578,7 @@ class BiodataPDFService:
         return {
             "preferred_timeline": marriage.get("preferred_timeline", ""),
             "budget_range": marriage.get("budget_range", ""),
-            "venue_preferences": ", ".join(marriage.get("venue_preferences", [])),
+            "venue_preferences": self._safe_join(marriage.get("venue_preferences", [])),
             "guest_count_estimate": marriage.get("guest_count_estimate", "")
         }
     
