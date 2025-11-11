@@ -2038,7 +2038,7 @@ async def delete_contact_info(
         if profile.get("user_id") != current_user.username and current_user.role != "admin":
             raise HTTPException(status_code=403, detail="Permission denied")
         
-        collection.update_one(
+        result = collection.update_one(
             {"_id": ObjectId(profile_id)},
             {
                 "$unset": {"contact": ""},
@@ -2046,7 +2046,24 @@ async def delete_contact_info(
             }
         )
         
-        return Response(status_code=204)
+        if result.modified_count > 0:
+            return JSONResponse(
+                content={
+                    "message": "Contact information deleted successfully",
+                    "section": "contact",
+                    "profile_id": profile_id
+                },
+                status_code=200
+            )
+        else:
+            return JSONResponse(
+                content={
+                    "message": "Contact information was already deleted or not found",
+                    "section": "contact",
+                    "profile_id": profile_id
+                },
+                status_code=200
+            )
         
     except HTTPException:
         raise
@@ -2072,7 +2089,7 @@ async def delete_education_info(
     if profile.get("user_id") != current_user.username and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Permission denied")
     
-    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
         {"_id": ObjectId(profile_id)},
         {
             "$unset": {"education": ""},
@@ -2080,7 +2097,15 @@ async def delete_education_info(
         }
     )
     
-    return Response(status_code=204)
+    return JSONResponse(
+        content={
+            "message": "Education information deleted successfully",
+            "section": "education",
+            "profile_id": profile_id,
+            "modified": result.modified_count > 0
+        },
+        status_code=200
+    )
 
 @biodata_router.delete("/biodata/{profile_id}/occupation", tags=["Biodata"])
 async def delete_occupation_info(
@@ -2100,7 +2125,7 @@ async def delete_occupation_info(
     if profile.get("user_id") != current_user.username and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Permission denied")
     
-    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
         {"_id": ObjectId(profile_id)},
         {
             "$unset": {"occupation": ""},
@@ -2108,7 +2133,15 @@ async def delete_occupation_info(
         }
     )
     
-    return Response(status_code=204)
+    return JSONResponse(
+        content={
+            "message": "Occupation information deleted successfully",
+            "section": "occupation",
+            "profile_id": profile_id,
+            "modified": result.modified_count > 0
+        },
+        status_code=200
+    )
 
 @biodata_router.delete("/biodata/{profile_id}/physical", tags=["Biodata"])
 async def delete_physical_attributes(
@@ -2128,7 +2161,7 @@ async def delete_physical_attributes(
     if profile.get("user_id") != current_user.username and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Permission denied")
     
-    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
         {"_id": ObjectId(profile_id)},
         {
             "$unset": {"physical": ""},
@@ -2136,7 +2169,15 @@ async def delete_physical_attributes(
         }
     )
     
-    return Response(status_code=204)
+    return JSONResponse(
+        content={
+            "message": "Physical attributes deleted successfully",
+            "section": "physical",
+            "profile_id": profile_id,
+            "modified": result.modified_count > 0
+        },
+        status_code=200
+    )
 
 @biodata_router.delete("/biodata/{profile_id}/lifestyle", tags=["Biodata"])
 async def delete_lifestyle(
@@ -2156,7 +2197,7 @@ async def delete_lifestyle(
     if profile.get("user_id") != current_user.username and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Permission denied")
     
-    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
         {"_id": ObjectId(profile_id)},
         {
             "$unset": {"lifestyle": ""},
@@ -2164,7 +2205,51 @@ async def delete_lifestyle(
         }
     )
     
-    return Response(status_code=204)
+    return JSONResponse(
+        content={
+            "message": "Lifestyle information deleted successfully",
+            "section": "lifestyle",
+            "profile_id": profile_id,
+            "modified": result.modified_count > 0
+        },
+        status_code=200
+    )
+
+@biodata_router.delete("/biodata/{profile_id}/family", tags=["Biodata"])
+async def delete_family_info(
+    profile_id: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Delete family information section"""
+    if not ObjectId.is_valid(profile_id):
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    
+    # Check permission
+    if profile.get("user_id") != current_user.username and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Permission denied")
+    
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
+        {"_id": ObjectId(profile_id)},
+        {
+            "$unset": {"family": ""},
+            "$set": {"updated_at": datetime.utcnow()}
+        }
+    )
+    
+    return JSONResponse(
+        content={
+            "message": "Family information deleted successfully",
+            "section": "family",
+            "profile_id": profile_id,
+            "modified": result.modified_count > 0
+        },
+        status_code=200
+    )
 
 @biodata_router.delete("/biodata/{profile_id}/horoscope", tags=["Biodata"])
 async def delete_horoscope(
@@ -2184,7 +2269,7 @@ async def delete_horoscope(
     if profile.get("user_id") != current_user.username and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Permission denied")
     
-    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
         {"_id": ObjectId(profile_id)},
         {
             "$unset": {"horoscope": ""},
@@ -2192,7 +2277,15 @@ async def delete_horoscope(
         }
     )
     
-    return Response(status_code=204)
+    return JSONResponse(
+        content={
+            "message": "Horoscope information deleted successfully",
+            "section": "horoscope",
+            "profile_id": profile_id,
+            "modified": result.modified_count > 0
+        },
+        status_code=200
+    )
 
 @biodata_router.delete("/biodata/{profile_id}/languages", tags=["Biodata"])
 async def delete_languages(
@@ -2212,7 +2305,7 @@ async def delete_languages(
     if profile.get("user_id") != current_user.username and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Permission denied")
     
-    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
         {"_id": ObjectId(profile_id)},
         {
             "$unset": {"languages": ""},
@@ -2220,7 +2313,15 @@ async def delete_languages(
         }
     )
     
-    return Response(status_code=204)
+    return JSONResponse(
+        content={
+            "message": "Languages information deleted successfully",
+            "section": "languages",
+            "profile_id": profile_id,
+            "modified": result.modified_count > 0
+        },
+        status_code=200
+    )
 
 @biodata_router.delete("/biodata/{profile_id}/partner-preferences", tags=["Biodata"])
 async def delete_partner_preferences(
@@ -2240,7 +2341,7 @@ async def delete_partner_preferences(
     if profile.get("user_id") != current_user.username and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Permission denied")
     
-    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
         {"_id": ObjectId(profile_id)},
         {
             "$unset": {"partner_preferences": ""},
@@ -2248,7 +2349,15 @@ async def delete_partner_preferences(
         }
     )
     
-    return Response(status_code=204)
+    return JSONResponse(
+        content={
+            "message": "Partner preferences deleted successfully",
+            "section": "partner_preferences",
+            "profile_id": profile_id,
+            "modified": result.modified_count > 0
+        },
+        status_code=200
+    )
 
 # ------------------------- Delete Photo -------------------------
 
@@ -2290,12 +2399,20 @@ async def delete_biodata_photo(
     )
     
     # Remove null elements
-    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
         {"_id": ObjectId(profile_id)},
         {"$pull": {"photos": None}}
     )
     
-    return Response(status_code=204)
+    return JSONResponse(
+        content={
+            "message": "Photo deleted successfully",
+            "profile_id": profile_id,
+            "photo_index": photo_index,
+            "photo_url_deleted": photo_url if photo_url else None
+        },
+        status_code=200
+    )
 
 # ------------------------- Delete Biodata Profile -------------------------
 
@@ -2305,7 +2422,7 @@ async def delete_biodata_profile(
     current_user: User = Depends(get_current_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
-    """Delete biodata profile (soft delete by default)"""
+    """Delete biodata profile (soft delete) - works regardless of is_active status"""
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2317,8 +2434,8 @@ async def delete_biodata_profile(
     if profile.get("user_id") != current_user.username and current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Permission denied")
     
-    # Soft delete (mark as inactive)
-    db_client[db.db_name][BIODATA_COLLECTION].update_one(
+    # Soft delete (mark as inactive) - works regardless of current is_active status
+    result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
         {"_id": ObjectId(profile_id)},
         {
             "$set": {
@@ -2329,7 +2446,17 @@ async def delete_biodata_profile(
         }
     )
     
-    return Response(status_code=204)
+    if result.modified_count > 0:
+        return JSONResponse(
+            content={
+                "message": "Profile successfully deleted",
+                "profile_id": profile_id,
+                "deleted_at": datetime.utcnow().isoformat()
+            },
+            status_code=200
+        )
+    else:
+        raise HTTPException(status_code=500, detail="Failed to delete profile")
 
 # ------------------------- Admin: Hard Delete Profile -------------------------
 
@@ -2339,7 +2466,7 @@ async def permanently_delete_biodata_profile(
     current_admin: User = Depends(get_current_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
-    """Permanently delete biodata profile (admin only)"""
+    """Permanently delete biodata profile (admin only) - works regardless of is_active status"""
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2349,14 +2476,30 @@ async def permanently_delete_biodata_profile(
     
     # Delete all photos from S3
     photos = profile.get("photos", [])
+    deleted_photos = 0
     for photo in photos:
         if photo.get("url"):
-            _delete_from_s3(photo["url"])
+            try:
+                _delete_from_s3(photo["url"])
+                deleted_photos += 1
+            except Exception as e:
+                logger.warning(f"Failed to delete photo from S3: {photo['url']}, error: {str(e)}")
     
-    # Delete from database
-    db_client[db.db_name][BIODATA_COLLECTION].delete_one({"_id": ObjectId(profile_id)})
+    # Delete from database (works regardless of is_active status)
+    result = db_client[db.db_name][BIODATA_COLLECTION].delete_one({"_id": ObjectId(profile_id)})
     
-    return JSONResponse(content={"message": "Profile permanently deleted"})
+    if result.deleted_count > 0:
+        return JSONResponse(
+            content={
+                "message": "Profile permanently deleted",
+                "profile_id": profile_id,
+                "deleted_photos": deleted_photos,
+                "deleted_at": datetime.utcnow().isoformat()
+            },
+            status_code=200
+        )
+    else:
+        raise HTTPException(status_code=500, detail="Failed to permanently delete profile")
 
 # ------------------------- Statistics -------------------------
 
@@ -2821,7 +2964,15 @@ async def remove_extended_family_member(
     if result.matched_count == 0:
         raise HTTPException(status_code=400, detail="Failed to remove family member")
     
-    return Response(status_code=204)
+    return JSONResponse(
+        content={
+            "message": "Extended family member deleted successfully",
+            "profile_id": profile_id,
+            "member_index": member_index,
+            "remaining_members": len(extended_family)
+        },
+        status_code=200
+    )
 
 
 @biodata_router.patch("/biodata/{profile_id}/extended-family", tags=["Enhanced Biodata"])
