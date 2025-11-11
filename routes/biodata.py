@@ -181,7 +181,7 @@ class BiodataPDFService:
                 logger.error(f"Invalid ObjectId format: {profile_id}")
                 return None
                 
-            profile = self.collection.find_one({"_id": ObjectId(profile_id)})
+            profile = self.collection.find_one({"_id": ObjectId(profile_id), "is_active": True})
             if not profile:
                 logger.error(f"Profile not found: {profile_id}")
                 return None
@@ -798,7 +798,7 @@ async def upload_biodata_photo(
         
         # Check if profile exists and user has permission
         collection = db_client["testdb"][BIODATA_COLLECTION]
-        profile = collection.find_one({"_id": ObjectId(profile_id)})
+        profile = collection.find_one({"_id": ObjectId(profile_id), "is_active": True})
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found")
         
@@ -824,13 +824,13 @@ async def upload_biodata_photo(
         # If this is primary, unset other primary photos
         if is_primary:
             collection.update_one(
-                {"_id": ObjectId(profile_id)},
+                {"_id": ObjectId(profile_id), "is_active": True},
                 {"$set": {"photos.$[].is_primary": False}}
             )
         
         # Add photo to profile
         collection.update_one(
-            {"_id": ObjectId(profile_id)},
+            {"_id": ObjectId(profile_id), "is_active": True},
             {
                 "$push": {"photos": photo_data},
                 "$set": {"updated_at": datetime.utcnow()}
@@ -919,8 +919,12 @@ async def get_my_biodata_profile(
     current_user: User = Depends(get_current_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
-    """Get current user's biodata profile"""
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"user_id": current_user.username})
+    """Get current user's biodata profile (only if active)"""
+    # Only return active profile - exclude soft-deleted ones
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({
+        "user_id": current_user.username,
+        "is_active": True
+    })
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -990,7 +994,7 @@ async def get_biodata_pdf_data(
         collection = db_client["testdb"][BIODATA_COLLECTION]
         
         # Authorization check - admin can access all, users can access their own
-        profile = collection.find_one({"_id": ObjectId(profile_id)})
+        profile = collection.find_one({"_id": ObjectId(profile_id), "is_active": True})
         if not profile:
             raise HTTPException(status_code=404, detail="Biodata not found")
         
@@ -1031,7 +1035,7 @@ async def get_biodata_pdf_summary(
         collection = db_client["testdb"][BIODATA_COLLECTION]
         
         # Authorization check
-        profile = collection.find_one({"_id": ObjectId(profile_id)})
+        profile = collection.find_one({"_id": ObjectId(profile_id), "is_active": True})
         if not profile:
             raise HTTPException(status_code=404, detail="Biodata not found")
         
@@ -1093,7 +1097,7 @@ async def check_biodata_storage_status(
         collection = db_client["testdb"][BIODATA_COLLECTION]
         
         # Authorization check
-        profile = collection.find_one({"_id": ObjectId(profile_id)})
+        profile = collection.find_one({"_id": ObjectId(profile_id), "is_active": True})
         if not profile:
             raise HTTPException(status_code=404, detail="Biodata not found")
         
@@ -1175,7 +1179,7 @@ async def validate_pdf_readiness(
         collection = db_client["testdb"][BIODATA_COLLECTION]
         
         # Authorization check
-        profile = collection.find_one({"_id": ObjectId(profile_id)})
+        profile = collection.find_one({"_id": ObjectId(profile_id), "is_active": True})
         if not profile:
             raise HTTPException(status_code=404, detail="Biodata not found")
         
@@ -1246,11 +1250,15 @@ async def get_biodata_profile(
     current_user: User = Depends(get_current_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
-    """Get a specific biodata profile"""
+    """Get a specific biodata profile (only active profiles)"""
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    # Only return active profiles - exclude soft-deleted ones
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({
+        "_id": ObjectId(profile_id),
+        "is_active": True
+    })
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -1269,7 +1277,7 @@ async def update_biodata_profile(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    existing_profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    existing_profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not existing_profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -1289,11 +1297,11 @@ async def update_biodata_profile(
     
     try:
         db_client[db.db_name][BIODATA_COLLECTION].update_one(
-            {"_id": ObjectId(profile_id)},
+            {"_id": ObjectId(profile_id), "is_active": True},
             {"$set": update_data}
         )
         
-        updated = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+        updated = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
         return _normalize_biodata(updated)
     except Exception as e:
         logger.error(f"Failed to update profile: {str(e)}")
@@ -1312,7 +1320,7 @@ async def update_contact_info(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -1321,7 +1329,7 @@ async def update_contact_info(
         raise HTTPException(status_code=403, detail="Permission denied")
     
     db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "contact": _serialize_for_mongodb(contact_info.model_dump()),
@@ -1343,7 +1351,7 @@ async def update_education_info(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -1352,7 +1360,7 @@ async def update_education_info(
         raise HTTPException(status_code=403, detail="Permission denied")
     
     db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "education": _serialize_for_mongodb(education.model_dump()),
@@ -1374,7 +1382,7 @@ async def update_occupation_info(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -1383,7 +1391,7 @@ async def update_occupation_info(
         raise HTTPException(status_code=403, detail="Permission denied")
     
     db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "occupation": _serialize_for_mongodb(occupation.model_dump()),
@@ -1405,7 +1413,7 @@ async def update_family_details(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -1414,7 +1422,7 @@ async def update_family_details(
         raise HTTPException(status_code=403, detail="Permission denied")
     
     db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "family": _serialize_for_mongodb(family.model_dump()),
@@ -1436,7 +1444,7 @@ async def update_partner_preferences(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -1445,7 +1453,7 @@ async def update_partner_preferences(
         raise HTTPException(status_code=403, detail="Permission denied")
     
     db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "partner_preferences": _serialize_for_mongodb(preferences.model_dump()),
@@ -1467,7 +1475,7 @@ async def update_physical_attributes(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -1476,7 +1484,7 @@ async def update_physical_attributes(
         raise HTTPException(status_code=403, detail="Permission denied")
     
     db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "physical": _serialize_for_mongodb(physical.model_dump()),
@@ -1498,7 +1506,7 @@ async def update_lifestyle(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -1507,7 +1515,7 @@ async def update_lifestyle(
         raise HTTPException(status_code=403, detail="Permission denied")
     
     db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "lifestyle": _serialize_for_mongodb(lifestyle.model_dump()),
@@ -1529,7 +1537,7 @@ async def update_horoscope(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -1541,7 +1549,7 @@ async def update_horoscope(
     horoscope_data = _serialize_for_mongodb(horoscope.model_dump())
     
     db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "horoscope": horoscope_data,
@@ -1565,7 +1573,7 @@ async def update_languages(
             raise HTTPException(status_code=404, detail="Profile not found")
         
         collection = db_client["testdb"][BIODATA_COLLECTION]
-        profile = collection.find_one({"_id": ObjectId(profile_id)})
+        profile = collection.find_one({"_id": ObjectId(profile_id), "is_active": True})
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found")
         
@@ -1574,7 +1582,7 @@ async def update_languages(
             raise HTTPException(status_code=403, detail="Permission denied")
         
         collection.update_one(
-            {"_id": ObjectId(profile_id)},
+            {"_id": ObjectId(profile_id), "is_active": True},
             {
                 "$set": {
                     "languages": _serialize_for_mongodb(languages.model_dump()),
@@ -1604,7 +1612,7 @@ async def get_biodata_photos(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
-        {"_id": ObjectId(profile_id)}, 
+        {"_id": ObjectId(profile_id), "is_active": True}, 
         {"photos": 1}
     )
     if not profile:
@@ -1627,7 +1635,7 @@ async def reorder_biodata_photos(
         photo_order = request.get("new_order", [])
         
         collection = db_client["testdb"][BIODATA_COLLECTION]
-        profile = collection.find_one({"_id": ObjectId(profile_id)})
+        profile = collection.find_one({"_id": ObjectId(profile_id), "is_active": True})
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found")
         
@@ -1648,7 +1656,7 @@ async def reorder_biodata_photos(
         reordered_photos = [photos[i] for i in photo_order]
         
         collection.update_one(
-            {"_id": ObjectId(profile_id)},
+            {"_id": ObjectId(profile_id), "is_active": True},
             {
                 "$set": {
                     "photos": reordered_photos,
@@ -1676,7 +1684,7 @@ async def update_biodata_photo(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -1696,7 +1704,7 @@ async def update_biodata_photo(
         if is_primary:
             # First, unset all other primary photos
             db_client[db.db_name][BIODATA_COLLECTION].update_one(
-                {"_id": ObjectId(profile_id)},
+                {"_id": ObjectId(profile_id), "is_active": True},
                 {"$set": {"photos.$[].is_primary": False}}
             )
         update_fields[f"photos.{photo_index}.is_primary"] = is_primary
@@ -1704,7 +1712,7 @@ async def update_biodata_photo(
     if update_fields:
         update_fields["updated_at"] = datetime.utcnow()
         db_client[db.db_name][BIODATA_COLLECTION].update_one(
-            {"_id": ObjectId(profile_id)},
+            {"_id": ObjectId(profile_id), "is_active": True},
             {"$set": update_fields}
         )
     
@@ -1726,7 +1734,7 @@ async def replace_biodata_photo(
             raise HTTPException(status_code=404, detail="Profile not found")
         
         collection = db_client["testdb"][BIODATA_COLLECTION]
-        profile = collection.find_one({"_id": ObjectId(profile_id)})
+        profile = collection.find_one({"_id": ObjectId(profile_id), "is_active": True})
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found")
         
@@ -1761,13 +1769,13 @@ async def replace_biodata_photo(
         # If this is primary, unset other primary photos
         if new_photo_data["is_primary"]:
             collection.update_one(
-                {"_id": ObjectId(profile_id)},
+                {"_id": ObjectId(profile_id), "is_active": True},
                 {"$set": {"photos.$[].is_primary": False}}
             )
         
         # Replace photo in array
         collection.update_one(
-            {"_id": ObjectId(profile_id)},
+            {"_id": ObjectId(profile_id), "is_active": True},
             {
                 "$set": {
                     f"photos.{photo_index}": new_photo_data,
@@ -1804,7 +1812,10 @@ async def get_contact_info(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
-        {"_id": ObjectId(profile_id)}, 
+        {
+            "_id": ObjectId(profile_id),
+            "is_active": True
+        }, 
         {"contact": 1}
     )
     if not profile:
@@ -1827,7 +1838,10 @@ async def get_education_info(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
-        {"_id": ObjectId(profile_id)}, 
+        {
+            "_id": ObjectId(profile_id),
+            "is_active": True
+        }, 
         {"education": 1}
     )
     if not profile:
@@ -1850,7 +1864,7 @@ async def get_occupation_info(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
-        {"_id": ObjectId(profile_id)}, 
+        {"_id": ObjectId(profile_id), "is_active": True}, 
         {"occupation": 1}
     )
     if not profile:
@@ -1873,7 +1887,7 @@ async def get_family_details(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
-        {"_id": ObjectId(profile_id)}, 
+        {"_id": ObjectId(profile_id), "is_active": True}, 
         {"family": 1}
     )
     if not profile:
@@ -1896,7 +1910,7 @@ async def get_physical_attributes(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
-        {"_id": ObjectId(profile_id)}, 
+        {"_id": ObjectId(profile_id), "is_active": True}, 
         {"physical": 1}
     )
     if not profile:
@@ -1919,7 +1933,7 @@ async def get_lifestyle(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
-        {"_id": ObjectId(profile_id)}, 
+        {"_id": ObjectId(profile_id), "is_active": True}, 
         {"lifestyle": 1}
     )
     if not profile:
@@ -1942,7 +1956,7 @@ async def get_horoscope(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
-        {"_id": ObjectId(profile_id)}, 
+        {"_id": ObjectId(profile_id), "is_active": True}, 
         {"horoscope": 1}
     )
     if not profile:
@@ -1974,7 +1988,7 @@ async def get_languages(
         
         collection = db_client["testdb"][BIODATA_COLLECTION]
         profile = collection.find_one(
-            {"_id": ObjectId(profile_id)}, 
+            {"_id": ObjectId(profile_id), "is_active": True}, 
             {"languages": 1}
         )
         if not profile:
@@ -2004,7 +2018,7 @@ async def get_partner_preferences(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     profile = db_client[db.db_name][BIODATA_COLLECTION].find_one(
-        {"_id": ObjectId(profile_id)}, 
+        {"_id": ObjectId(profile_id), "is_active": True}, 
         {"partner_preferences": 1}
     )
     if not profile:
@@ -2030,7 +2044,7 @@ async def delete_contact_info(
             raise HTTPException(status_code=404, detail="Profile not found")
         
         collection = db_client["testdb"][BIODATA_COLLECTION]
-        profile = collection.find_one({"_id": ObjectId(profile_id)})
+        profile = collection.find_one({"_id": ObjectId(profile_id), "is_active": True})
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found")
         
@@ -2039,7 +2053,7 @@ async def delete_contact_info(
             raise HTTPException(status_code=403, detail="Permission denied")
         
         result = collection.update_one(
-            {"_id": ObjectId(profile_id)},
+            {"_id": ObjectId(profile_id), "is_active": True},
             {
                 "$unset": {"contact": ""},
                 "$set": {"updated_at": datetime.utcnow()}
@@ -2081,7 +2095,7 @@ async def delete_education_info(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2090,7 +2104,7 @@ async def delete_education_info(
         raise HTTPException(status_code=403, detail="Permission denied")
     
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$unset": {"education": ""},
             "$set": {"updated_at": datetime.utcnow()}
@@ -2117,7 +2131,7 @@ async def delete_occupation_info(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2126,7 +2140,7 @@ async def delete_occupation_info(
         raise HTTPException(status_code=403, detail="Permission denied")
     
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$unset": {"occupation": ""},
             "$set": {"updated_at": datetime.utcnow()}
@@ -2153,7 +2167,7 @@ async def delete_physical_attributes(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2162,7 +2176,7 @@ async def delete_physical_attributes(
         raise HTTPException(status_code=403, detail="Permission denied")
     
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$unset": {"physical": ""},
             "$set": {"updated_at": datetime.utcnow()}
@@ -2189,7 +2203,7 @@ async def delete_lifestyle(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2198,7 +2212,7 @@ async def delete_lifestyle(
         raise HTTPException(status_code=403, detail="Permission denied")
     
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$unset": {"lifestyle": ""},
             "$set": {"updated_at": datetime.utcnow()}
@@ -2225,7 +2239,7 @@ async def delete_family_info(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2234,7 +2248,7 @@ async def delete_family_info(
         raise HTTPException(status_code=403, detail="Permission denied")
     
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$unset": {"family": ""},
             "$set": {"updated_at": datetime.utcnow()}
@@ -2261,7 +2275,7 @@ async def delete_horoscope(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2270,7 +2284,7 @@ async def delete_horoscope(
         raise HTTPException(status_code=403, detail="Permission denied")
     
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$unset": {"horoscope": ""},
             "$set": {"updated_at": datetime.utcnow()}
@@ -2297,7 +2311,7 @@ async def delete_languages(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2306,7 +2320,7 @@ async def delete_languages(
         raise HTTPException(status_code=403, detail="Permission denied")
     
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$unset": {"languages": ""},
             "$set": {"updated_at": datetime.utcnow()}
@@ -2333,7 +2347,7 @@ async def delete_partner_preferences(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2342,7 +2356,7 @@ async def delete_partner_preferences(
         raise HTTPException(status_code=403, detail="Permission denied")
     
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$unset": {"partner_preferences": ""},
             "$set": {"updated_at": datetime.utcnow()}
@@ -2372,7 +2386,7 @@ async def delete_biodata_photo(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2391,7 +2405,7 @@ async def delete_biodata_photo(
     
     # Remove photo from array
     db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$unset": {f"photos.{photo_index}": 1},
             "$set": {"updated_at": datetime.utcnow()}
@@ -2400,7 +2414,7 @@ async def delete_biodata_photo(
     
     # Remove null elements
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {"$pull": {"photos": None}}
     )
     
@@ -2426,7 +2440,7 @@ async def delete_biodata_profile(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2436,7 +2450,7 @@ async def delete_biodata_profile(
     
     # Soft delete (mark as inactive) - works regardless of current is_active status
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "is_active": False,
@@ -2470,7 +2484,7 @@ async def permanently_delete_biodata_profile(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2486,7 +2500,7 @@ async def permanently_delete_biodata_profile(
                 logger.warning(f"Failed to delete photo from S3: {photo['url']}, error: {str(e)}")
     
     # Delete from database (works regardless of is_active status)
-    result = db_client[db.db_name][BIODATA_COLLECTION].delete_one({"_id": ObjectId(profile_id)})
+    result = db_client[db.db_name][BIODATA_COLLECTION].delete_one({"_id": ObjectId(profile_id), "is_active": True})
     
     if result.deleted_count > 0:
         return JSONResponse(
@@ -2555,7 +2569,7 @@ async def verify_biodata_profile(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "is_verified": True,
@@ -2582,7 +2596,7 @@ async def unverify_biodata_profile(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "is_verified": False,
@@ -2618,7 +2632,7 @@ async def upgrade_to_detailed_biodata(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     # Check ownership
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2627,7 +2641,7 @@ async def upgrade_to_detailed_biodata(
     
     # Upgrade to detailed
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "biodata_type": "detailed",
@@ -2657,7 +2671,7 @@ async def update_detailed_religious_info(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     # Check ownership and biodata type
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2669,7 +2683,7 @@ async def update_detailed_religious_info(
     
     # Update religious information
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "detailed_religious_info": _serialize_for_mongodb(religious_info.model_dump()),
@@ -2694,7 +2708,7 @@ async def get_detailed_religious_info(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2724,7 +2738,7 @@ async def update_detailed_astrology(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     # Check ownership and biodata type
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2736,7 +2750,7 @@ async def update_detailed_astrology(
     
     # Update astrology information
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "detailed_astrology": _serialize_for_mongodb(astrology_info.model_dump()),
@@ -2761,7 +2775,7 @@ async def get_detailed_astrology(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2791,7 +2805,7 @@ async def upload_kundli_pdf(
         
         # Check ownership
         collection = db_client["testdb"][BIODATA_COLLECTION]
-        profile = collection.find_one({"_id": ObjectId(profile_id)})
+        profile = collection.find_one({"_id": ObjectId(profile_id), "is_active": True})
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found")
         
@@ -2822,7 +2836,7 @@ async def upload_kundli_pdf(
         
         # Update profile with kundli URL
         collection.update_one(
-            {"_id": ObjectId(profile_id)},
+            {"_id": ObjectId(profile_id), "is_active": True},
             {
                 "$set": {
                     "detailed_astrology.kundli_pdf_url": kundli_url,
@@ -2857,7 +2871,7 @@ async def update_detailed_family_background(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     # Check ownership and biodata type
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2869,7 +2883,7 @@ async def update_detailed_family_background(
     
     # Update family background
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "detailed_family_background": _serialize_for_mongodb(family_background.model_dump()),
@@ -2896,7 +2910,7 @@ async def add_extended_family_member(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     # Check ownership
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2905,7 +2919,7 @@ async def add_extended_family_member(
     
     # Add family member to extended family list
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$push": {
                 "detailed_family_background.extended_family": _serialize_for_mongodb(family_member.model_dump())
@@ -2934,7 +2948,7 @@ async def remove_extended_family_member(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     # Check ownership
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -2952,7 +2966,7 @@ async def remove_extended_family_member(
     extended_family.pop(member_index)
     
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "detailed_family_background.extended_family": extended_family,
@@ -2987,7 +3001,7 @@ async def update_extended_family(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     # Check ownership
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -3000,7 +3014,7 @@ async def update_extended_family(
     
     # Update extended family
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "detailed_family_background.extended_family": extended_family_data["extended_family"],
@@ -3029,7 +3043,7 @@ async def update_traditional_preferences(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     # Check ownership and biodata type
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -3041,7 +3055,7 @@ async def update_traditional_preferences(
     
     # Update traditional preferences
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "traditional_preferences": _serialize_for_mongodb(preferences.model_dump()),
@@ -3066,7 +3080,7 @@ async def get_traditional_preferences(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -3096,7 +3110,7 @@ async def update_marriage_planning(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     # Check ownership and biodata type
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -3108,7 +3122,7 @@ async def update_marriage_planning(
     
     # Update marriage planning
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "marriage_planning": _serialize_for_mongodb(planning.model_dump()),
@@ -3133,7 +3147,7 @@ async def get_marriage_planning(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -3163,7 +3177,7 @@ async def update_verification_documents(
         raise HTTPException(status_code=404, detail="Profile not found")
     
     # Check ownership
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -3172,7 +3186,7 @@ async def update_verification_documents(
     
     # Update verification documents
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$set": {
                 "verification_documents": _serialize_for_mongodb(documents.model_dump()),
@@ -3202,7 +3216,7 @@ async def upload_verification_document(
         
         # Check ownership
         collection = db_client["testdb"][BIODATA_COLLECTION]
-        profile = collection.find_one({"_id": ObjectId(profile_id)})
+        profile = collection.find_one({"_id": ObjectId(profile_id), "is_active": True})
         if not profile:
             raise HTTPException(status_code=404, detail="Profile not found")
         
@@ -3259,7 +3273,7 @@ async def upload_verification_document(
         if document_type == "education_certificate":
             # Handle multiple education certificates
             collection.update_one(
-                {"_id": ObjectId(profile_id)},
+                {"_id": ObjectId(profile_id), "is_active": True},
                 {
                     "$push": {
                         "verification_documents.education_certificates": document_url
@@ -3272,7 +3286,7 @@ async def upload_verification_document(
         elif document_type == "medical_report":
             # Handle multiple medical reports
             collection.update_one(
-                {"_id": ObjectId(profile_id)},
+                {"_id": ObjectId(profile_id), "is_active": True},
                 {
                     "$push": {
                         "verification_documents.medical_reports": document_url
@@ -3285,7 +3299,7 @@ async def upload_verification_document(
         else:
             # Single document types
             collection.update_one(
-                {"_id": ObjectId(profile_id)},
+                {"_id": ObjectId(profile_id), "is_active": True},
                 {
                     "$set": {
                         update_field: document_url,
@@ -3316,7 +3330,7 @@ async def get_verification_documents(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -3343,7 +3357,7 @@ async def get_profile_analytics(
     if not ObjectId.is_valid(profile_id):
         raise HTTPException(status_code=404, detail="Profile not found")
     
-    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id)})
+    profile = db_client[db.db_name][BIODATA_COLLECTION].find_one({"_id": ObjectId(profile_id), "is_active": True})
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
     
@@ -3376,7 +3390,7 @@ async def increment_profile_view(
     
     # Increment view count
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {
             "$inc": {"profile_views": 1},
             "$set": {"last_activity": datetime.utcnow()}
@@ -3491,7 +3505,7 @@ async def update_verification_status(
         update_data["admin_notes"] = admin_notes
     
     result = db_client[db.db_name][BIODATA_COLLECTION].update_one(
-        {"_id": ObjectId(profile_id)},
+        {"_id": ObjectId(profile_id), "is_active": True},
         {"$set": update_data}
     )
     
