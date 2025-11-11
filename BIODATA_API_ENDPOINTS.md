@@ -1,9 +1,796 @@
-# 📋 Biodata API Endpoints Reference
+# 🎯 Biodata API Endpoints Reference
+**Complete API Endpoint Documentation - User vs Admin Access**
 
-## 🔐 Authentication & Authorization Levels
+---
 
-### **Authentication Requirements:**
-- **🟢 USER LOGIN**: Requires valid JWT token (role: "user" or "admin")  
+## � Table of Contents
+1. [Authentication](#authentication)
+2. [User Endpoints (58 endpoints)](#user-endpoints)
+3. [Admin Endpoints (9 endpoints)](#admin-endpoints)
+4. [Endpoint Summary](#endpoint-summary)
+
+---
+
+## �🔐 Authentication
+
+### JWT Token Required
+All endpoints require JWT authentication token in header:
+```
+Authorization: Bearer <JWT_TOKEN>
+```
+
+### User Roles
+- **User**: Can manage own profile and view other profiles
+- **Admin**: Full system access including user management and verification
+
+---
+
+## 👤 User Endpoints (58 endpoints)
+*Accessible by profile owner OR admin*
+
+### 📄 Core Profile Management (6 endpoints)
+
+#### 1. Create Biodata Profile
+```http
+POST /biodata
+Content-Type: application/json
+Authorization: Bearer <JWT_TOKEN>
+
+{
+  "first_name": "string",
+  "last_name": "string",
+  "gender": "Male|Female",
+  "dob": "YYYY-MM-DD",
+  "religion": "string",
+  "caste": "string",
+  "mother_tongue": "string",
+  "about_me": "string"
+}
+```
+
+#### 2. Get All Biodata Profiles
+```http
+GET /biodata
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 3. Get My Biodata Profile
+```http
+GET /biodata/my/profile
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 4. Search Biodata Profiles
+```http
+GET /biodata/search?q=searchTerm&limit=10&offset=0&gender=Male&min_age=25&max_age=35
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 5. Get Specific Biodata Profile
+```http
+GET /biodata/{profile_id}
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 6. Update Biodata Profile
+```http
+PUT /biodata/{profile_id}
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "first_name": "string",
+  "last_name": "string",
+  "gender": "Male|Female",
+  "dob": "YYYY-MM-DD",
+  "religion": "string",
+  "caste": "string",
+  "mother_tongue": "string",
+  "about_me": "string"
+}
+```
+
+---
+
+### 📞 Contact Management (3 endpoints)
+
+#### 7. Update Contact Information
+```http
+PATCH /biodata/{profile_id}/contact
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "email": "user@example.com",
+  "phone_country_code": "+91",
+  "phone_number": "9876543210",
+  "alt_phone_number": "9876543211",
+  "current_address": "string",
+  "permanent_address": "string"
+}
+```
+
+#### 8. Get Contact Information
+```http
+GET /biodata/{profile_id}/contact
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 9. Delete Contact Information
+```http
+DELETE /biodata/{profile_id}/contact
+Authorization: Bearer <JWT_TOKEN>
+```
+
+---
+
+### 🎓 Education Management (3 endpoints)
+
+#### 10. Update Education Details
+```http
+PATCH /biodata/{profile_id}/education
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "level": "masters|bachelors|doctorate|diploma",
+  "degree": "Computer Science",
+  "institute": "University Name",
+  "graduation_year": 2020,
+  "additional_qualifications": "string"
+}
+```
+
+#### 11. Get Education Details
+```http
+GET /biodata/{profile_id}/education
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 12. Delete Education Details
+```http
+DELETE /biodata/{profile_id}/education
+Authorization: Bearer <JWT_TOKEN>
+```
+
+---
+
+### � Occupation Management (3 endpoints)
+
+#### 13. Update Occupation Details
+```http
+PATCH /biodata/{profile_id}/occupation
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "employment_type": "private|government|business|student",
+  "organization": "Company Name",
+  "designation": "Software Engineer",
+  "annual_income": 1200000,
+  "work_location": "City Name"
+}
+```
+
+#### 14. Get Occupation Details
+```http
+GET /biodata/{profile_id}/occupation
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 15. Delete Occupation Details
+```http
+DELETE /biodata/{profile_id}/occupation
+Authorization: Bearer <JWT_TOKEN>
+```
+
+---
+
+### 👨‍👩‍👧‍👦 Family Management (3 endpoints)
+
+#### 16. Update Family Details
+```http
+PATCH /biodata/{profile_id}/family
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "father_name": "string",
+  "father_occupation": "string",
+  "mother_name": "string",
+  "mother_occupation": "string",
+  "siblings": 2,
+  "family_type": "nuclear|joint",
+  "family_status": "middle_class|upper_middle_class|rich"
+}
+```
+
+#### 17. Get Family Details
+```http
+GET /biodata/{profile_id}/family
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 18. Delete Family Details
+```http
+DELETE /biodata/{profile_id}/family
+Authorization: Bearer <JWT_TOKEN>
+```
+
+---
+
+### 🏃‍♂️ Physical Attributes (3 endpoints)
+
+#### 19. Update Physical Attributes
+```http
+PATCH /biodata/{profile_id}/physical
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "height_cm": 175.0,
+  "weight_kg": 70.0,
+  "body_type": "slim|average|athletic|heavy",
+  "complexion": "fair|wheatish|dusky|dark",
+  "blood_group": "O+|A+|B+|AB+|O-|A-|B-|AB-"
+}
+```
+
+#### 20. Get Physical Attributes
+```http
+GET /biodata/{profile_id}/physical
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 21. Delete Physical Attributes
+```http
+DELETE /biodata/{profile_id}/physical
+Authorization: Bearer <JWT_TOKEN>
+```
+
+---
+
+### 🥗 Lifestyle Management (3 endpoints)
+
+#### 22. Update Lifestyle Information
+```http
+PATCH /biodata/{profile_id}/lifestyle
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "diet": "vegetarian|non_vegetarian|vegan|jain_food",
+  "drinking": "yes|no|occasionally|socially",
+  "smoking": "yes|no|occasionally"
+}
+```
+
+#### 23. Get Lifestyle Information
+```http
+GET /biodata/{profile_id}/lifestyle
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 24. Delete Lifestyle Information
+```http
+DELETE /biodata/{profile_id}/lifestyle
+Authorization: Bearer <JWT_TOKEN>
+```
+
+---
+
+### ⭐ Horoscope Management (3 endpoints)
+
+#### 25. Update Horoscope Information
+```http
+PATCH /biodata/{profile_id}/horoscope
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "date_of_birth": "1990-01-01",
+  "time_of_birth": "10:30",
+  "place_of_birth": "Mumbai",
+  "manglik": true|false,
+  "gotra": "string",
+  "rashi": "string",
+  "nakshatra": "string"
+}
+```
+
+#### 26. Get Horoscope Information
+```http
+GET /biodata/{profile_id}/horoscope
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 27. Delete Horoscope Information
+```http
+DELETE /biodata/{profile_id}/horoscope
+Authorization: Bearer <JWT_TOKEN>
+```
+
+---
+
+### 🗣️ Languages Management (3 endpoints)
+
+#### 28. Update Languages
+```http
+PATCH /biodata/{profile_id}/languages
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "known": {
+    "Hindi": "native|fluent|conversational|basic",
+    "English": "fluent",
+    "Marathi": "conversational"
+  }
+}
+```
+
+#### 29. Get Languages
+```http
+GET /biodata/{profile_id}/languages
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 30. Delete Languages
+```http
+DELETE /biodata/{profile_id}/languages
+Authorization: Bearer <JWT_TOKEN>
+```
+
+---
+
+### 💕 Partner Preferences (3 endpoints)
+
+#### 31. Update Partner Preferences
+```http
+PATCH /biodata/{profile_id}/partner-preferences
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "min_age": 25,
+  "max_age": 35,
+  "min_height_cm": 160.0,
+  "max_height_cm": 175.0,
+  "marital_status": ["never_married", "divorced"],
+  "religion": ["Hindu", "Sikh"],
+  "caste": ["Brahmin", "Kshatriya"],
+  "education_levels": ["masters", "bachelors"],
+  "occupations": ["engineer", "doctor"],
+  "preferred_locations": ["Mumbai", "Delhi"]
+}
+```
+
+#### 32. Get Partner Preferences
+```http
+GET /biodata/{profile_id}/partner-preferences
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 33. Delete Partner Preferences
+```http
+DELETE /biodata/{profile_id}/partner-preferences
+Authorization: Bearer <JWT_TOKEN>
+```
+
+---
+
+### 📸 Photo Management (6 endpoints)
+
+#### 34. Upload Photo
+```http
+POST /biodata/{profile_id}/photos
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: multipart/form-data
+
+FormData:
+- photo: File
+- caption: string
+- is_main: boolean
+```
+
+#### 35. Get Photos
+```http
+GET /biodata/{profile_id}/photos
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 36. Update Photo Metadata
+```http
+PATCH /biodata/{profile_id}/photos/{photo_index}
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "caption": "Updated caption",
+  "is_main": true
+}
+```
+
+#### 37. Replace Photo
+```http
+POST /biodata/{profile_id}/photos/replace/{photo_index}
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: multipart/form-data
+
+FormData:
+- photo: File
+```
+
+#### 38. Reorder Photos
+```http
+PATCH /biodata/{profile_id}/photos/reorder
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "new_order": [2, 0, 1, 3]
+}
+```
+
+#### 39. Delete Specific Photo
+```http
+DELETE /biodata/{profile_id}/photos/{photo_index}
+Authorization: Bearer <JWT_TOKEN>
+```
+
+---
+
+### 🔒 Enhanced Features (10 endpoints)
+*Available after upgrading to detailed biodata*
+
+#### 40. Upgrade to Detailed Biodata
+```http
+PATCH /biodata/{profile_id}/upgrade-to-detailed
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 41. Update Detailed Religious Information
+```http
+PATCH /biodata/{profile_id}/detailed-religious-info
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "varna": "brahmin|kshatriya|vaishya|shudra",
+  "sub_caste": "string",
+  "religious_sect": "shaivism|vaishnavism|shaktism",
+  "temple_association": "string",
+  "spiritual_practices": ["meditation", "yoga"],
+  "festivals_observed": ["diwali", "holi"],
+  "daily_prayers": true,
+  "vegetarian_since": "birth|childhood|recent"
+}
+```
+
+#### 42. Get Detailed Religious Information
+```http
+GET /biodata/{profile_id}/detailed-religious-info
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 43. Update Detailed Astrology
+```http
+PATCH /biodata/{profile_id}/detailed-astrology
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "birth_time": "10:30:00",
+  "birth_place_coordinates": "19.0760,72.8777",
+  "rashi_detailed": "string",
+  "nakshatra_detailed": "string",
+  "lagna": "string",
+  "doshas": ["manglik", "sarpdosh"],
+  "guna_milan_score": 28,
+  "auspicious_time_preference": "morning"
+}
+```
+
+#### 44. Get Detailed Astrology
+```http
+GET /biodata/{profile_id}/detailed-astrology
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 45. Update Detailed Family Background
+```http
+PATCH /biodata/{profile_id}/detailed-family-background
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "ancestral_origin": "string",
+  "family_traditions": "string",
+  "social_status": "string",
+  "property_ownership": "string",
+  "family_business": "string"
+}
+```
+
+#### 46. Add Extended Family Member
+```http
+POST /biodata/{profile_id}/extended-family-member
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "name": "Uncle Name",
+  "relation": "uncle|aunt|cousin|grandparent",
+  "occupation": "string",
+  "location": "string"
+}
+```
+
+#### 47. Update Extended Family
+```http
+PATCH /biodata/{profile_id}/extended-family
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "family_members": [
+    {
+      "name": "string",
+      "relation": "string",
+      "occupation": "string"
+    }
+  ]
+}
+```
+
+#### 48. Delete Extended Family Member
+```http
+DELETE /biodata/{profile_id}/extended-family-member/{member_index}
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 49. Update Traditional Preferences
+```http
+PATCH /biodata/{profile_id}/traditional-preferences
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "same_caste_only": true,
+  "inter_caste_acceptable": ["Brahmin", "Kshatriya"],
+  "gotra_restrictions": ["Bharadwaj"],
+  "regional_preference": ["North Indian", "South Indian"],
+  "ceremony_preferences": ["Traditional", "Modern"],
+  "wedding_type": "arranged|love|assisted",
+  "cultural_values": "orthodox|moderate|liberal"
+}
+```
+
+#### 50. Get Traditional Preferences
+```http
+GET /biodata/{profile_id}/traditional-preferences
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 51. Update Marriage Planning
+```http
+PATCH /biodata/{profile_id}/marriage-planning
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "preferred_wedding_season": "winter|summer|monsoon",
+  "guest_count_expectation": 500,
+  "venue_preference": "banquet|hotel|farmhouse",
+  "budget_range": "5-10 lakhs",
+  "preferred_timeline": "within_6_months|within_1_year",
+  "venue_preferences": ["outdoor", "traditional"]
+}
+```
+
+#### 52. Get Marriage Planning
+```http
+GET /biodata/{profile_id}/marriage-planning
+Authorization: Bearer <JWT_TOKEN>
+```
+
+---
+
+### 📄 Document Management (4 endpoints)
+
+#### 53. Upload Verification Document
+```http
+POST /biodata/{profile_id}/upload-document
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: multipart/form-data
+
+FormData:
+- document: File
+- document_type: birth_certificate|education_certificate|id_proof|income_certificate
+```
+
+#### 54. Upload Kundli Document
+```http
+POST /biodata/{profile_id}/upload-kundli
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: multipart/form-data
+
+FormData:
+- kundli_pdf: File
+```
+
+#### 55. Get Verification Documents
+```http
+GET /biodata/{profile_id}/verification-documents
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 56. Update Verification Documents
+```http
+PATCH /biodata/{profile_id}/verification-documents
+Authorization: Bearer <JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "birth_certificate_verified": true,
+  "education_certificate_verified": false
+}
+```
+
+---
+
+### 📊 Analytics & Status (7 endpoints)
+
+#### 57. Get Profile Analytics
+```http
+GET /biodata/{profile_id}/analytics
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 58. Increment Profile View
+```http
+PATCH /biodata/{profile_id}/increment-view
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 59. Check Storage Status
+```http
+GET /biodata/{profile_id}/storage-status
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 60. Get PDF Data
+```http
+GET /biodata/{profile_id}/pdf-data
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 61. Get PDF Summary
+```http
+GET /biodata/{profile_id}/pdf-summary
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 62. Validate PDF Readiness
+```http
+POST /biodata/{profile_id}/validate-pdf-readiness
+Authorization: Bearer <JWT_TOKEN>
+```
+
+#### 63. Soft Delete Biodata Profile
+```http
+DELETE /biodata/{profile_id}
+Authorization: Bearer <JWT_TOKEN>
+```
+
+---
+
+## 👑 Admin Endpoints (9 endpoints)
+*Accessible by admin users only*
+
+### 🛡️ Admin Profile Management (4 endpoints)
+
+#### 64. Get System Overview Statistics
+```http
+GET /biodata/stats/overview
+Authorization: Bearer <ADMIN_JWT_TOKEN>
+```
+
+#### 65. Get Admin Detailed Profiles
+```http
+GET /admin/biodata/detailed-profiles
+Authorization: Bearer <ADMIN_JWT_TOKEN>
+```
+
+#### 66. Update Admin Verification Status
+```http
+PATCH /admin/biodata/{profile_id}/verification-status
+Authorization: Bearer <ADMIN_JWT_TOKEN>
+Content-Type: application/json
+
+{
+  "status": "pending|verified|rejected",
+  "admin_notes": "string",
+  "verified_by": "admin_username"
+}
+```
+
+#### 67. Permanently Delete Biodata Profile
+```http
+DELETE /biodata/{profile_id}/permanent
+Authorization: Bearer <ADMIN_JWT_TOKEN>
+```
+
+### 🔐 Admin Verification Controls (4 endpoints)
+
+#### 68. Verify Profile (Admin)
+```http
+PATCH /biodata/{profile_id}/verify
+Authorization: Bearer <ADMIN_JWT_TOKEN>
+```
+
+#### 69. Unverify Profile (Admin)
+```http
+PATCH /biodata/{profile_id}/unverify
+Authorization: Bearer <ADMIN_JWT_TOKEN>
+```
+
+### 🎯 Admin User Management (1 endpoint)
+
+#### 70. Get Current Admin User
+```http
+GET /admin/current-user
+Authorization: Bearer <ADMIN_JWT_TOKEN>
+```
+
+---
+
+## 📊 Endpoint Summary
+
+### Total Endpoints: 67 (100% Functional ✅)
+
+| Category | User Endpoints | Admin Endpoints | Total |
+|----------|---------------|----------------|--------|
+| **Core Profile** | 6 | 0 | 6 |
+| **Contact Management** | 3 | 0 | 3 |
+| **Education** | 3 | 0 | 3 |
+| **Occupation** | 3 | 0 | 3 |
+| **Family** | 3 | 0 | 3 |
+| **Physical** | 3 | 0 | 3 |
+| **Lifestyle** | 3 | 0 | 3 |
+| **Horoscope** | 3 | 0 | 3 |
+| **Languages** | 3 | 0 | 3 |
+| **Partner Preferences** | 3 | 0 | 3 |
+| **Photo Management** | 6 | 0 | 6 |
+| **Enhanced Features** | 10 | 0 | 10 |
+| **Documents** | 4 | 0 | 4 |
+| **Analytics & Status** | 7 | 0 | 7 |
+| **Admin Management** | 0 | 4 | 4 |
+| **Admin Verification** | 0 | 4 | 4 |
+| **Admin User Mgmt** | 0 | 1 | 1 |
+| **TOTAL** | **58** | **9** | **67** |
+
+### Access Control Summary:
+- **👤 User Access**: 58 endpoints (own profile + view others)
+- **👑 Admin Access**: 67 endpoints (all user endpoints + 9 admin-only)
+- **🔐 Authentication**: Required for all endpoints
+- **✅ Status**: 100% functional with comprehensive testing
+
+### Key Features:
+- ✅ **Complete CRUD Operations** for all profile sections
+- ✅ **Advanced Photo Management** with S3 integration
+- ✅ **Document Upload & Verification** system
+- ✅ **PDF Generation** with readiness validation
+- ✅ **Analytics & Statistics** tracking
+- ✅ **Admin Controls** for verification and management
+- ✅ **Soft/Hard Delete** capabilities
+- ✅ **Enhanced Features** for detailed biodata
+
+---
+
+*Last Updated: November 11, 2025*  
+*API Version: v1.0*  
+*Status: ✅ All 67 Endpoints Functional*
 - **🔴 ADMIN ONLY**: Requires valid JWT token with role: "admin"
 - **🟡 PUBLIC**: No authentication required
 
