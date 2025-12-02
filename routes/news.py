@@ -220,6 +220,22 @@ async def create_news(
     current_user: User = Depends(get_current_author_or_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
+    # Debug logging for incoming multipart payload
+    try:
+        logger.info(
+            "[create_news] Incoming request: title=%r categories=%r tags=%r published=%r "
+            "file_name=%r content_images_count=%s content_image_captions_count=%s",
+            title,
+            categories,
+            tags,
+            published,
+            getattr(file, "filename", None),
+            len(content_images) if content_images else 0,
+            len(content_image_captions) if content_image_captions else 0,
+        )
+    except Exception as log_exc:
+        logger.warning("[create_news] Failed to log request metadata: %s", log_exc)
+
     file_extension = (file.filename or "image").split(".")[-1]
     unique_filename = f"news/{uuid.uuid4()}.{file_extension}"
 
@@ -782,6 +798,22 @@ async def update_news(
       and appending new uploads (`content_images` + `content_image_captions`).
     - All fields are optional; only provided values are updated.
     """
+
+    # Debug logging for incoming multipart payload
+    try:
+        logger.info(
+            "[update_news] Incoming request: news_id=%s title=%r categories=%r tags=%r "
+            "published=%r existing_content_images_len=%s new_content_images_count=%s",
+            news_id,
+            title,
+            categories,
+            tags,
+            published,
+            len(existing_content_images) if isinstance(existing_content_images, str) else None,
+            len(content_images) if content_images else 0,
+        )
+    except Exception as log_exc:
+        logger.warning("[update_news] Failed to log request metadata: %s", log_exc)
 
     if not ObjectId.is_valid(news_id):
         raise HTTPException(status_code=404, detail="News not found")
