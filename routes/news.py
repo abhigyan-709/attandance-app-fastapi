@@ -208,18 +208,31 @@ def _normalize_news(doc: Dict[str, Any], db_client: MongoClient) -> Dict[str, An
 # ------------------------- Create news -------------------------
 @news_router.post("/news", response_model=NewsPost, tags=["News"])
 async def create_news(
+    request: Request,
     title: str = Form(...),
     content: str = Form(...),
     categories: str = Form(""),
     tags: List[str] = Form([]),
     published: bool = Form(True),
     file: UploadFile = File(...),
-    content_images: Optional[UploadFile] = File(None),
-    content_image_captions: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = None,
     current_user: User = Depends(get_current_author_or_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
+    # Parse form data manually to handle multiple files with same name
+    form = await request.form()
+    
+    # Extract multiple content_images files
+    files: List[UploadFile] = []
+    captions_list: List[str] = []
+    
+    # Get all fields from form (form.getlist doesn't exist, so iterate)
+    for key, value in form.multi_items():
+        if key == "content_images" and hasattr(value, "file"):
+            files.append(value)
+        elif key == "content_image_captions":
+            captions_list.append(str(value) if value else "")
+    
     # Debug logging for incoming multipart payload
     try:
         logger.info(
@@ -230,8 +243,8 @@ async def create_news(
             tags,
             published,
             getattr(file, "filename", None),
-            len(content_images) if content_images else 0,
-            len(content_image_captions) if content_image_captions else 0,
+            len(files),
+            len(captions_list),
         )
     except Exception as log_exc:
         logger.warning("[create_news] Failed to log request metadata: %s", log_exc)
@@ -250,22 +263,8 @@ async def create_news(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
 
-    # Normalize content_images and captions to lists (FastAPI may pass single or multiple)
+    # Process gallery entries (files and captions_list already extracted from form above)
     gallery_entries: List[Dict[str, Optional[str]]] = []
-    files: List[UploadFile] = []
-    captions_list: List[Optional[str]] = []
-
-    if content_images is not None:
-        if isinstance(content_images, list):
-            files = content_images
-        else:
-            files = [content_images]
-
-    if content_image_captions is not None:
-        if isinstance(content_image_captions, list):
-            captions_list = content_image_captions
-        else:
-            captions_list = [content_image_captions]
 
     if files:
         for idx, gallery_file in enumerate(files):
