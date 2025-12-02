@@ -214,8 +214,8 @@ async def create_news(
     tags: List[str] = Form([]),
     published: bool = Form(True),
     file: UploadFile = File(...),
-    content_images: Optional[List[UploadFile]] = File(None),
-    content_image_captions: Optional[List[str]] = Form(None),
+    content_images: Optional[UploadFile] = File(None),
+    content_image_captions: Optional[str] = Form(None),
     background_tasks: BackgroundTasks = None,
     current_user: User = Depends(get_current_author_or_admin_user),
     db_client: MongoClient = Depends(db.get_client),
@@ -250,10 +250,25 @@ async def create_news(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
 
+    # Normalize content_images and captions to lists (FastAPI may pass single or multiple)
     gallery_entries: List[Dict[str, Optional[str]]] = []
-    if content_images:
-        captions = content_image_captions or []
-        for idx, gallery_file in enumerate(content_images):
+    files: List[UploadFile] = []
+    captions_list: List[Optional[str]] = []
+
+    if content_images is not None:
+        if isinstance(content_images, list):
+            files = content_images
+        else:
+            files = [content_images]
+
+    if content_image_captions is not None:
+        if isinstance(content_image_captions, list):
+            captions_list = content_image_captions
+        else:
+            captions_list = [content_image_captions]
+
+    if files:
+        for idx, gallery_file in enumerate(files):
             if not gallery_file or not getattr(gallery_file, "file", None):
                 continue
             file_extension = (gallery_file.filename or "image").split(".")[-1]
@@ -271,8 +286,8 @@ async def create_news(
 
             gallery_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{gallery_key}"
             caption = None
-            if idx < len(captions):
-                candidate_caption = captions[idx]
+            if idx < len(captions_list):
+                candidate_caption = captions_list[idx]
                 if candidate_caption is not None:
                     stripped_caption = candidate_caption.strip()
                     caption = stripped_caption if stripped_caption else None
