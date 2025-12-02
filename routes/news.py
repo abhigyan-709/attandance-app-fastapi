@@ -748,41 +748,152 @@ async def get_news_item(news_id: str, db_client: MongoClient = Depends(db.get_cl
     return _normalize_news(doc, db_client)
 
 
-# ------------------------- Update & Delete news (PROTECTED) -------------------------
+class ExistingContentImage(BaseModel):
+    """Represents an already-uploaded content image when editing a news post.
+
+    This lets the UI keep or update captions for existing images without re-uploading files.
+    """
+    url: str
+    caption: Optional[str] = None
+
+
 @news_router.put("/news/{news_id}", response_model=NewsPost, tags=["News"])
 async def update_news(
     news_id: str,
-    updated_news: NewsPost,
+    # core editable fields
+    title: Optional[str] = Form(None),
+    content: Optional[str] = Form(None),
+    categories: Optional[str] = Form(None),
+    tags: Optional[List[str]] = Form(None),
+    published: Optional[bool] = Form(None),
+    # existing gallery items coming back from UI as JSON string
+    existing_content_images: Optional[str] = Form(None),
+    # new uploads (same semantics as create)
+    content_images: Optional[List[UploadFile]] = File(None),
+    content_image_captions: Optional[List[str]] = Form(None),
     current_user: User = Depends(get_current_author_or_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
+    """Update a news post including optional gallery updates.
+
+    - Feature image field (`file`) is intentionally NOT handled here to avoid
+      breaking the existing, stable feature-image flow.
+    - Supports keeping old gallery items (via `existing_content_images` JSON)
+      and appending new uploads (`content_images` + `content_image_captions`).
+    - All fields are optional; only provided values are updated.
+    """
+
     if not ObjectId.is_valid(news_id):
         raise HTTPException(status_code=404, detail="News not found")
-    existing = db_client[db.db_name][NEWS_COLL].find_one({"_id": ObjectId(news_id)})
+
+    coll = db_client[db.db_name][NEWS_COLL]
+    existing = coll.find_one({"_id": ObjectId(news_id)})
     if not existing:
         raise HTTPException(status_code=404, detail="News not found")
 
-    updated_news.updated_at = datetime.utcnow()
-    db_client[db.db_name][NEWS_COLL].update_one(
-        {"_id": ObjectId(news_id)},
-        {
-            "$set": updated_news.dict(
-                by_alias=True,
-                exclude={
-                    "id",
-                    "author_username",
-                    "created_at",
-                    "views",
-                    "viewed_ips",
-                    "likes",
-                    "liked_ips",
-                    "comments",
-                },
-            )
-        },
-    )
-    updated_news.id = news_id
-    return updated_news
+    update_doc: Dict[str, Any] = {}
+
+    if title is not None:
+        update_doc["title"] = title
+    if content is not None:
+        update_doc["content"] = content
+    if categories is not None:
+        update_doc["categories"] = categories
+    if tags is not None:
+        update_doc["tags"] = tags
+    if published is not None:
+        update_doc["published"] = published
+
+    # --- handle gallery: existing + new uploads ---
+    merged_gallery: List[Dict[str, Optional[str]]] = []
+
+    # 1) existing gallery from DB (fallback if UI doesn't send anything)
+    if existing_content_images is None:
+        raw_existing = existing.get("content_images") or []
+        for entry in raw_existing:
+            if isinstance(entry, dict):
+                url = entry.get("url")
+                caption = entry.get("caption")
+            elif isinstance(entry, str):
+                url = entry
+                caption = None
+            else:
+                continue
+            if not url:
+                continue
+            merged_gallery.append({"url": url, "caption": caption or None})
+    else:
+        # UI can send JSON string array of {url, caption}
+        try:
+            import json
+
+            parsed = json.loads(existing_content_images) or []
+            for entry in parsed:
+                if not isinstance(entry, dict):
+                    continue
+                url = entry.get("url")
+                if not url:
+                    continue
+                caption_val = entry.get("caption")
+                if isinstance(caption_val, str):
+                    caption_val = caption_val.strip() or None
+                merged_gallery.append({"url": url, "caption": caption_val})
+        except Exception:
+            # If JSON parsing fails, fall back to stored DB gallery
+            raw_existing = existing.get("content_images") or []
+            for entry in raw_existing:
+                if isinstance(entry, dict):
+                    url = entry.get("url")
+                    caption = entry.get("caption")
+                elif isinstance(entry, str):
+                    url = entry
+                    caption = None
+                else:
+                    continue
+                if not url:
+                    continue
+                merged_gallery.append({"url": url, "caption": caption or None})
+
+    # 2) append newly uploaded images (if any)
+    if content_images:
+        captions = content_image_captions or []
+        for idx, gallery_file in enumerate(content_images):
+            if not gallery_file or not getattr(gallery_file, "file", None):
+                continue
+
+            file_extension = (gallery_file.filename or "image").split(".")[-1]
+            gallery_key = f"news/content/{uuid.uuid4()}.{file_extension}"
+            content_type = gallery_file.content_type or "application/octet-stream"
+            try:
+                s3_client.upload_fileobj(
+                    gallery_file.file,
+                    AWS_BUCKET_NAME,
+                    gallery_key,
+                    ExtraArgs={"ContentType": content_type},
+                )
+            except Exception as exc:
+                raise HTTPException(status_code=500, detail=f"Content image upload failed: {str(exc)}")
+
+            gallery_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{gallery_key}"
+            caption = None
+            if idx < len(captions):
+                candidate_caption = captions[idx]
+                if candidate_caption is not None:
+                    stripped_caption = candidate_caption.strip()
+                    caption = stripped_caption if stripped_caption else None
+            merged_gallery.append({"url": gallery_url, "caption": caption})
+
+    update_doc["content_images"] = merged_gallery
+
+    # housekeeping fields
+    update_doc["updated_at"] = datetime.utcnow()
+
+    # apply update (do not touch immutable fields)
+    coll.update_one({"_id": ObjectId(news_id)}, {"$set": update_doc})
+
+    # return the freshly-updated, normalized document
+    refreshed = coll.find_one({"_id": ObjectId(news_id)})
+    return _normalize_news(refreshed, db_client)
 
 
 @news_router.delete("/news/{news_id}", tags=["News"])
