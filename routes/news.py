@@ -789,18 +789,15 @@ class ExistingContentImage(BaseModel):
 
 @news_router.put("/news/{news_id}", response_model=NewsPost, tags=["News"])
 async def update_news(
+    request: Request,
     news_id: str,
     # core editable fields
     title: Optional[str] = Form(None),
     content: Optional[str] = Form(None),
     categories: Optional[str] = Form(None),
-    tags: Optional[List[str]] = Form(None),
     published: Optional[bool] = Form(None),
     # existing gallery items coming back from UI as JSON string
     existing_content_images: Optional[str] = Form(None),
-    # new uploads (same semantics as create)
-    content_images: Optional[List[UploadFile]] = File(None),
-    content_image_captions: Optional[List[str]] = Form(None),
     current_user: User = Depends(get_current_author_or_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
@@ -813,6 +810,22 @@ async def update_news(
     - All fields are optional; only provided values are updated.
     """
 
+    # Parse form data manually to handle multiple files/tags with same name
+    form = await request.form()
+    
+    # Extract tags as list
+    tags: List[str] = []
+    content_images_files: List[UploadFile] = []
+    content_image_captions_list: List[str] = []
+    
+    for key, value in form.multi_items():
+        if key == "tags":
+            tags.append(str(value))
+        elif key == "content_images" and hasattr(value, "file"):
+            content_images_files.append(value)
+        elif key == "content_image_captions":
+            content_image_captions_list.append(str(value) if value else "")
+    
     # Debug logging for incoming multipart payload
     try:
         logger.info(
@@ -824,7 +837,7 @@ async def update_news(
             tags,
             published,
             len(existing_content_images) if isinstance(existing_content_images, str) else None,
-            len(content_images) if content_images else 0,
+            len(content_images_files),
         )
     except Exception as log_exc:
         logger.warning("[update_news] Failed to log request metadata: %s", log_exc)
@@ -901,9 +914,8 @@ async def update_news(
                 merged_gallery.append({"url": url, "caption": caption or None})
 
     # 2) append newly uploaded images (if any)
-    if content_images:
-        captions = content_image_captions or []
-        for idx, gallery_file in enumerate(content_images):
+    if content_images_files:
+        for idx, gallery_file in enumerate(content_images_files):
             if not gallery_file or not getattr(gallery_file, "file", None):
                 continue
 
@@ -922,8 +934,8 @@ async def update_news(
 
             gallery_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{gallery_key}"
             caption = None
-            if idx < len(captions):
-                candidate_caption = captions[idx]
+            if idx < len(content_image_captions_list):
+                candidate_caption = content_image_captions_list[idx]
                 if candidate_caption is not None:
                     stripped_caption = candidate_caption.strip()
                     caption = stripped_caption if stripped_caption else None
