@@ -59,16 +59,70 @@ ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN")
 NEWS_BASE_URL = os.getenv("NEWS_BASE_URL", "https://gtnews18.in")
 
 
+# Hindi to Latin transliteration map for URL slugs
+HINDI_TO_LATIN = {
+    # Vowels
+    'अ': 'a', 'आ': 'aa', 'इ': 'i', 'ई': 'ee', 'उ': 'u', 'ऊ': 'oo', 
+    'ए': 'e', 'ऐ': 'ai', 'ओ': 'o', 'औ': 'au', 'ऋ': 'ri',
+    # Consonants
+    'क': 'k', 'ख': 'kh', 'ग': 'g', 'घ': 'gh', 'ङ': 'ng',
+    'च': 'ch', 'छ': 'chh', 'ज': 'j', 'झ': 'jh', 'ञ': 'ny',
+    'ट': 't', 'ठ': 'th', 'ड': 'd', 'ढ': 'dh', 'ण': 'n',
+    'त': 't', 'थ': 'th', 'द': 'd', 'ध': 'dh', 'न': 'n',
+    'प': 'p', 'फ': 'ph', 'ब': 'b', 'भ': 'bh', 'म': 'm',
+    'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v', 'w': 'w',
+    'श': 'sh', 'ष': 'sh', 'स': 's', 'ह': 'h',
+    'क़': 'q', 'ख़': 'kh', 'ग़': 'gh', 'ज़': 'z', 'ड़': 'r', 'ढ़': 'rh', 'फ़': 'f',
+    # Vowel signs (matras)
+    'ा': 'aa', 'ि': 'i', 'ी': 'ee', 'ु': 'u', 'ू': 'oo', 
+    'े': 'e', 'ै': 'ai', 'ो': 'o', 'ौ': 'au', 'ं': 'n', 'ः': 'h', '्': '',
+    # Numbers
+    '०': '0', '१': '1', '२': '2', '३': '3', '४': '4', 
+    '५': '5', '६': '6', '७': '7', '८': '8', '९': '9',
+}
+
+def _transliterate_hindi(text: str) -> str:
+    """Convert Hindi text to Latin script for SEO-friendly URLs"""
+    result = []
+    for char in text:
+        if char in HINDI_TO_LATIN:
+            result.append(HINDI_TO_LATIN[char])
+        elif char.isalnum() or char in ('-', '_'):
+            result.append(char.lower())
+        else:
+            result.append('-')
+    return ''.join(result)
+
 def _slugify(s: str) -> str:
+    """Legacy simple slugify - kept for backward compatibility"""
     return re.sub(r"[^a-z0-9]+", "-", s.lower()).strip("-")
 
 def _generate_seo_slug(title: str, news_id: str) -> str:
-    """Generate SEO-friendly slug from title and ID"""
-    # Handle both Hindi and English text
-    base_slug = re.sub(r'[^a-zA-Z0-9\u0900-\u097F]+', '-', title.lower()).strip('-')
-    # Limit slug length and ensure it ends with ID for uniqueness
-    slug_part = base_slug[:50] if len(base_slug) > 50 else base_slug
-    return f"{slug_part}-{news_id}"
+    """Generate SEO-friendly slug from title with Hindi transliteration
+    
+    Examples:
+        मोतीझील में फंस जाते हैं परीक्षार्थी → motijheel-men-phans-jaate-hain-pareeksharthee-{id}
+        Bihar Election 2025 → bihar-election-2025-{id}
+        पटना में भारी बारिश → patna-men-bhaaree-baarish-{id}
+    """
+    # Transliterate Hindi to Latin
+    transliterated = _transliterate_hindi(title)
+    
+    # Clean up: remove multiple dashes, leading/trailing dashes
+    base_slug = re.sub(r'-+', '-', transliterated).strip('-')
+    
+    # Limit length for cleaner URLs (max 60 chars before ID)
+    if len(base_slug) > 60:
+        # Try to break at word boundary
+        base_slug = base_slug[:60].rsplit('-', 1)[0]
+    
+    # Ensure we have something, fallback to "news" if empty after transliteration
+    if not base_slug or base_slug == '-':
+        base_slug = 'news'
+    
+    # Add ID for uniqueness (last 8 chars of ObjectId for shorter URLs)
+    short_id = news_id[-8:] if len(news_id) >= 8 else news_id
+    return f"{base_slug}-{short_id}"
 
 def _extract_meta_description(content: str, max_length: int = 160) -> str:
     """Extract clean meta description from HTML content"""
@@ -1238,22 +1292,64 @@ async def get_news_seo_meta(news_id: str, db_client: MongoClient = Depends(db.ge
 
 @news_router.get("/news/slug/{slug}", response_model=NewsPost, tags=["News"])
 async def get_news_by_slug(slug: str, db_client: MongoClient = Depends(db.get_client)):
-    """Get news by SEO-friendly slug - backward compatible"""
-    # Try to find by slug first
+    """Get news by SEO-friendly slug - backward compatible with old Hindi slugs
+    
+    Handles multiple slug formats:
+    1. New format: transliterated-title-shortid (e.g., bihar-election-2025-a1b2c3d4)
+    2. Old format: hindi-title-fullid (with encoded Hindi chars)
+    3. Direct ObjectId lookup
+    """
+    # Try to find by slug first (exact match)
     doc = db_client[db.db_name][NEWS_COLL].find_one({"slug": slug, "published": True})
     
-    # If not found by slug, try to extract ID from slug (format: title-words-id)
+    # If not found by slug, try to extract ID from slug
     if not doc:
+        # Try last segment as ID (new format with short ID)
         parts = slug.split('-')
         if parts:
-            potential_id = parts[-1]  # Last part should be the ID
-            if ObjectId.is_valid(potential_id):
+            potential_id = parts[-1]
+            
+            # Try as short ID (last 8 chars) - search by matching suffix
+            if len(potential_id) == 8:
+                # Find all published posts and check if any ID ends with this
+                cursor = db_client[db.db_name][NEWS_COLL].find(
+                    {"published": True},
+                    {"_id": 1}
+                )
+                for candidate in cursor:
+                    if str(candidate["_id"]).endswith(potential_id):
+                        doc = db_client[db.db_name][NEWS_COLL].find_one({"_id": candidate["_id"]})
+                        break
+            
+            # Try as full ObjectId
+            elif ObjectId.is_valid(potential_id):
                 doc = db_client[db.db_name][NEWS_COLL].find_one({"_id": ObjectId(potential_id)})
     
     if not doc:
         raise HTTPException(status_code=404, detail="News not found")
     
     return _normalize_news(doc, db_client)
+
+
+@news_router.post("/news/preview-slug", tags=["News"])
+async def preview_slug(payload: Dict[str, str] = Body(...)):
+    """Preview what slug will be generated for a given title
+    
+    Useful for editors to see URL before publishing.
+    """
+    title = payload.get("title", "")
+    if not title:
+        raise HTTPException(status_code=400, detail="Title is required")
+    
+    # Generate sample slug with dummy ID
+    sample_slug = _generate_seo_slug(title, "675e3a1b2c4d5e6f7a8b9c0d")
+    
+    return {
+        "title": title,
+        "slug": sample_slug,
+        "url": f"{NEWS_BASE_URL}/news/{sample_slug}",
+        "transliterated": _transliterate_hindi(title),
+    }
 
 @news_router.get("/rss", response_class=HTMLResponse, tags=["News"])
 async def get_rss_feed(db_client: MongoClient = Depends(db.get_client)):

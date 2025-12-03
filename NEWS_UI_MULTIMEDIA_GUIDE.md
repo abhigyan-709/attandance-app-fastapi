@@ -1,6 +1,6 @@
-# GTNews18 – News UI Multimedia Integration Guide
+# GTNews18 – News UI Multimedia & SEO Integration Guide
 
-This document explains how to integrate **multiple images / GIFs / carousels** inside a news story using the existing FastAPI backend.
+This document explains how to integrate **multiple images / GIFs / carousels** inside a news story and utilize the new **SEO-optimized slug system** for Hindi content.
 
 The backend already supports this and remains backward compatible:
 - Stores the main **feature image** as before (`image_url` in S3).
@@ -292,3 +292,95 @@ function NewsDetail({ post }: { post: NewsPost }) {
 ```
 
 This is enough for your frontend team to implement rich multimedia stories without changing the existing feature image system.
+
+---
+
+## 6. SEO-Optimized Slug System for Hindi Content
+
+### 6.1. Problem with Hindi URLs
+
+Previously, Hindi titles created URLs like:
+```
+https://gobarsahitimes.com/news/मोतीझील-में-फंस-जाते-हैं-परीक्षार्थी-675e3a1b2c4d5e6f7a8b9c0d
+```
+
+Which becomes URL-encoded:
+```
+https://gobarsahitimes.com/news/%E0%A4%AE%E0%A5%8B%E0%A4%A4%E0%A5%80%E0%A4%9D%E0%A5%80%E0%A4%B2-...
+```
+
+**Issues:**
+- Not SEO-friendly
+- Hard to share on social media
+- Some browsers/platforms don't handle well
+- Google prefers Latin characters in URLs
+
+### 6.2. New Transliteration-Based Slug System
+
+Backend now automatically transliterates Hindi → Latin phonetic + uses short ID:
+
+**Examples:**
+
+| Hindi Title | Generated Slug |
+|------------|----------------|
+| मोतीझील में फंस जाते हैं परीक्षार्थी | `motijheel-men-phans-jaate-hain-pareeksharthee-a1b2c3d4` |
+| पटना में भारी बारिश से तबाही | `patna-men-bhaaree-baarish-se-tabaahee-b2c3d4e5` |
+| Bihar Election 2025 Updates | `bihar-election-2025-updates-c3d4e5f6` |
+| बिहार में नई सड़क का निर्माण | `bihaar-men-nayee-sarak-kaa-nirmaan-d4e5f6a7` |
+
+**Benefits:**
+- ✅ Clean, readable URLs
+- ✅ SEO-optimized (Google recommends Latin slugs)
+- ✅ Easy to share everywhere
+- ✅ Maintains semantic meaning
+- ✅ Short IDs keep URLs concise
+
+### 6.3. Backward Compatibility
+
+The system handles:
+1. **New slugs** (transliterated): Direct lookup by slug field
+2. **Old slugs** (with Hindi): ID extraction and lookup
+3. **Direct ObjectId**: Falls back to ID-based search
+
+No old links will break!
+
+### 6.4. Using Slugs in UI
+
+**Get news by slug:**
+```ts
+// New format
+const response = await fetch(`/news/slug/bihar-election-2025-a1b2c3d4`);
+
+// Old format still works
+const response = await fetch(`/news/slug/मोतीझील-में-फंस-675e3a1b2c4d5e6f7a8b9c0d`);
+```
+
+**Preview slug before publishing:**
+```ts
+const preview = await axios.post('/news/preview-slug', {
+  title: 'मोतीझील में फंस जाते हैं परीक्षार्थी'
+});
+
+console.log(preview.data);
+// {
+//   "title": "मोतीझील में फंस जाते हैं परीक्षार्थी",
+//   "slug": "motijheel-men-phans-jaate-hain-pareeksharthee-a1b2c3d4",
+//   "url": "https://gtnews18.in/news/motijheel-men-phans-jaate-hain-pareeksharthee-a1b2c3d4",
+//   "transliterated": "motijheel-men-phans-jaate-hain-pareeksharthee"
+// }
+```
+
+**Display canonical URL:**
+```tsx
+<meta property="og:url" content={`https://gtnews18.in/news/${post.slug}`} />
+<link rel="canonical" href={`https://gtnews18.in/news/${post.slug}`} />
+```
+
+### 6.5. Automatic Slug Generation
+
+Slugs are auto-generated when:
+- Creating new news: `POST /news` → slug stored in `post.slug`
+- Updating old news: `GET /news/{id}` → slug auto-generated if missing
+- Sitemap/RSS: Uses `slug` field or generates on-the-fly
+
+No manual intervention needed!
