@@ -1351,6 +1351,154 @@ async def preview_slug(payload: Dict[str, str] = Body(...)):
         "transliterated": _transliterate_hindi(title),
     }
 
+
+@news_router.post("/news/regenerate-slugs-test", tags=["News"])
+async def regenerate_slugs_test(
+    limit: int = Query(1, ge=1, le=10),
+    current_admin: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Admin endpoint: TEST slug generation on a few posts (safe, read-only preview)
+    
+    Shows what slugs would be generated WITHOUT modifying the database.
+    Use this to verify before running the actual migration.
+    """
+    coll = db_client[db.db_name][NEWS_COLL]
+    
+    # Find a few news posts without slug
+    cursor = coll.find({}, {"_id": 1, "title": 1, "slug": 1}).limit(limit)
+    
+    preview = []
+    for doc in cursor:
+        news_id = str(doc["_id"])
+        title = doc.get("title", "")
+        current_slug = doc.get("slug")
+        
+        # Generate what the new slug would be
+        new_slug = _generate_seo_slug(title, news_id)
+        
+        preview.append({
+            "news_id": news_id,
+            "title": title,
+            "current_slug": current_slug or "(none)",
+            "new_slug": new_slug,
+            "old_url": f"{NEWS_BASE_URL}/news/{news_id}",
+            "new_url": f"{NEWS_BASE_URL}/news/{new_slug}",
+            "would_update": not current_slug or current_slug != new_slug,
+        })
+    
+    return {
+        "message": "Preview only - no changes made to database",
+        "preview": preview,
+    }
+
+
+@news_router.post("/news/regenerate-one-slug/{news_id}", tags=["News"])
+async def regenerate_one_slug(
+    news_id: str,
+    current_admin: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Admin endpoint: Update slug for ONE specific news post (safe test)
+    
+    Test the migration on a single post before doing all posts.
+    """
+    if not ObjectId.is_valid(news_id):
+        raise HTTPException(status_code=404, detail="Invalid news ID")
+    
+    coll = db_client[db.db_name][NEWS_COLL]
+    doc = coll.find_one({"_id": ObjectId(news_id)})
+    
+    if not doc:
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    title = doc.get("title", "")
+    old_slug = doc.get("slug")
+    new_slug = _generate_seo_slug(title, news_id)
+    
+    # Update the slug
+    coll.update_one(
+        {"_id": ObjectId(news_id)},
+        {"$set": {"slug": new_slug}}
+    )
+    
+    return {
+        "message": "Successfully updated slug for one news post",
+        "news_id": news_id,
+        "title": title,
+        "old_slug": old_slug or "(none)",
+        "new_slug": new_slug,
+        "old_url": f"{NEWS_BASE_URL}/news/{news_id}",
+        "new_url": f"{NEWS_BASE_URL}/news/{new_slug}",
+        "test_old_url": f"Test this still works: {NEWS_BASE_URL}/news/slug/{news_id}",
+        "test_new_url": f"Test new slug works: {NEWS_BASE_URL}/news/slug/{new_slug}",
+    }
+
+
+@news_router.post("/news/regenerate-all-slugs", tags=["News"])
+async def regenerate_all_slugs(
+    dry_run: bool = Query(True, description="Set to false to actually update database"),
+    current_admin: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Admin endpoint: Regenerate slugs for all existing news posts
+    
+    SAFE: Default is dry_run=true (preview only, no changes).
+    Set dry_run=false to actually update the database.
+    
+    This migrates old news to the new SEO-friendly slug system.
+    Safe to run multiple times - only updates posts without slugs or with old format.
+    """
+    coll = db_client[db.db_name][NEWS_COLL]
+    
+    # Find all news without slug or with old Hindi slug format
+    cursor = coll.find({}, {"_id": 1, "title": 1, "slug": 1})
+    
+    updated_count = 0
+    previews = []
+    
+    for doc in cursor:
+        news_id = str(doc["_id"])
+        title = doc.get("title", "")
+        current_slug = doc.get("slug")
+        
+        # Generate new slug
+        new_slug = _generate_seo_slug(title, news_id)
+        
+        # Check if update needed
+        should_update = not current_slug or current_slug != new_slug
+        
+        if should_update:
+            if dry_run:
+                # Preview only
+                if updated_count < 10:  # Show first 10 previews
+                    previews.append({
+                        "news_id": news_id,
+                        "title": title[:50] + "..." if len(title) > 50 else title,
+                        "old_slug": current_slug or "(none)",
+                        "new_slug": new_slug,
+                    })
+            else:
+                # Actually update
+                coll.update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": {"slug": new_slug}}
+                )
+            updated_count += 1
+    
+    if dry_run:
+        return {
+            "message": "DRY RUN - No changes made to database",
+            "would_update_count": updated_count,
+            "preview_sample": previews,
+            "instruction": "Add ?dry_run=false to the URL to actually update the database",
+        }
+    else:
+        return {
+            "message": f"Successfully regenerated slugs for {updated_count} news posts",
+            "updated_count": updated_count,
+        }
+
 @news_router.get("/rss", response_class=HTMLResponse, tags=["News"])
 async def get_rss_feed(db_client: MongoClient = Depends(db.get_client)):
     """Generate RSS feed for news - works with existing data"""
