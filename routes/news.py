@@ -259,6 +259,32 @@ def _normalize_news(doc: Dict[str, Any], db_client: MongoClient) -> Dict[str, An
     return doc
 
 
+def _validate_slug_uniqueness(slug: str, news_id: Optional[str], db_client: MongoClient) -> None:
+    """Validate that slug is unique (excluding current news_id if updating)
+    
+    Args:
+        slug: The slug to validate
+        news_id: Current news ID (for updates) or None (for new posts)
+        db_client: MongoDB client
+    
+    Raises:
+        HTTPException: If slug already exists
+    """
+    coll = db_client[db.db_name][NEWS_COLL]
+    
+    query = {"slug": slug}
+    # Exclude current post when updating
+    if news_id and ObjectId.is_valid(news_id):
+        query["_id"] = {"$ne": ObjectId(news_id)}
+    
+    existing = coll.find_one(query, {"_id": 1})
+    if existing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Slug '{slug}' already exists. Please choose a unique slug."
+        )
+
+
 # ------------------------- Create news -------------------------
 @news_router.post("/news", response_model=NewsPost, tags=["News"])
 async def create_news(
@@ -268,6 +294,7 @@ async def create_news(
     categories: str = Form(""),
     tags: List[str] = Form([]),
     published: bool = Form(True),
+    custom_slug: Optional[str] = Form(None),
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
     current_user: User = Depends(get_current_author_or_admin_user),
@@ -291,7 +318,7 @@ async def create_news(
     try:
         logger.info(
             "[create_news] Incoming request: title=%r categories=%r tags=%r published=%r "
-            "file_name=%r content_images_count=%s content_image_captions_count=%s",
+            "file_name=%r content_images_count=%s content_image_captions_count=%s custom_slug=%r",
             title,
             categories,
             tags,
@@ -299,9 +326,22 @@ async def create_news(
             getattr(file, "filename", None),
             len(files),
             len(captions_list),
+            custom_slug,
         )
     except Exception as log_exc:
         logger.warning("[create_news] Failed to log request metadata: %s", log_exc)
+    
+    # Validate custom slug if provided
+    if custom_slug:
+        custom_slug = custom_slug.strip()
+        # Basic slug validation
+        if not re.match(r'^[a-z0-9]+(?:-[a-z0-9]+)*$', custom_slug):
+            raise HTTPException(
+                status_code=400,
+                detail="Slug must contain only lowercase letters, numbers, and hyphens (no spaces or special characters)"
+            )
+        # Check uniqueness
+        _validate_slug_uniqueness(custom_slug, None, db_client)
 
     file_extension = (file.filename or "image").split(".")[-1]
     unique_filename = f"news/{uuid.uuid4()}.{file_extension}"
@@ -367,9 +407,9 @@ async def create_news(
     news_id = str(inserted.inserted_id)
     news_data["_id"] = news_id
 
-    # Auto-generate SEO data after insertion (backward compatible)
+    # Generate SEO data after insertion (use custom slug if provided)
     seo_updates = {
-        "slug": _generate_seo_slug(title, news_id),
+        "slug": custom_slug if custom_slug else _generate_seo_slug(title, news_id),
         "meta_title": title[:60] if len(title) > 60 else title,  # SEO optimal length
         "meta_description": _extract_meta_description(content),
         "keywords": _extract_keywords(title, content, categories)
@@ -850,6 +890,7 @@ async def update_news(
     content: Optional[str] = Form(None),
     categories: Optional[str] = Form(None),
     published: Optional[bool] = Form(None),
+    custom_slug: Optional[str] = Form(None),
     # existing gallery items coming back from UI as JSON string
     existing_content_images: Optional[str] = Form(None),
     current_user: User = Depends(get_current_author_or_admin_user),
@@ -884,7 +925,7 @@ async def update_news(
     try:
         logger.info(
             "[update_news] Incoming request: news_id=%s title=%r categories=%r tags=%r "
-            "published=%r existing_content_images_len=%s new_content_images_count=%s",
+            "published=%r existing_content_images_len=%s new_content_images_count=%s custom_slug=%r",
             news_id,
             title,
             categories,
@@ -892,12 +933,25 @@ async def update_news(
             published,
             len(existing_content_images) if isinstance(existing_content_images, str) else None,
             len(content_images_files),
+            custom_slug,
         )
     except Exception as log_exc:
         logger.warning("[update_news] Failed to log request metadata: %s", log_exc)
 
     if not ObjectId.is_valid(news_id):
         raise HTTPException(status_code=404, detail="News not found")
+    
+    # Validate custom slug if provided
+    if custom_slug:
+        custom_slug = custom_slug.strip()
+        # Basic slug validation
+        if not re.match(r'^[a-z0-9]+(?:-[a-z0-9]+)*$', custom_slug):
+            raise HTTPException(
+                status_code=400,
+                detail="Slug must contain only lowercase letters, numbers, and hyphens (no spaces or special characters)"
+            )
+        # Check uniqueness (excluding current post)
+        _validate_slug_uniqueness(custom_slug, news_id, db_client)
 
     coll = db_client[db.db_name][NEWS_COLL]
     existing = coll.find_one({"_id": ObjectId(news_id)})
@@ -916,6 +970,8 @@ async def update_news(
         update_doc["tags"] = tags
     if published is not None:
         update_doc["published"] = published
+    if custom_slug is not None:
+        update_doc["slug"] = custom_slug
 
     # --- handle gallery: existing + new uploads ---
     merged_gallery: List[Dict[str, Optional[str]]] = []
