@@ -243,8 +243,9 @@ def _normalize_news(doc: Dict[str, Any], db_client: MongoClient) -> Dict[str, An
     doc["content_images"] = normalized_gallery
     
     # SEO fields (backward compatible - add if missing)
+    # Note: slug is now required for new posts, but old posts may not have it
     if not doc.get("slug"):
-        doc["slug"] = _generate_seo_slug(doc.get("title", ""), doc["_id"])
+        doc["slug"] = None  # Old posts without slug will return None
     if not doc.get("meta_title"):
         doc["meta_title"] = doc.get("title", "")
     if not doc.get("meta_description"):
@@ -294,7 +295,7 @@ async def create_news(
     categories: str = Form(""),
     tags: List[str] = Form([]),
     published: bool = Form(True),
-    custom_slug: Optional[str] = Form(None),
+    custom_slug: str = Form(...),
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
     current_user: User = Depends(get_current_author_or_admin_user),
@@ -331,17 +332,22 @@ async def create_news(
     except Exception as log_exc:
         logger.warning("[create_news] Failed to log request metadata: %s", log_exc)
     
-    # Validate custom slug if provided
-    if custom_slug:
-        custom_slug = custom_slug.strip()
-        # Basic slug validation
-        if not re.match(r'^[a-z0-9]+(?:-[a-z0-9]+)*$', custom_slug):
-            raise HTTPException(
-                status_code=400,
-                detail="Slug must contain only lowercase letters, numbers, and hyphens (no spaces or special characters)"
-            )
-        # Check uniqueness
-        _validate_slug_uniqueness(custom_slug, None, db_client)
+    # Validate and require custom slug
+    if not custom_slug or not custom_slug.strip():
+        raise HTTPException(
+            status_code=400,
+            detail="custom_slug is required. Please provide a URL-friendly slug."
+        )
+    
+    custom_slug = custom_slug.strip()
+    # Basic slug validation
+    if not re.match(r'^[a-z0-9]+(?:-[a-z0-9]+)*$', custom_slug):
+        raise HTTPException(
+            status_code=400,
+            detail="Slug must contain only lowercase letters, numbers, and hyphens (no spaces or special characters)"
+        )
+    # Check uniqueness
+    _validate_slug_uniqueness(custom_slug, None, db_client)
 
     file_extension = (file.filename or "image").split(".")[-1]
     unique_filename = f"news/{uuid.uuid4()}.{file_extension}"
@@ -407,9 +413,9 @@ async def create_news(
     news_id = str(inserted.inserted_id)
     news_data["_id"] = news_id
 
-    # Generate SEO data after insertion (use custom slug if provided)
+    # Add SEO data after insertion (custom slug is required)
     seo_updates = {
-        "slug": custom_slug if custom_slug else _generate_seo_slug(title, news_id),
+        "slug": custom_slug,
         "meta_title": title[:60] if len(title) > 60 else title,  # SEO optimal length
         "meta_description": _extract_meta_description(content),
         "keywords": _extract_keywords(title, content, categories)
@@ -941,9 +947,14 @@ async def update_news(
     if not ObjectId.is_valid(news_id):
         raise HTTPException(status_code=404, detail="News not found")
     
-    # Validate custom slug if provided
+    # Validate custom slug if provided (optional in update)
     if custom_slug:
         custom_slug = custom_slug.strip()
+        if not custom_slug:
+            raise HTTPException(
+                status_code=400,
+                detail="custom_slug cannot be empty. Provide a valid slug or omit the field."
+            )
         # Basic slug validation
         if not re.match(r'^[a-z0-9]+(?:-[a-z0-9]+)*$', custom_slug):
             raise HTTPException(
@@ -1347,16 +1358,31 @@ async def get_news_seo_meta(news_id: str, db_client: MongoClient = Depends(db.ge
     return HTMLResponse(content=html_content)
 
 @news_router.get("/news/slug/{slug}", response_model=NewsPost, tags=["News"])
-async def get_news_by_slug(slug: str, db_client: MongoClient = Depends(db.get_client)):
+async def get_news_by_slug(
+    slug: str,
+    request: Request,
+    db_client: MongoClient = Depends(db.get_client)
+):
     """Get news by SEO-friendly slug - backward compatible with old Hindi slugs
     
     Handles multiple slug formats:
     1. New format: transliterated-title-shortid (e.g., bihar-election-2025-a1b2c3d4)
     2. Old format: hindi-title-fullid (with encoded Hindi chars)
     3. Direct ObjectId lookup
+    
+    Public users: Only published news
+    Authenticated users (admin/author): Can see unpublished news too
     """
+    # Check if user is authenticated (for preview of unpublished news)
+    auth_header = request.headers.get("Authorization", "")
+    is_authenticated = bool(auth_header.strip())
+    
     # Try to find by slug first (exact match)
-    doc = db_client[db.db_name][NEWS_COLL].find_one({"slug": slug, "published": True})
+    query = {"slug": slug}
+    if not is_authenticated:
+        query["published"] = True
+    
+    doc = db_client[db.db_name][NEWS_COLL].find_one(query)
     
     # If not found by slug, try to extract ID from slug
     if not doc:
@@ -1367,9 +1393,10 @@ async def get_news_by_slug(slug: str, db_client: MongoClient = Depends(db.get_cl
             
             # Try as short ID (last 8 chars) - search by matching suffix
             if len(potential_id) == 8:
-                # Find all published posts and check if any ID ends with this
+                # Find all posts (published or unpublished based on auth)
+                find_query = {} if is_authenticated else {"published": True}
                 cursor = db_client[db.db_name][NEWS_COLL].find(
-                    {"published": True},
+                    find_query,
                     {"_id": 1}
                 )
                 for candidate in cursor:
@@ -1377,11 +1404,15 @@ async def get_news_by_slug(slug: str, db_client: MongoClient = Depends(db.get_cl
                         doc = db_client[db.db_name][NEWS_COLL].find_one({"_id": candidate["_id"]})
                         break
             
-            # Try as full ObjectId
+            # Try as full ObjectId (backward compatibility)
             elif ObjectId.is_valid(potential_id):
                 doc = db_client[db.db_name][NEWS_COLL].find_one({"_id": ObjectId(potential_id)})
     
     if not doc:
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    # Additional check: if unpublished, ensure user is authenticated
+    if not doc.get("published", False) and not is_authenticated:
         raise HTTPException(status_code=404, detail="News not found")
     
     return _normalize_news(doc, db_client)
