@@ -56,12 +56,15 @@ def send_news_push_notification(
             "sub": vapid_config["subject"]
         }
         
-        # Send the notification
+        # Send the notification with TTL for mobile reliability
+        # TTL = 24 hours (86400 seconds) - notification stays valid for 1 day
+        # This helps with mobile devices that go offline or sleep
         webpush(
             subscription_info=subscription_info,
             data=json.dumps(notification_payload),
             vapid_private_key=vapid_config["private_key"],
             vapid_claims=vapid_claims,
+            ttl=86400,  # 24 hours - critical for mobile devices
             timeout=10,
         )
         
@@ -107,20 +110,25 @@ def broadcast_news_notification(
     Returns:
         Dict with statistics: total, successful, failed, expired_endpoints
     """
-    # Prepare notification payload
+    # Prepare notification payload with mobile optimization
     notification_payload = {
         "title": title,
         "body": body,
         "icon": icon or "https://gobarsahitimes.com/logo.png",
+        "badge": icon or "https://gobarsahitimes.com/logo.png",  # Small icon for notification bar
         "url": url,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "tag": f"news-{news_id}" if news_id else "news-notification",  # Group notifications
+        "requireInteraction": False,  # Don't force user to dismiss (better for mobile)
+        "vibrate": [200, 100, 200],  # Vibration pattern for mobile attention
+        "silent": False,  # Play notification sound
     }
     
     if image:
         notification_payload["image"] = image
     
     if news_id:
-        notification_payload["data"] = {"news_id": news_id}
+        notification_payload["data"] = {"news_id": news_id, "url": url}
     
     # Send to all subscriptions
     stats = {

@@ -681,6 +681,38 @@ You should see a browser notification appear!
 
 ---
 
+### 6. Mobile Testing (Critical!)
+
+**Android Chrome:**
+```
+1. Open https://gobarsahitimes.com in Chrome
+2. Subscribe to notifications (grant permission)
+3. Lock screen and wait 1 minute
+4. Send test notification (should appear even with screen off)
+5. Tap notification → should open article page
+```
+
+**iOS Safari (16.4+):**
+```
+1. Open https://gobarsahitimes.com in Safari
+2. Tap Share → Add to Home Screen → Add
+3. Open app from Home Screen (NOT Safari)
+4. Subscribe to notifications (grant permission)
+5. Close app (keep in background, don't force close)
+6. Send test notification → should appear
+7. Tap notification → should open app to article
+```
+
+**Test Scenarios:**
+- ✅ Screen locked → Notification appears
+- ✅ App in background → Notification appears
+- ✅ WiFi → Cellular switch → Notification appears (may be delayed)
+- ✅ Device offline → comes online → Notification appears (within 24h)
+- ❌ App force-closed → Notification WILL NOT appear (expected behavior)
+- ❌ iOS regular Safari (not home screen) → Notifications DON'T work (iOS limitation)
+
+---
+
 ## 🎨 Styling Customization
 
 ### Option 1: Tailwind CSS (Included)
@@ -774,6 +806,67 @@ const BellButton = styled.button<{ $isSubscribed: boolean }>`
 **Solution**:
 - Backend should already have CORS configured
 - If issues persist, check FastAPI CORS middleware allows `gobarsahitimes.com`
+
+---
+
+## 📱 Mobile-Specific Issues & Solutions
+
+### Issue: Notifications inconsistent on mobile
+**Root Causes:**
+1. **Battery Optimization**: Android/iOS kills background processes
+2. **Network Switching**: WiFi ↔ Cellular transition drops connection
+3. **Browser Force-Closed**: Service Worker stops when browser is killed
+4. **iOS Restrictions**: Only works on iOS 16.4+ with "Add to Home Screen"
+
+**Solutions:**
+- ✅ Backend now uses **TTL=24 hours** (notifications stay valid even if device is offline)
+- ✅ Vibration pattern added for mobile attention
+- ✅ Tag grouping prevents notification spam
+
+**User Instructions:**
+1. **Android Chrome**:
+   - Go to: Settings → Apps → Chrome → Battery → Unrestricted
+   - Enable: Settings → Notifications → Chrome → Allow notifications
+   
+2. **iOS Safari** (16.4+):
+   - Add website to Home Screen (Share → Add to Home Screen)
+   - Go to: Settings → Notifications → [App Name] → Allow Notifications
+   - Keep app in background (don't force close)
+
+3. **General**:
+   - Keep browser/app in background (don't swipe away)
+   - Disable battery saver mode during news hours
+   - Stay connected to network (WiFi or cellular)
+
+### Issue: iOS notifications not working at all
+**Solution**:
+- iOS requires **iOS 16.4+** and **iPadOS 16.4+**
+- Site must be added to Home Screen as PWA
+- Settings → [App Name] → Notifications must be enabled
+- **Note**: Regular Safari browsing does NOT support push notifications on iOS
+
+### Issue: Android notifications stop after screen off
+**Solution**:
+- Disable battery optimization for Chrome:
+  ```
+  Settings → Apps → Chrome → Battery → Unrestricted
+  ```
+- Or keep Chrome in "Recent Apps" (don't swipe away)
+- Some manufacturers (Xiaomi, Huawei) have aggressive battery savers - whitelist Chrome
+
+### Issue: Notifications delayed on mobile
+**Cause**: Device was offline when notification was sent
+**Solution**: 
+- Backend now retains notifications for 24 hours (TTL)
+- Notification will be delivered when device comes online
+- Check if "Background data" is enabled for Chrome
+
+### Issue: No sound/vibration on mobile
+**Solution**:
+- Check device notification settings (not browser settings)
+- Android: Settings → Notifications → Chrome → Sound ON
+- iOS: Settings → [App Name] → Sounds ON
+- Device may be on Silent/Do Not Disturb mode
 
 ---
 
