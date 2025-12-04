@@ -63,7 +63,7 @@ s3_client = boto3.client(
 PUBLIC_API_BASE = os.getenv("PUBLIC_API_BASE", "http://localhost:8000")
 ADMIN_API_TOKEN = os.getenv("ADMIN_API_TOKEN")
 # For canonical links in meta; defaults to gtnews18
-NEWS_BASE_URL = os.getenv("NEWS_BASE_URL", "https://gtnews18.in")
+NEWS_BASE_URL = os.getenv("NEWS_BASE_URL", "https://gobarsahitimes.com")
 
 
 # Hindi to Latin transliteration map for URL slugs
