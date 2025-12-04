@@ -5,10 +5,12 @@ Separate API endpoints for news reader push subscriptions
 Uses 'news_subscriptions' MongoDB collection (separate from other systems)
 """
 import logging
+import os
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, status
-from pymongo import MongoClient
+from pymongo import MongoClient, DESCENDING
 from datetime import datetime, timezone
 from typing import Optional, List
+from bson import ObjectId
 
 from database.db import db
 from services.news_push import (
@@ -26,16 +28,38 @@ from models.news_push import (
     NewsPushConfigResponse,
     NewsPushStatusResponse,
 )
+from models.user import User
+from routes.user import get_current_user
 
 logger = logging.getLogger(__name__)
 
 news_push_router = APIRouter(prefix="/news-push", tags=["News Push"])
+
+NEWS_BASE_URL = os.getenv("NEWS_BASE_URL", "https://gobarsahitimes.com")
 
 
 def get_news_subscriptions_collection(db_client: MongoClient = Depends(db.get_client)):
     """Get the news_subscriptions collection (separate collection)"""
     database = db_client[db.db_name]
     return database["news_subscriptions"]
+
+
+def get_current_admin_user(current_user: User = Depends(get_current_user)):
+    """Admin authentication - same as news.py"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized. Admin access required.")
+    return current_user
+
+
+def _extract_meta_description(content: str, max_length: int = 120) -> str:
+    """Extract plain text from HTML content for notification body"""
+    if not content:
+        return ""
+    # Simple HTML tag removal
+    import re
+    text = re.sub(r'<[^>]+>', '', content)
+    text = text.strip()
+    return text[:max_length] + "..." if len(text) > max_length else text
 
 
 # ==================== Public Endpoints ====================
@@ -310,6 +334,253 @@ async def send_news_push_test(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to send test notification"
+        )
+
+
+@news_push_router.get("/admin/subscriptions")
+async def admin_get_all_subscriptions(
+    current_admin: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+    page: int = 1,
+    limit: int = 50,
+    active_only: bool = True
+):
+    """
+    Admin endpoint: Get list of all subscribed devices with details
+    
+    Returns paginated list of subscriptions with:
+    - Device information (user agent, platform, browser)
+    - Subscription dates and activity
+    - Notification delivery statistics
+    - Subscription status (active/expired)
+    
+    Query Parameters:
+    - page: Page number (default: 1)
+    - limit: Results per page (default: 50, max: 200)
+    - active_only: Show only active subscriptions (default: true)
+    """
+    try:
+        collection = get_news_subscriptions_collection(db_client)
+        
+        # Validate and limit page size
+        limit = min(limit, 200)
+        skip = (page - 1) * limit
+        
+        # Build query filter
+        query = {"is_active": True} if active_only else {}
+        
+        # Get total count
+        total_count = collection.count_documents(query)
+        total_pages = (total_count + limit - 1) // limit  # Ceiling division
+        
+        # Get paginated subscriptions
+        subscriptions = list(
+            collection.find(query)
+            .sort("created_at", DESCENDING)
+            .skip(skip)
+            .limit(limit)
+        )
+        
+        # Format subscription data for admin view
+        subscription_list = []
+        for sub in subscriptions:
+            # Extract device info from metadata
+            metadata = sub.get("metadata", {})
+            user_agent = metadata.get("user_agent", "Unknown")
+            
+            # Parse browser and platform from user agent
+            browser = "Unknown"
+            platform = metadata.get("platform", "Unknown")
+            
+            if "Chrome" in user_agent:
+                browser = "Chrome"
+            elif "Firefox" in user_agent:
+                browser = "Firefox"
+            elif "Safari" in user_agent and "Chrome" not in user_agent:
+                browser = "Safari"
+            elif "Edge" in user_agent:
+                browser = "Edge"
+            
+            # Detect mobile vs desktop
+            device_type = "Desktop"
+            if any(mobile in user_agent for mobile in ["Mobile", "Android", "iPhone", "iPad"]):
+                device_type = "Mobile"
+            
+            subscription_list.append({
+                "id": str(sub["_id"]),
+                "endpoint": sub.get("endpoint", "")[:60] + "...",  # Truncate endpoint
+                "browser": browser,
+                "platform": platform,
+                "device_type": device_type,
+                "language": metadata.get("language", "Unknown"),
+                "subscribed_at": sub.get("created_at").isoformat() if sub.get("created_at") else None,
+                "last_notified_at": sub.get("last_notified_at").isoformat() if sub.get("last_notified_at") else None,
+                "notification_count": sub.get("notification_count", 0),
+                "is_active": sub.get("is_active", False),
+                "expired_at": sub.get("expired_at").isoformat() if sub.get("expired_at") else None,
+            })
+        
+        # Calculate statistics
+        total_active = collection.count_documents({"is_active": True})
+        total_inactive = collection.count_documents({"is_active": False})
+        
+        # Get browser breakdown
+        pipeline_browser = [
+            {"$match": {"is_active": True}},
+            {"$project": {
+                "browser": {
+                    "$cond": [
+                        {"$regexMatch": {"input": "$metadata.user_agent", "regex": "Chrome"}},
+                        "Chrome",
+                        {"$cond": [
+                            {"$regexMatch": {"input": "$metadata.user_agent", "regex": "Firefox"}},
+                            "Firefox",
+                            {"$cond": [
+                                {"$regexMatch": {"input": "$metadata.user_agent", "regex": "Safari"}},
+                                "Safari",
+                                "Other"
+                            ]}
+                        ]}
+                    ]
+                }
+            }},
+            {"$group": {"_id": "$browser", "count": {"$sum": 1}}},
+            {"$sort": {"count": -1}}
+        ]
+        
+        browser_stats = list(collection.aggregate(pipeline_browser))
+        browser_breakdown = {item["_id"]: item["count"] for item in browser_stats}
+        
+        # Get device type breakdown
+        pipeline_device = [
+            {"$match": {"is_active": True}},
+            {"$project": {
+                "device_type": {
+                    "$cond": [
+                        {"$regexMatch": {"input": "$metadata.user_agent", "regex": "Mobile|Android|iPhone|iPad"}},
+                        "Mobile",
+                        "Desktop"
+                    ]
+                }
+            }},
+            {"$group": {"_id": "$device_type", "count": {"$sum": 1}}}
+        ]
+        
+        device_stats = list(collection.aggregate(pipeline_device))
+        device_breakdown = {item["_id"]: item["count"] for item in device_stats}
+        
+        logger.info(f"[news-push] Admin {current_admin.username} viewed subscriptions page {page}")
+        
+        return {
+            "status": "success",
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total_count": total_count,
+                "total_pages": total_pages,
+                "has_next": page < total_pages,
+                "has_prev": page > 1
+            },
+            "statistics": {
+                "total_active": total_active,
+                "total_inactive": total_inactive,
+                "total_all": total_active + total_inactive,
+                "browser_breakdown": browser_breakdown,
+                "device_breakdown": device_breakdown
+            },
+            "subscriptions": subscription_list
+        }
+    
+    except Exception as e:
+        logger.error(f"[news-push] Error getting admin subscriptions: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve subscriptions: {str(e)}"
+        )
+
+
+@news_push_router.post("/admin/notify-latest", response_model=NewsPushBroadcastResponse)
+async def admin_notify_latest_news(
+    background_tasks: BackgroundTasks,
+    current_admin: User = Depends(get_current_admin_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """
+    Admin endpoint: Manually trigger notification for the latest published news
+    
+    Use this from admin dashboard when:
+    - Users report missing notifications
+    - Need to resend notification for important breaking news
+    - Testing notification delivery
+    
+    Sends notification for the most recent published news article.
+    """
+    try:
+        # Get latest published news
+        news_collection = db_client[db.db_name]["news"]
+        latest_news = news_collection.find_one(
+            {"published": True},
+            sort=[("created_at", DESCENDING)]
+        )
+        
+        if not latest_news:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No published news found to notify"
+            )
+        
+        # Get active subscriptions count
+        subscriptions_collection = get_news_subscriptions_collection(db_client)
+        active_count = subscriptions_collection.count_documents({"is_active": True})
+        
+        if active_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No active subscriptions found"
+            )
+        
+        # Prepare notification data
+        news_id = str(latest_news["_id"])
+        title = latest_news.get("title", "Latest News")
+        content = latest_news.get("content", "")
+        slug = latest_news.get("slug", news_id)
+        image_url = latest_news.get("image_url")
+        
+        # Generate notification body (summary)
+        body = _extract_meta_description(content, max_length=120)
+        
+        # Generate full URL
+        news_url = f"{NEWS_BASE_URL}/news/{slug}"
+        
+        # Queue broadcast in background
+        background_tasks.add_task(
+            broadcast_to_all_news_subscribers,
+            title=title,
+            body=body,
+            url=news_url,
+            image=image_url,
+            news_id=news_id,
+            db_client=db_client
+        )
+        
+        logger.info(f"[news-push] Admin {current_admin.username} triggered manual notification for news: {news_id}")
+        
+        return NewsPushBroadcastResponse(
+            status="queued",
+            message=f"Notification queued for latest news: {title[:50]}...",
+            total_subscribers=active_count,
+            news_id=news_id,
+            news_title=title,
+            news_url=news_url
+        )
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[news-push] Error in admin notify latest: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to queue notification: {str(e)}"
         )
 
 

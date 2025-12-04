@@ -63,11 +63,12 @@ class NewsPushStatsResponse(BaseModel):
 
 class NewsPushBroadcastResponse(BaseModel):
     """Response for broadcast notification"""
-    status: str = Field(..., description="Broadcast status")
-    total: int = Field(..., description="Total subscriptions attempted")
-    successful: int = Field(..., description="Successfully delivered")
-    failed: int = Field(..., description="Failed deliveries")
-    expired: int = Field(..., description="Expired subscriptions removed")
+    status: str = Field(..., description="Broadcast status (queued/sent)")
+    message: str = Field(..., description="Human-readable message")
+    total_subscribers: int = Field(..., description="Total active subscribers")
+    news_id: Optional[str] = Field(None, description="News article ID")
+    news_title: Optional[str] = Field(None, description="News article title")
+    news_url: Optional[str] = Field(None, description="Full news article URL")
 
 
 class NewsPushConfigResponse(BaseModel):
