@@ -102,6 +102,10 @@ jobs:
             echo "REDIS_HOST=${{ secrets.REDIS_HOST }}" >> /home/$USER/.env
             echo "REDIS_PORT=${{ secrets.REDIS_PORT }}" >> /home/$USER/.env
             echo "REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}" >> /home/$USER/.env
+            echo "NEWS_VAPID_PUBLIC_KEY=${{ secrets.NEWS_VAPID_PUBLIC_KEY }}" >> /home/$USER/.env
+            echo "NEWS_VAPID_PRIVATE_KEY=${{ secrets.NEWS_VAPID_PRIVATE_KEY }}" >> /home/$USER/.env
+            echo "NEWS_VAPID_SUBJECT=${{ secrets.NEWS_VAPID_SUBJECT }}" >> /home/$USER/.env
+            echo "NEWS_UI_BASE_URL=${{ secrets.NEWS_UI_BASE_URL }}" >> /home/$USER/.env
             echo "VAPID_PUBLIC_KEY=${{ secrets.VAPID_PUBLIC_KEY }}" >> /home/ubuntu/app.env
             echo "VAPID_PRIVATE_KEY=${{ secrets.VAPID_PRIVATE_KEY }}" >> /home/ubuntu/app.env
             echo "VAPID_SUBJECT=${{ secrets.VAPID_SUBJECT }}" >> /home/ubuntu/app.env
@@ -144,6 +148,18 @@ jobs:
           grep -q '^VAPID_SUBJECT=' /home/ubuntu/app.env && \
             sed -i 's|^VAPID_SUBJECT=.*|VAPID_SUBJECT=${{ secrets.VAPID_SUBJECT }}|' /home/ubuntu/app.env || \
             echo "VAPID_SUBJECT=${{ secrets.VAPID_SUBJECT }}" >> /home/ubuntu/app.env
+          grep -q '^NEWS_VAPID_PUBLIC_KEY=' /home/ubuntu/app.env && \
+            sed -i 's|^NEWS_VAPID_PUBLIC_KEY=.*|NEWS_VAPID_PUBLIC_KEY=${{ secrets.NEWS_VAPID_PUBLIC_KEY }}|' /home/ubuntu/app.env || \
+            echo "NEWS_VAPID_PUBLIC_KEY=${{ secrets.NEWS_VAPID_PUBLIC_KEY }}" >> /home/ubuntu/app.env
+          grep -q '^NEWS_VAPID_PRIVATE_KEY=' /home/ubuntu/app.env && \
+            sed -i 's|^NEWS_VAPID_PRIVATE_KEY=.*|NEWS_VAPID_PRIVATE_KEY=${{ secrets.NEWS_VAPID_PRIVATE_KEY }}|' /home/ubuntu/app.env || \
+            echo "NEWS_VAPID_PRIVATE_KEY=${{ secrets.NEWS_VAPID_PRIVATE_KEY }}" >> /home/ubuntu/app.env
+          grep -q '^NEWS_VAPID_SUBJECT=' /home/ubuntu/app.env && \
+            sed -i 's|^NEWS_VAPID_SUBJECT=.*|NEWS_VAPID_SUBJECT=${{ secrets.NEWS_VAPID_SUBJECT }}|' /home/ubuntu/app.env || \
+            echo "NEWS_VAPID_SUBJECT=${{ secrets.NEWS_VAPID_SUBJECT }}" >> /home/ubuntu/app.env
+          grep -q '^NEWS_UI_BASE_URL=' /home/ubuntu/app.env && \
+            sed -i 's|^NEWS_UI_BASE_URL=.*|NEWS_UI_BASE_URL=${{ secrets.NEWS_UI_BASE_URL }}|' /home/ubuntu/app.env || \
+            echo "NEWS_UI_BASE_URL=${{ secrets.NEWS_UI_BASE_URL }}" >> /home/ubuntu/app.env
 
           # Final run (your current container that stays up)
           docker run -d --name attendance-app -p 8000:8000 \

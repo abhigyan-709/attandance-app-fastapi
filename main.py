@@ -32,6 +32,7 @@ from routes.diagram_gen import diagram_router
 from routes.tutorials import tutorial_router
 from routes.news import news_router
 from routes.biodata import biodata_router
+from routes.news_push import news_push_router
 
 
 app = FastAPI(title="OpenSource Enterprise API",
@@ -96,6 +97,7 @@ app.include_router(tutorial_router, tags=["Tutorials"])        # /tutorials/*
 app.include_router(tutorial_router, prefix="/api", include_in_schema=False)  # /api/tutorials/*
 app.include_router(news_router)
 app.include_router(biodata_router, tags=["Biodata"])
+app.include_router(news_push_router, tags=["News Push"])
 
 if __name__ == "__main__":
     import uvicorn

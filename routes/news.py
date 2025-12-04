@@ -40,6 +40,12 @@ from routes.user import get_current_user
 
 from pydantic import BaseModel, Field
 
+# Import fresh news push notification system
+try:
+    from routes.news_push import broadcast_to_all_news_subscribers
+except ImportError:
+    broadcast_to_all_news_subscribers = None
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -258,6 +264,7 @@ def _process_scheduled_posts(db_client: MongoClient):
         })
         
         updated_count = 0
+        auto_published_posts = []
         for post in scheduled_posts:
             # Auto-publish the post
             coll.update_one(
@@ -265,12 +272,32 @@ def _process_scheduled_posts(db_client: MongoClient):
                 {
                     "$set": {
                         "published": True,
+                        "scheduled_publish": False,
                         "updated_at": datetime.utcnow()
                     }
                 }
             )
             updated_count += 1
+            auto_published_posts.append(post)
             logger.info(f"Auto-published scheduled post: {post['_id']}")
+        
+        # Send news push notifications for auto-published posts
+        if broadcast_to_all_news_subscribers and auto_published_posts:
+            for post in auto_published_posts:
+                try:
+                    news_url = f"{NEWS_BASE_URL}/news/{post.get('slug', str(post['_id']))}"
+                    summary_text = _extract_meta_description(post.get('content', ''), max_length=120)
+                    broadcast_to_all_news_subscribers(
+                        title=post.get('title', 'New News'),
+                        body=summary_text,
+                        url=news_url,
+                        image=post.get('image_url'),
+                        news_id=str(post['_id']),
+                        db_client=db_client
+                    )
+                    logger.info(f"[news-push] Sent notification for auto-published: {post['_id']}")
+                except Exception as notify_error:
+                    logger.error(f"[news-push] Failed to notify for auto-published: {notify_error}")
         
         return updated_count
     except Exception as e:
@@ -546,11 +573,26 @@ async def create_news(
     # Add SEO data to response
     news_data.update(seo_updates)
 
-    # 🔔 Notify subscribers (same notifier) only if published
+    # 🔔 Notify subscribers only if published
     if published and background_tasks is not None:
+        # Old notification system (blogs/FCM)
         slug = _slugify(title)
         canonical_url = f"{NEWS_BASE_URL}/n/{news_id}-{slug}"
         background_tasks.add_task(_notify_new_blog_async, title, canonical_url, image_url)
+        
+        # Fresh news push notification system
+        if broadcast_to_all_news_subscribers:
+            news_url = f"{NEWS_BASE_URL}/news/{custom_slug}"
+            summary_text = _extract_meta_description(content, max_length=120)
+            background_tasks.add_task(
+                broadcast_to_all_news_subscribers,
+                title=title,
+                body=summary_text,
+                url=news_url,
+                image=image_url,
+                news_id=news_id,
+            )
+            logger.info(f"[news-push] Queued notification for news: {news_id}")
 
     return news_data
 
