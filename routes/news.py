@@ -4,6 +4,7 @@ import os
 import re
 import uuid
 import logging
+import pytz
 from datetime import datetime, date, timedelta
 from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, EmailStr, Field
@@ -24,7 +25,7 @@ from fastapi import (
     Body,
 )
 from fastapi.responses import HTMLResponse
-from pymongo import MongoClient, DESCENDING
+from pymongo import MongoClient, DESCENDING, ASCENDING
 
 from database.db import db
 from models.news import (
@@ -197,6 +198,86 @@ def _should_force_published_only(request: Request, published_param: Optional[boo
     return not bool(auth)
 
 
+# ---------- IST Timezone & Scheduling Helpers ----------
+IST = pytz.timezone('Asia/Kolkata')
+
+def _parse_ist_datetime(datetime_str: str) -> datetime:
+    """Parse datetime string in IST and return UTC datetime for storage
+    
+    Expected format: YYYY-MM-DDTHH:MM (24-hour format)
+    Example: 2025-12-05T14:30
+    """
+    try:
+        # Parse the datetime string (assumes IST input)
+        naive_dt = datetime.strptime(datetime_str, "%Y-%m-%dT%H:%M")
+        
+        # Localize to IST
+        ist_dt = IST.localize(naive_dt)
+        
+        # Convert to UTC for storage
+        utc_dt = ist_dt.astimezone(pytz.UTC).replace(tzinfo=None)
+        
+        return utc_dt
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid datetime format. Expected: YYYY-MM-DDTHH:MM (24-hour IST). Error: {str(e)}"
+        )
+
+
+def _utc_to_ist(utc_dt: datetime) -> datetime:
+    """Convert UTC datetime to IST for display"""
+    if utc_dt is None:
+        return None
+    utc_dt = pytz.UTC.localize(utc_dt) if utc_dt.tzinfo is None else utc_dt
+    return utc_dt.astimezone(IST).replace(tzinfo=None)
+
+
+def _is_scheduled_post_ready(scheduled_at: datetime) -> bool:
+    """Check if a scheduled post should be published now (UTC comparison)"""
+    if scheduled_at is None:
+        return False
+    current_utc = datetime.utcnow()
+    return current_utc >= scheduled_at
+
+
+def _process_scheduled_posts(db_client: MongoClient):
+    """Background task to auto-publish scheduled posts that are due
+    
+    This should be called periodically or on each request
+    """
+    try:
+        coll = db_client[db.db_name][NEWS_COLL]
+        current_utc = datetime.utcnow()
+        
+        # Find scheduled posts that are ready to publish
+        scheduled_posts = coll.find({
+            "scheduled_publish": True,
+            "published": False,
+            "scheduled_at": {"$lte": current_utc}
+        })
+        
+        updated_count = 0
+        for post in scheduled_posts:
+            # Auto-publish the post
+            coll.update_one(
+                {"_id": post["_id"]},
+                {
+                    "$set": {
+                        "published": True,
+                        "updated_at": datetime.utcnow()
+                    }
+                }
+            )
+            updated_count += 1
+            logger.info(f"Auto-published scheduled post: {post['_id']}")
+        
+        return updated_count
+    except Exception as e:
+        logger.error(f"Error processing scheduled posts: {e}")
+        return 0
+
+
 NEWS_COLL = "news"
 NEWS_COMMENTS_COLL = "news_comments"  # separate from blogs "comments"
 
@@ -296,6 +377,8 @@ async def create_news(
     tags: List[str] = Form([]),
     published: bool = Form(True),
     custom_slug: str = Form(...),
+    scheduled_publish: bool = Form(False),
+    scheduled_at: Optional[str] = Form(None),
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
     current_user: User = Depends(get_current_author_or_admin_user),
@@ -349,6 +432,37 @@ async def create_news(
     # Check uniqueness
     _validate_slug_uniqueness(custom_slug, None, db_client)
 
+    # Validate scheduling logic
+    scheduled_at_utc = None
+    if scheduled_publish:
+        if not scheduled_at:
+            raise HTTPException(
+                status_code=400,
+                detail="scheduled_at is required when scheduled_publish is true. Provide datetime in format: YYYY-MM-DDTHH:MM (IST)"
+            )
+        
+        # Parse IST datetime and convert to UTC
+        scheduled_at_utc = _parse_ist_datetime(scheduled_at)
+        
+        # Validate: scheduled time must be in the future
+        current_utc = datetime.utcnow()
+        if scheduled_at_utc <= current_utc:
+            # Convert back to IST for user-friendly error message
+            current_ist = _utc_to_ist(current_utc)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Scheduled time must be in the future. Current IST time: {current_ist.strftime('%Y-%m-%d %H:%M')}"
+            )
+        
+        # When scheduling, auto-set published=False (will be auto-published at scheduled time)
+        published = False
+        logger.info(f"[create_news] Scheduling post for {scheduled_at} IST (UTC: {scheduled_at_utc})")
+    
+    # If not scheduling but scheduled_at provided, ignore it
+    if not scheduled_publish and scheduled_at:
+        logger.warning("[create_news] scheduled_at provided but scheduled_publish=False, ignoring scheduled_at")
+        scheduled_at_utc = None
+
     file_extension = (file.filename or "image").split(".")[-1]
     unique_filename = f"news/{uuid.uuid4()}.{file_extension}"
 
@@ -400,6 +514,8 @@ async def create_news(
         "categories": categories,
         "tags": tags,
         "published": published,
+        "scheduled_publish": scheduled_publish,
+        "scheduled_at": scheduled_at_utc,
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow(),
         "views": 0,
@@ -450,6 +566,9 @@ async def get_news(
     published: Optional[bool] = Query(default=None),
     db_client: MongoClient = Depends(db.get_client),
 ):
+    # Process scheduled posts before listing
+    _process_scheduled_posts(db_client)
+    
     query: Dict[str, Any] = {}
     if _should_force_published_only(request, published):
         query["published"] = True
@@ -457,6 +576,30 @@ async def get_news(
         query["published"] = published
 
     docs = list(db_client[db.db_name][NEWS_COLL].find(query).sort("created_at", DESCENDING))
+    return [_normalize_news(d, db_client) for d in docs]
+
+
+@news_router.get("/news/scheduled", response_model=List[NewsPost], tags=["News"])
+async def get_scheduled_news(
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """
+    Get all scheduled posts (admin/author only).
+    Returns posts with scheduled_publish=True, sorted by scheduled_at.
+    """
+    if current_user.role not in ["admin", "author"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Process scheduled posts first
+    _process_scheduled_posts(db_client)
+    
+    query = {
+        "scheduled_publish": True,
+        "published": False
+    }
+    
+    docs = list(db_client[db.db_name][NEWS_COLL].find(query).sort("scheduled_at", ASCENDING))
     return [_normalize_news(d, db_client) for d in docs]
 
 
@@ -497,6 +640,9 @@ async def get_news_by_category_and_tags(
     published: Optional[bool] = Query(default=None),
     db_client: MongoClient = Depends(db.get_client),
 ):
+    # Process scheduled posts before filtering
+    _process_scheduled_posts(db_client)
+    
     query: Dict[str, Any] = {}
     if category:
         query["categories"] = category
@@ -897,6 +1043,8 @@ async def update_news(
     categories: Optional[str] = Form(None),
     published: Optional[bool] = Form(None),
     custom_slug: Optional[str] = Form(None),
+    scheduled_publish: Optional[bool] = Form(None),
+    scheduled_at: Optional[str] = Form(None),
     # existing gallery items coming back from UI as JSON string
     existing_content_images: Optional[str] = Form(None),
     current_user: User = Depends(get_current_author_or_admin_user),
@@ -983,6 +1131,53 @@ async def update_news(
         update_doc["published"] = published
     if custom_slug is not None:
         update_doc["slug"] = custom_slug
+    
+    # Handle scheduling updates
+    if scheduled_publish is not None:
+        if scheduled_publish:
+            # Enabling scheduling
+            if not scheduled_at:
+                raise HTTPException(
+                    status_code=400,
+                    detail="scheduled_at is required when enabling scheduled_publish. Format: YYYY-MM-DDTHH:MM (IST)"
+                )
+            
+            # Parse and validate
+            scheduled_at_utc = _parse_ist_datetime(scheduled_at)
+            current_utc = datetime.utcnow()
+            
+            if scheduled_at_utc <= current_utc:
+                current_ist = _utc_to_ist(current_utc)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Scheduled time must be in the future. Current IST: {current_ist.strftime('%Y-%m-%d %H:%M')}"
+                )
+            
+            update_doc["scheduled_publish"] = True
+            update_doc["scheduled_at"] = scheduled_at_utc
+            # Auto-unpublish when scheduling
+            update_doc["published"] = False
+            logger.info(f"[update_news] Rescheduling post {news_id} for {scheduled_at} IST")
+        else:
+            # Disabling scheduling
+            update_doc["scheduled_publish"] = False
+            update_doc["scheduled_at"] = None
+            logger.info(f"[update_news] Removed scheduling for post {news_id}")
+    elif scheduled_at is not None:
+        # Only scheduled_at provided, check if post is already in scheduled mode
+        if existing.get("scheduled_publish", False):
+            scheduled_at_utc = _parse_ist_datetime(scheduled_at)
+            current_utc = datetime.utcnow()
+            
+            if scheduled_at_utc <= current_utc:
+                current_ist = _utc_to_ist(current_utc)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Scheduled time must be in the future. Current IST: {current_ist.strftime('%Y-%m-%d %H:%M')}"
+                )
+            
+            update_doc["scheduled_at"] = scheduled_at_utc
+            logger.info(f"[update_news] Updated schedule time for post {news_id} to {scheduled_at} IST")
 
     # --- handle gallery: existing + new uploads ---
     merged_gallery: List[Dict[str, Optional[str]]] = []

@@ -37,6 +37,8 @@ class NewsPost(BaseModel):
     tags: List[str] = Field(default_factory=list)          # ✅ safe default
     content_images: List[NewsContentImage] = Field(default_factory=list)
     published: bool = False                                # ✅ draft/publish flag
+    scheduled_publish: bool = False                        # ✅ is this a scheduled post
+    scheduled_at: Optional[datetime] = None                # ✅ IST scheduled publish time
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
     comments: Optional[List[Comment]] = Field(default_factory=list)
