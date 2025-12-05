@@ -726,6 +726,15 @@ async def create_job(
         # Prepare document
         now = datetime.now(timezone.utc)
         job_dict = job.dict()
+        
+        # Convert date objects to datetime for MongoDB
+        date_fields = ["notification_date", "application_begin_date", "application_end_date",
+                       "last_date_fee_payment", "exam_date", "admit_card_date", "result_date"]
+        for field in date_fields:
+            if field in job_dict and job_dict[field] is not None:
+                if isinstance(job_dict[field], date) and not isinstance(job_dict[field], datetime):
+                    job_dict[field] = datetime.combine(job_dict[field], datetime.min.time()).replace(tzinfo=timezone.utc)
+        
         job_dict.update({
             "is_new": True,  # New jobs always marked as new
             "views_count": 0,
@@ -1001,6 +1010,15 @@ async def bulk_create_jobs(
                 
                 # Prepare document
                 job_dict = job.dict()
+                
+                # Convert date objects to datetime for MongoDB
+                date_fields = ["notification_date", "application_begin_date", "application_end_date",
+                               "last_date_fee_payment", "exam_date", "admit_card_date", "result_date"]
+                for field in date_fields:
+                    if field in job_dict and job_dict[field] is not None:
+                        if isinstance(job_dict[field], date) and not isinstance(job_dict[field], datetime):
+                            job_dict[field] = datetime.combine(job_dict[field], datetime.min.time()).replace(tzinfo=timezone.utc)
+                
                 job_dict.update({
                     "is_new": True,
                     "views_count": 0,
