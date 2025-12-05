@@ -329,70 +329,152 @@ ADMIN_CC = ["projectdevops709@gmail.com", "sup.fou.958@gmail.com"]
 # -------------------------
 # Registration (VoloBlink)
 # -------------------------
+# async def send_registration_email(email: str, first_name: str, last_name: str):
+#     subject = "Welcome to VoloBlink – Your Account is Ready!"
+
+#     body = f"""
+#     <html>
+#       <body style="margin:0;padding:0;background:#FFF8E1;font-family:Arial,sans-serif;color:#2f2f2f;">
+#         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#FFF8E1;padding:24px 0;">
+#           <tr>
+#             <td align="center">
+#               <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background:#ffffff;border:1px solid #e9e9e9;border-radius:12px;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,0.06);">
+#                 <tr>
+#                   <td style="background:#00695C;padding:20px 24px;text-align:center;">
+#                     <div style="font-size:22px;line-height:1.2;color:#ffffff;font-weight:bold;">VoloBlink</div>
+#                     <div style="font-size:12px;color:#D0F2EB;opacity:.9;margin-top:4px;">Vocal for Local</div>
+#                   </td>
+#                 </tr>
+#                 <tr>
+#                   <td style="padding:24px 24px 8px 24px;">
+#                     <h2 style="margin:0 0 8px 0;color:#1A237E;font-size:20px;">Dear {first_name} {last_name},</h2>
+#                     <p style="margin:0;color:#424242;font-size:14px;line-height:1.7;">
+#                       Congratulations! 🎉 Your account has been successfully registered in the
+#                       <b>VoloBlink (Vocal for Local)</b> app.
+#                     </p>
+#                   </td>
+#                 </tr>
+#                 <tr>
+#                   <td style="padding:16px 24px 0 24px;">
+#                     <p style="margin:0;color:#424242;font-size:14px;line-height:1.7;">
+#                       You can now log in to the application using your <b>username</b> and <b>password</b>.
+#                     </p>
+#                     <p style="margin:12px 0 0 0;color:#424242;font-size:14px;line-height:1.7;">
+#                       Explore authentic local products, connect with vendors, and enjoy the <b>Vocal for Local</b> experience with VoloBlink.
+#                     </p>
+#                   </td>
+#                 </tr>
+#                 <tr>
+#                   <td style="padding:20px 24px;text-align:center;">
+#                     <a href="https://www.projectdevops.in"
+#                        style="display:inline-block;background:#FF6F61;color:#ffffff;text-decoration:none;
+#                               padding:12px 20px;border-radius:8px;font-weight:bold;">
+#                       Login to VoloBlink
+#                     </a>
+#                   </td>
+#                 </tr>
+#                 <tr>
+#                   <td style="padding:24px;">
+#                     <div style="border-top:1px solid #eeeeee;margin:0 0 16px 0;"></div>
+#                     <h3 style="margin:0 0 8px 0;color:#1A237E;font-size:16px;">Need help?</h3>
+#                     <p style="margin:0;color:#424242;font-size:14px;line-height:1.8;">
+#                       <b>📧 Email:</b> connect@projectdevops.in<br/>
+#                       <b>📞 Phone:</b> +91 9135610801<br/>
+#                       <b>🌐 Website:</b> <a href="https://www.projectdevops.in" style="color:#00695C;text-decoration:none;">www.projectdevops.in</a>
+#                     </p>
+#                   </td>
+#                 </tr>
+#                 <tr>
+#                   <td style="background:#F8FFFC;padding:16px 24px;text-align:center;border-top:1px solid #e9f3f0;">
+#                     <p style="margin:0;color:#2e7d73;font-weight:bold;">Welcome to the VoloBlink family!</p>
+#                     <p style="margin:4px 0 0 0;color:#00695C;font-weight:bold;">— The VoloBlink Team</p>
+#                   </td>
+#                 </tr>
+#               </table>
+#               <div style="max-width:600px;color:#888888;font-size:11px;margin:12px auto 0 auto;text-align:center;">
+#                 You received this email because you registered for a VoloBlink account. If this wasn’t you, please ignore this email.
+#               </div>
+#             </td>
+#           </tr>
+#         </table>
+#       </body>
+#     </html>
+#     """
+
+#     message = MessageSchema(
+#         subject=subject,
+#         recipients=[email],
+#         cc=["projectdevops709@gmail.com"],  # keep your original CC for registration
+#         body=body,
+#         subtype="html",
+#     )
+#     fm = FastMail(conf)
+#     await fm.send_message(message)
+
 async def send_registration_email(email: str, first_name: str, last_name: str):
-    subject = "Welcome to VoloBlink – Your Account is Ready!"
+    subject = "Welcome to Gobarsahi Times – Your Account is Ready!"
 
     body = f"""
     <html>
-      <body style="margin:0;padding:0;background:#FFF8E1;font-family:Arial,sans-serif;color:#2f2f2f;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#FFF8E1;padding:24px 0;">
+      <body style="margin:0;padding:0;background:#0f172a;font-family:Arial,sans-serif;color:#e2e8f0;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#0f172a;padding:24px 0;">
           <tr>
             <td align="center">
-              <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background:#ffffff;border:1px solid #e9e9e9;border-radius:12px;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,0.06);">
+              <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background:#1e293b;border:1px solid #334155;border-radius:12px;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,0.3);">
                 <tr>
-                  <td style="background:#00695C;padding:20px 24px;text-align:center;">
-                    <div style="font-size:22px;line-height:1.2;color:#ffffff;font-weight:bold;">VoloBlink</div>
-                    <div style="font-size:12px;color:#D0F2EB;opacity:.9;margin-top:4px;">Vocal for Local</div>
+                  <td style="background:linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);padding:20px 24px;text-align:center;">
+                    <div style="font-size:24px;line-height:1.2;color:#ffffff;font-weight:bold;">📰 Gobarsahi Times</div>
+                    <div style="font-size:12px;color:#bfdbfe;opacity:.95;margin-top:4px;">Muzaffarpur's Premier News Source</div>
                   </td>
                 </tr>
                 <tr>
                   <td style="padding:24px 24px 8px 24px;">
-                    <h2 style="margin:0 0 8px 0;color:#1A237E;font-size:20px;">Dear {first_name} {last_name},</h2>
-                    <p style="margin:0;color:#424242;font-size:14px;line-height:1.7;">
-                      Congratulations! 🎉 Your account has been successfully registered in the
-                      <b>VoloBlink (Vocal for Local)</b> app.
+                    <h2 style="margin:0 0 8px 0;color:#60a5fa;font-size:20px;">Dear {first_name} {last_name},</h2>
+                    <p style="margin:0;color:#cbd5e1;font-size:14px;line-height:1.7;">
+                      Congratulations! 🎉 Your account has been successfully registered with
+                      <b style="color:#60a5fa;">Gobarsahi Times</b>.
                     </p>
                   </td>
                 </tr>
                 <tr>
                   <td style="padding:16px 24px 0 24px;">
-                    <p style="margin:0;color:#424242;font-size:14px;line-height:1.7;">
-                      You can now log in to the application using your <b>username</b> and <b>password</b>.
+                    <p style="margin:0;color:#cbd5e1;font-size:14px;line-height:1.7;">
+                      You can now log in to access your personalized news experience using your <b style="color:#60a5fa;">username</b> and <b style="color:#60a5fa;">password</b>.
                     </p>
-                    <p style="margin:12px 0 0 0;color:#424242;font-size:14px;line-height:1.7;">
-                      Explore authentic local products, connect with vendors, and enjoy the <b>Vocal for Local</b> experience with VoloBlink.
+                    <p style="margin:12px 0 0 0;color:#cbd5e1;font-size:14px;line-height:1.7;">
+                      Stay updated with the latest news from <b style="color:#60a5fa;">Bihar, Muzaffarpur</b>, and surrounding areas. Get breaking news alerts and personalized content delivered right to you.
                     </p>
                   </td>
                 </tr>
                 <tr>
                   <td style="padding:20px 24px;text-align:center;">
-                    <a href="https://www.projectdevops.in"
-                       style="display:inline-block;background:#FF6F61;color:#ffffff;text-decoration:none;
-                              padding:12px 20px;border-radius:8px;font-weight:bold;">
-                      Login to VoloBlink
+                    <a href="https://gtnews18.in/login"
+                       style="display:inline-block;background:linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);color:#ffffff;text-decoration:none;
+                              padding:12px 24px;border-radius:24px;font-weight:bold;box-shadow:0 4px 12px rgba(29,78,216,0.4);">
+                      Login to Gobarsahi Times
                     </a>
                   </td>
                 </tr>
                 <tr>
                   <td style="padding:24px;">
-                    <div style="border-top:1px solid #eeeeee;margin:0 0 16px 0;"></div>
-                    <h3 style="margin:0 0 8px 0;color:#1A237E;font-size:16px;">Need help?</h3>
-                    <p style="margin:0;color:#424242;font-size:14px;line-height:1.8;">
-                      <b>📧 Email:</b> connect@projectdevops.in<br/>
-                      <b>📞 Phone:</b> +91 9135610801<br/>
-                      <b>🌐 Website:</b> <a href="https://www.projectdevops.in" style="color:#00695C;text-decoration:none;">www.projectdevops.in</a>
+                    <div style="border-top:1px solid #334155;margin:0 0 16px 0;"></div>
+                    <h3 style="margin:0 0 8px 0;color:#60a5fa;font-size:16px;">Need help?</h3>
+                    <p style="margin:0;color:#cbd5e1;font-size:14px;line-height:1.8;">
+                      <b style="color:#60a5fa;">📧 Email:</b> connect@projectdevops.in<br/>
+                      <b style="color:#60a5fa;">📞 Phone:</b> +91 9135610801<br/>
+                      <b style="color:#60a5fa;">🌐 Website:</b> <a href="https://gtnews18.in" style="color:#60a5fa;text-decoration:none;">gtnews18.in</a>
                     </p>
                   </td>
                 </tr>
                 <tr>
-                  <td style="background:#F8FFFC;padding:16px 24px;text-align:center;border-top:1px solid #e9f3f0;">
-                    <p style="margin:0;color:#2e7d73;font-weight:bold;">Welcome to the VoloBlink family!</p>
-                    <p style="margin:4px 0 0 0;color:#00695C;font-weight:bold;">— The VoloBlink Team</p>
+                  <td style="background:#1e3a8a;padding:16px 24px;text-align:center;border-top:1px solid #334155;">
+                    <p style="margin:0;color:#bfdbfe;font-weight:bold;">Welcome to the Gobarsahi Times family!</p>
+                    <p style="margin:4px 0 0 0;color:#60a5fa;font-weight:bold;">— The Gobarsahi Times Team</p>
                   </td>
                 </tr>
               </table>
-              <div style="max-width:600px;color:#888888;font-size:11px;margin:12px auto 0 auto;text-align:center;">
-                You received this email because you registered for a VoloBlink account. If this wasn’t you, please ignore this email.
+              <div style="max-width:600px;color:#64748b;font-size:11px;margin:12px auto 0 auto;text-align:center;">
+                You received this email because you registered for a Gobarsahi Times account. If this wasn't you, please ignore this email.
               </div>
             </td>
           </tr>
