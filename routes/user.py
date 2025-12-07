@@ -9,7 +9,7 @@ from passlib.context import CryptContext
 from database.db import db
 from models.user import User, UserProfileUpdate
 from models.token import Token
-from typing import Union, List
+from typing import Union, List, Optional
 import secrets
 from bson import ObjectId
 from fastapi.responses import JSONResponse
@@ -411,7 +411,7 @@ async def update_user_role(
         )
 
     # Validate role
-    valid_roles = ["user", "admin", "author", "vendor"]
+    valid_roles = ["user", "admin", "author", "vendor", "moderator"]
     if new_role not in valid_roles:
         raise HTTPException(
             status_code=400,
@@ -1091,3 +1091,263 @@ async def migrate_users(current_user: User = Depends(get_current_user), db_clien
         migrated_count += 1
 
     return {"message": f"Migration completed. {migrated_count} users migrated successfully!"}
+
+
+# ==================== AUTHOR & MODERATOR MANAGEMENT ====================
+
+@route2.get("/authors", tags=["Author Management"])
+async def get_all_authors(db_client: MongoClient = Depends(db.get_client)):
+    """Get all users with author role (public endpoint)"""
+    users_collection = db_client[db.db_name]["user"]
+    
+    authors = list(users_collection.find(
+        {"role": "author", "is_active": True},
+        {"password": 0}  # Exclude password from results
+    ))
+    
+    # Format author information
+    author_list = []
+    for author in authors:
+        author_info = {
+            "username": author["username"],
+            "full_name": f"{author.get('first_name', '')} {author.get('last_name', '')}".strip(),
+            "author_bio": author.get("author_bio"),
+            "author_profile_image": author.get("author_profile_image"),
+            "author_designation": author.get("author_designation"),
+            "author_social_links": author.get("author_social_links"),
+            "articles_count": author.get("articles_count", 0)
+        }
+        author_list.append(author_info)
+    
+    return author_list
+
+
+@route2.get("/authors/{username}", tags=["Author Management"])
+async def get_author_profile(username: str, db_client: MongoClient = Depends(db.get_client)):
+    """Get specific author profile (public endpoint)"""
+    users_collection = db_client[db.db_name]["user"]
+    
+    author = users_collection.find_one(
+        {"username": username, "role": "author", "is_active": True},
+        {"password": 0}
+    )
+    
+    if not author:
+        raise HTTPException(
+            status_code=404,
+            detail="Author not found"
+        )
+    
+    # Get article count from news collection
+    news_collection = db_client[db.db_name]["news"]
+    article_count = news_collection.count_documents({"author_username": username, "published": True})
+    
+    return {
+        "username": author["username"],
+        "full_name": f"{author.get('first_name', '')} {author.get('last_name', '')}".strip(),
+        "email": author.get("email"),
+        "city": author.get("city"),
+        "author_bio": author.get("author_bio"),
+        "author_profile_image": author.get("author_profile_image"),
+        "author_designation": author.get("author_designation"),
+        "author_social_links": author.get("author_social_links"),
+        "articles_count": article_count,
+        "created_at": author.get("created_at")
+    }
+
+
+@route2.patch("/authors/{username}/profile", tags=["Author Management"])
+async def update_author_profile(
+    username: str,
+    author_bio: Optional[str] = None,
+    author_designation: Optional[str] = None,
+    author_social_links: Optional[dict] = None,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """Update author profile information (author themselves or admin)"""
+    # Check permissions: must be the author themselves or an admin
+    if current_user.username != username and current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to update this author profile"
+        )
+    
+    users_collection = db_client[db.db_name]["user"]
+    
+    # Verify user is an author
+    author = users_collection.find_one({"username": username})
+    if not author:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if author["role"] != "author":
+        raise HTTPException(
+            status_code=400,
+            detail="User is not an author"
+        )
+    
+    # Build update dictionary
+    update_data = {"updated_at": datetime.utcnow()}
+    if author_bio is not None:
+        update_data["author_bio"] = author_bio
+    if author_designation is not None:
+        update_data["author_designation"] = author_designation
+    if author_social_links is not None:
+        update_data["author_social_links"] = author_social_links
+    
+    # Update author profile
+    result = users_collection.update_one(
+        {"username": username},
+        {"$set": update_data}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=400, detail="Failed to update author profile")
+    
+    return JSONResponse(
+        content={"message": "Author profile updated successfully"},
+        status_code=200
+    )
+
+
+@route2.post("/authors/{username}/upload-profile-image", tags=["Author Management"])
+async def upload_author_profile_image(
+    username: str,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """Upload author profile image (author themselves or admin)"""
+    # Check permissions
+    if current_user.username != username and current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="You do not have permission to update this author profile image"
+        )
+    
+    users_collection = db_client[db.db_name]["user"]
+    
+    # Verify user is an author
+    author = users_collection.find_one({"username": username})
+    if not author or author["role"] != "author":
+        raise HTTPException(
+            status_code=404,
+            detail="Author not found"
+        )
+    
+    # Validate file type
+    allowed_types = ["image/jpeg", "image/png", "image/jpg", "image/webp"]
+    if file.content_type not in allowed_types:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid file type. Only JPEG, PNG, and WebP images are allowed"
+        )
+    
+    try:
+        # Read file content
+        file_content = await file.read()
+        
+        # Generate unique filename
+        file_extension = file.filename.split(".")[-1]
+        unique_filename = f"authors/{username}_profile_{uuid.uuid4()}.{file_extension}"
+        
+        # Upload to S3
+        s3_client.put_object(
+            Bucket=AWS_BUCKET_NAME,
+            Key=unique_filename,
+            Body=file_content,
+            ContentType=file.content_type
+        )
+        
+        # Generate public URL
+        image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"
+        
+        # Update user profile
+        users_collection.update_one(
+            {"username": username},
+            {
+                "$set": {
+                    "author_profile_image": image_url,
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+        
+        return {
+            "message": "Author profile image uploaded successfully",
+            "image_url": image_url
+        }
+        
+    except ClientError as e:
+        logger.error(f"S3 upload error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to upload image")
+    except Exception as e:
+        logger.error(f"Unexpected error: {e}")
+        raise HTTPException(status_code=500, detail="An unexpected error occurred")
+
+
+@route2.get("/moderators", tags=["Moderator Management"])
+async def get_all_moderators(
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """Get all users with moderator role (admin only)"""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can view moderators"
+        )
+    
+    users_collection = db_client[db.db_name]["user"]
+    
+    moderators = list(users_collection.find(
+        {"role": "moderator"},
+        {"password": 0}
+    ))
+    
+    # Format moderator information
+    moderator_list = []
+    for mod in moderators:
+        mod["_id"] = str(mod["_id"])
+        moderator_list.append(mod)
+    
+    return moderator_list
+
+
+@route2.get("/users/by-role/{role}", tags=["User Management"])
+async def get_users_by_role(
+    role: str,
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """Get all users with specific role (admin only)"""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail="Only admins can view users by role"
+        )
+    
+    # Validate role
+    valid_roles = ["user", "admin", "author", "vendor", "moderator"]
+    if role not in valid_roles:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid role. Must be one of: {', '.join(valid_roles)}"
+        )
+    
+    users_collection = db_client[db.db_name]["user"]
+    
+    users = list(users_collection.find(
+        {"role": role},
+        {"password": 0}
+    ))
+    
+    # Format user information
+    for user in users:
+        user["_id"] = str(user["_id"])
+    
+    return {
+        "role": role,
+        "count": len(users),
+        "users": users
+    }

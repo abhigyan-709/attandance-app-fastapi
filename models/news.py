@@ -27,12 +27,36 @@ class NewsContentImage(BaseModel):
     caption: Optional[str] = None
 
 
+class AuthorDetails(BaseModel):
+    """Embedded author information in news posts"""
+    username: str
+    full_name: str
+    author_profile_image: Optional[str] = None
+    author_designation: Optional[str] = None
+    author_bio: Optional[str] = None
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "username": "rahul_kumar",
+                "full_name": "Rahul Kumar",
+                "author_profile_image": "https://example.com/profile.jpg",
+                "author_designation": "Senior Editor",
+                "author_bio": "Senior journalist with 10 years of experience"
+            }
+        }
+
+
 class NewsPost(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
     title: str
     image_url: Optional[str] = None
     content: str
-    author_username: str
+    author_username: str  # Primary author username (for backward compatibility)
+    
+    # Enhanced author information
+    author_details: Optional[AuthorDetails] = None  # Full author profile
+    
     categories: str
     tags: List[str] = Field(default_factory=list)          # ✅ safe default
     content_images: List[NewsContentImage] = Field(default_factory=list)

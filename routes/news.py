@@ -309,8 +309,48 @@ NEWS_COLL = "news"
 NEWS_COMMENTS_COLL = "news_comments"  # separate from blogs "comments"
 
 
+def _get_author_details(username: str, db_client: MongoClient) -> Optional[Dict[str, Any]]:
+    """
+    Fetch author details from user collection
+    Returns author profile information or None if not found
+    """
+    try:
+        users_collection = db_client[db.db_name]["user"]
+        author = users_collection.find_one(
+            {"username": username},
+            {
+                "password": 0,  # Exclude password
+                "email": 0      # Exclude email for privacy
+            }
+        )
+        
+        if not author:
+            return None
+        
+        # Build author details object
+        author_details = {
+            "username": username,
+            "full_name": f"{author.get('first_name', '')} {author.get('last_name', '')}".strip(),
+            "author_profile_image": author.get("author_profile_image"),
+            "author_designation": author.get("author_designation"),
+            "author_bio": author.get("author_bio")
+        }
+        
+        return author_details
+    except Exception as e:
+        logger.error(f"Error fetching author details for {username}: {e}")
+        return None
+
+
 def _normalize_news(doc: Dict[str, Any], db_client: MongoClient) -> Dict[str, Any]:
     doc["_id"] = str(doc["_id"])
+    
+    # Fetch and embed author details if not already present
+    if not doc.get("author_details") and doc.get("author_username"):
+        author_details = _get_author_details(doc["author_username"], db_client)
+        if author_details:
+            doc["author_details"] = author_details
+    
     # attach comments by news_id (string id)
     comments = list(
         db_client[db.db_name][NEWS_COMMENTS_COLL].find({"news_id": doc["_id"]}).sort("created_at", DESCENDING)
@@ -406,6 +446,7 @@ async def create_news(
     custom_slug: str = Form(...),
     scheduled_publish: bool = Form(False),
     scheduled_at: Optional[str] = Form(None),
+    author_username: Optional[str] = Form(None),  # Admin can override author
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
     current_user: User = Depends(get_current_author_or_admin_user),
@@ -533,11 +574,43 @@ async def create_news(
                     caption = stripped_caption if stripped_caption else None
             gallery_entries.append({"url": gallery_url, "caption": caption})
 
+    # Determine the author (admin can override)
+    selected_author = current_user.username
+    
+    if author_username and author_username.strip():
+        # Admin or moderator can assign to different author
+        if current_user.role in ["admin", "moderator"]:
+            # Verify the selected author exists and is an author/admin
+            users_collection = db_client[db.db_name]["user"]
+            target_author = users_collection.find_one({"username": author_username.strip()})
+            
+            if not target_author:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Author '{author_username}' not found"
+                )
+            
+            if target_author["role"] not in ["author", "admin"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"User '{author_username}' is not an author. Current role: {target_author['role']}"
+                )
+            
+            selected_author = author_username.strip()
+            logger.info(f"[create_news] Admin/Moderator {current_user.username} assigned article to author: {selected_author}")
+        else:
+            # Non-admin cannot override author
+            logger.warning(f"[create_news] User {current_user.username} attempted to override author (not allowed)")
+    
+    # Fetch author details to embed in the news post
+    author_details = _get_author_details(selected_author, db_client)
+    
     news_data = {
         "title": title,
         "image_url": image_url,
         "content": content,
-        "author_username": current_user.username,
+        "author_username": selected_author,
+        "author_details": author_details,  # Embed full author profile
         "categories": categories,
         "tags": tags,
         "published": published,
@@ -572,6 +645,13 @@ async def create_news(
     
     # Add SEO data to response
     news_data.update(seo_updates)
+    
+    # Update author's article count if published
+    if published:
+        db_client[db.db_name]["user"].update_one(
+            {"username": selected_author},
+            {"$inc": {"articles_count": 1}}
+        )
 
     # 🔔 Notify subscribers only if published
     if published and background_tasks is not None:
@@ -1087,6 +1167,7 @@ async def update_news(
     custom_slug: Optional[str] = Form(None),
     scheduled_publish: Optional[bool] = Form(None),
     scheduled_at: Optional[str] = Form(None),
+    author_username: Optional[str] = Form(None),  # Admin can change author
     # existing gallery items coming back from UI as JSON string
     existing_content_images: Optional[str] = Form(None),
     current_user: User = Depends(get_current_author_or_admin_user),
@@ -1173,6 +1254,52 @@ async def update_news(
         update_doc["published"] = published
     if custom_slug is not None:
         update_doc["slug"] = custom_slug
+    
+    # Handle author change (admin/moderator only)
+    if author_username and author_username.strip():
+        if current_user.role in ["admin", "moderator"]:
+            # Verify the selected author exists and has appropriate role
+            users_collection = db_client[db.db_name]["user"]
+            target_author = users_collection.find_one({"username": author_username.strip()})
+            
+            if not target_author:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Author '{author_username}' not found"
+                )
+            
+            if target_author["role"] not in ["author", "admin"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"User '{author_username}' is not an author. Current role: {target_author['role']}"
+                )
+            
+            old_author = existing.get("author_username")
+            new_author = author_username.strip()
+            
+            # Update author username and details
+            update_doc["author_username"] = new_author
+            author_details = _get_author_details(new_author, db_client)
+            if author_details:
+                update_doc["author_details"] = author_details
+            
+            # Update article counts if published
+            if existing.get("published", False):
+                # Decrement old author's count
+                if old_author:
+                    users_collection.update_one(
+                        {"username": old_author},
+                        {"$inc": {"articles_count": -1}}
+                    )
+                # Increment new author's count
+                users_collection.update_one(
+                    {"username": new_author},
+                    {"$inc": {"articles_count": 1}}
+                )
+            
+            logger.info(f"[update_news] Admin/Moderator {current_user.username} changed author from {old_author} to {new_author}")
+        else:
+            logger.warning(f"[update_news] User {current_user.username} attempted to change author (not allowed)")
     
     # Handle scheduling updates
     if scheduled_publish is not None:
