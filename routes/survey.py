@@ -7,7 +7,7 @@ from bson import ObjectId
 from models.survey import SurveyForm, SurveyResponse
 from models.user import User
 from routes.user import get_current_user
-import database.db as db
+from database.db import db
 
 router = APIRouter()
 
@@ -20,7 +20,7 @@ async def submit_survey(
     """
     Submit a new survey form (public endpoint - no authentication required)
     """
-    database = db_client["testdb"]
+    database = db_client[db.db_name]
     survey_collection = database["surveys"]
     
     # Convert survey to dict and add timestamp
@@ -52,7 +52,7 @@ async def get_all_surveys(
             detail="Only admins can view all surveys"
         )
     
-    database = db_client["testdb"]
+    database = db_client[db.db_name]
     survey_collection = database["surveys"]
     
     # Retrieve all surveys
@@ -85,7 +85,7 @@ async def get_survey_by_id(
             detail="Only admins can view surveys"
         )
     
-    database = db_client["testdb"]
+    database = db_client[db.db_name]
     survey_collection = database["surveys"]
     
     # Validate ObjectId
@@ -127,7 +127,7 @@ async def delete_survey(
             detail="Only admins can delete surveys"
         )
     
-    database = db_client["testdb"]
+    database = db_client[db.db_name]
     survey_collection = database["surveys"]
     
     # Validate ObjectId
@@ -166,7 +166,7 @@ async def get_survey_stats(
             detail="Only admins can view survey statistics"
         )
     
-    database = db_client["testdb"]
+    database = db_client[db.db_name]
     survey_collection = database["surveys"]
     
     # Get total count
