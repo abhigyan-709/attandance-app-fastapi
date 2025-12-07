@@ -33,6 +33,7 @@ from routes.tutorials import tutorial_router
 from routes.news import news_router
 from routes.news_push import news_push_router
 from routes.govt_jobs import govt_jobs_router
+from routes.survey import router as survey_router
 
 
 app = FastAPI(title="OpenSource Enterprise API",
@@ -98,6 +99,7 @@ app.include_router(tutorial_router, prefix="/api", include_in_schema=False)  # /
 app.include_router(news_router)
 app.include_router(news_push_router, tags=["News Push"])
 app.include_router(govt_jobs_router, tags=["Government Jobs"])
+app.include_router(survey_router, prefix="/api", tags=["Survey"])
 
 if __name__ == "__main__":
     import uvicorn
