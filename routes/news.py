@@ -267,19 +267,22 @@ def _process_scheduled_posts(db_client: MongoClient):
         auto_published_posts = []
         for post in scheduled_posts:
             # Auto-publish the post
+            # IMPORTANT: Update created_at to scheduled_at so post appears as latest
+            scheduled_time = post.get("scheduled_at", datetime.utcnow())
             coll.update_one(
                 {"_id": post["_id"]},
                 {
                     "$set": {
                         "published": True,
                         "scheduled_publish": False,
+                        "created_at": scheduled_time,  # Update to scheduled time
                         "updated_at": datetime.utcnow()
                     }
                 }
             )
             updated_count += 1
             auto_published_posts.append(post)
-            logger.info(f"Auto-published scheduled post: {post['_id']}")
+            logger.info(f"Auto-published scheduled post: {post['_id']} at scheduled time: {scheduled_time}")
         
         # Send news push notifications for auto-published posts
         if broadcast_to_all_news_subscribers and auto_published_posts:
