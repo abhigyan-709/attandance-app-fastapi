@@ -275,14 +275,23 @@ def _process_scheduled_posts(db_client: MongoClient):
                     "$set": {
                         "published": True,
                         "scheduled_publish": False,
-                        "created_at": scheduled_time,  # Update to scheduled time
+                        "created_at": scheduled_time,  # Update to scheduled time so it appears as latest
                         "updated_at": datetime.utcnow()
                     }
                 }
             )
+            
+            # Increment author's article count when auto-publishing
+            author_username = post.get("author_username")
+            if author_username:
+                db_client[db.db_name]["user"].update_one(
+                    {"username": author_username},
+                    {"$inc": {"articles_count": 1}}
+                )
+            
             updated_count += 1
             auto_published_posts.append(post)
-            logger.info(f"Auto-published scheduled post: {post['_id']} at scheduled time: {scheduled_time}")
+            logger.info(f"Auto-published scheduled post: {post['_id']} at scheduled time: {scheduled_time} - created_at updated to match scheduled time")
         
         # Send news push notifications for auto-published posts
         if broadcast_to_all_news_subscribers and auto_published_posts:
