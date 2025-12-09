@@ -794,7 +794,7 @@ async def request_password_reset(request: Request, db_client: MongoClient = Depe
     print(f"Generated Token: {reset_token}")
 
     # Send email with reset link
-    reset_link = f"https://projectdevops.in/reset-password?token={reset_token}"
+    reset_link = f"https://gobarsahitimes.com/reset-password?token={reset_token}"
     await send_password_reset_email(email, reset_link)
 
     return JSONResponse(content={"message": "Password reset email sent"}, status_code=200)
