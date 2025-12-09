@@ -766,7 +766,14 @@ async def logout(
 
 
 @route2.post("/password-reset/request", tags=["Password Reset"])
-async def request_password_reset(email: str, db_client: MongoClient = Depends(db.get_client)):
+async def request_password_reset(request: Request, db_client: MongoClient = Depends(db.get_client)):
+    # Accept email from JSON body
+    body = await request.json()
+    email = body.get("email")
+    
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+    
     user_from_db = db_client[db.db_name]["user"].find_one({"email": email})
     
     if not user_from_db:
