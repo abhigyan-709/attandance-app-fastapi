@@ -698,6 +698,7 @@ async def create_news(
 async def get_news(
     request: Request,
     published: Optional[bool] = Query(default=None),
+    author_username: Optional[str] = Query(default=None),
     db_client: MongoClient = Depends(db.get_client),
 ):
     # Process scheduled posts before listing
@@ -708,6 +709,10 @@ async def get_news(
         query["published"] = True
     elif published is not None:
         query["published"] = published
+    
+    # Filter by author username
+    if author_username:
+        query["author_username"] = author_username
 
     docs = list(db_client[db.db_name][NEWS_COLL].find(query).sort("created_at", DESCENDING))
     return [_normalize_news(d, db_client) for d in docs]
