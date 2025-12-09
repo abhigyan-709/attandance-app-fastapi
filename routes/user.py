@@ -805,7 +805,17 @@ from passlib.context import CryptContext
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 @route2.post("/password-reset/confirm", tags=["Password Reset"])
-async def reset_password(token: str, new_password: str, db_client: MongoClient = Depends(db.get_client)):
+async def reset_password(request: Request, db_client: MongoClient = Depends(db.get_client)):
+    # Accept token and new_password from JSON body
+    body = await request.json()
+    token = body.get("token")
+    new_password = body.get("new_password")
+    
+    if not token:
+        raise HTTPException(status_code=400, detail="Token is required")
+    if not new_password:
+        raise HTTPException(status_code=400, detail="New password is required")
+    
     try:
         # Decode token
         payload = jwt.decode(token, RESET_SECRET_KEY, algorithms=["HS256"])
