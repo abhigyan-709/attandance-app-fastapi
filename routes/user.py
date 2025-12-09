@@ -345,7 +345,12 @@ async def update_user(
         )
 
     # Prepare update data
-    allowed_fields = ["first_name", "last_name", "email", "city", "role", "is_active"]
+    # Only allow User model fields, NOT UserDetails fields (student info)
+    allowed_fields = [
+        "first_name", "last_name", "email", "city", "role", "is_active",
+        # Author profile fields (optional, part of User model)
+        "author_bio", "author_profile_image", "author_designation", "author_social_links"
+    ]
     update_data = {}
     
     for field, value in updated_user_data.items():
