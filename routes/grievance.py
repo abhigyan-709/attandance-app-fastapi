@@ -56,21 +56,38 @@ async def submit_grievance(
 ):
     """
     Submit a new grievance complaint (Public endpoint)
+    Auto-assigns to appropriate editor based on designation
     """
     complaints_collection = db_client[db.db_name]["grievance_complaints"]
+    users_collection = db_client[db.db_name]["user"]
     
     # Generate unique complaint ID
     complaint_id = f"GRV-{datetime.utcnow().year}-{str(uuid.uuid4())[:8].upper()}"
+    
+    # Auto-assign to appropriate handler based on designation
+    assigned_to = None
+    
+    # Try to find editors with auto-assign designations (Chief Editor, Regional Editor, etc.)
+    auto_assign_editors = list(users_collection.find({
+        "role": {"$in": ["author", "admin"]},
+        "is_active": True,
+        "can_handle_grievances": True,
+        "author_designation": {"$exists": True}
+    }).sort("author_designation_level", DESCENDING).limit(1))
+    
+    if auto_assign_editors:
+        assigned_to = auto_assign_editors[0]["username"]
     
     # Prepare complaint document
     complaint_dict = complaint.dict()
     complaint_dict["complaint_id"] = complaint_id
     complaint_dict["submitted_at"] = datetime.utcnow()
     complaint_dict["status"] = GrievanceStatus.SUBMITTED
+    complaint_dict["assigned_to"] = assigned_to
     complaint_dict["status_history"] = [{
         "status": GrievanceStatus.SUBMITTED,
         "timestamp": datetime.utcnow(),
-        "notes": "Complaint submitted"
+        "notes": f"Complaint submitted{f' and auto-assigned to {assigned_to}' if assigned_to else ''}"
     }]
     
     # Insert complaint
@@ -89,6 +106,7 @@ async def submit_grievance(
         "complaint_id": complaint_id,
         "status": GrievanceStatus.SUBMITTED,
         "submitted_at": complaint_dict["submitted_at"],
+        "assigned_to": assigned_to,
         "acknowledgment": "You will receive an acknowledgment email shortly. We aim to resolve complaints within 15 days."
     }
 

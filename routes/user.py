@@ -364,6 +364,25 @@ async def update_user(
                         detail="Email is already registered to another user"
                     )
             
+            # Special handling for author_designation - validate and sync grievance role
+            if field == "author_designation" and value:
+                # Validate designation exists and is active
+                designation_info = db_client[db.db_name]["designations"].find_one({
+                    "name": value,
+                    "is_active": True
+                })
+                
+                if not designation_info:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid designation: '{value}'. Please select from available designations."
+                    )
+                
+                # Sync grievance handling capability based on designation
+                update_data["author_designation_level"] = designation_info["level"]
+                update_data["can_handle_grievances"] = designation_info.get("can_handle_grievances", False)
+                update_data["author_designation_synced_at"] = datetime.utcnow()
+            
             # Only admins can change role and is_active
             if field in ["role", "is_active"] and current_user.role != "admin":
                 continue
