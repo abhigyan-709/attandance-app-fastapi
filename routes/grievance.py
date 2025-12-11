@@ -195,13 +195,19 @@ async def get_complaint_details(
 ):
     """
     Get detailed complaint information (Admin/Editor only)
+    Supports both complaint ID (GRV-2025-XXXXX) and MongoDB ObjectId
     """
     if current_user.role not in ["admin", "author"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     complaints_collection = db_client[db.db_name]["grievance_complaints"]
     
+    # Try to find by complaint_id first
     complaint = complaints_collection.find_one({"complaint_id": complaint_id})
+    
+    # If not found, try by MongoDB ObjectId
+    if not complaint and ObjectId.is_valid(complaint_id):
+        complaint = complaints_collection.find_one({"_id": ObjectId(complaint_id)})
     
     if not complaint:
         raise HTTPException(status_code=404, detail="Complaint not found")
@@ -220,15 +226,25 @@ async def update_complaint(
 ):
     """
     Update grievance complaint (Admin/Editor only)
+    Supports both complaint ID (GRV-2025-XXXXX) and MongoDB ObjectId
     """
     if current_user.role not in ["admin", "author"]:
         raise HTTPException(status_code=403, detail="Access denied")
     
     complaints_collection = db_client[db.db_name]["grievance_complaints"]
     
+    # Try to find by complaint_id first
     complaint = complaints_collection.find_one({"complaint_id": complaint_id})
+    
+    # If not found, try by MongoDB ObjectId
+    if not complaint and ObjectId.is_valid(complaint_id):
+        complaint = complaints_collection.find_one({"_id": ObjectId(complaint_id)})
+    
     if not complaint:
         raise HTTPException(status_code=404, detail="Complaint not found")
+    
+    # Get the actual complaint_id for query
+    actual_complaint_id = complaint["complaint_id"]
     
     # Prepare update
     update_dict = {}
@@ -268,9 +284,9 @@ async def update_complaint(
         })
         update_dict["internal_notes"] = internal_notes
     
-    # Update complaint
+    # Update complaint using _id to ensure correct document
     complaints_collection.update_one(
-        {"complaint_id": complaint_id},
+        {"_id": complaint["_id"]},
         {"$set": update_dict}
     )
     
@@ -280,11 +296,11 @@ async def update_complaint(
             send_grievance_resolution,
             complaint["complainant_email"],
             complaint["complainant_name"],
-            complaint_id,
+            actual_complaint_id,
             update.resolution_notes
         )
     
-    return {"message": "Complaint updated successfully", "complaint_id": complaint_id}
+    return {"message": "Complaint updated successfully", "complaint_id": actual_complaint_id}
 
 
 @grievance_router.get("/grievance/statistics", tags=["Grievance Management"])
