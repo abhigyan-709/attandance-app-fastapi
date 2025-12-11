@@ -1,321 +1,3 @@
-# # from fastapi_mail import FastMail, MessageSchema
-# # from models.email_config import conf
-
-# # async def send_registration_email(email: str, first_name: str, last_name: str):
-# #     # Mail subject
-# #     subject = "Congratulations! You are Registered for Project DevOps Training"
-
-# #     # HTML Email Body
-# #     body = f"""
-# #     <html>
-# #         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-# #             <div style="max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
-# #                 <h2 style="color: #1A237E; text-align: center;">Dear {first_name} {last_name},</h2>
-# #                 <p>Congratulations! You have successfully registered for the <b>3-Months Free Certificate Training Program</b> in <b>Python, Cloud Computing & DevOps</b>, hosted by <b>Project DevOps</b> in collaboration with <b>Support Foundation</b>.</p>
-
-# #                 <h3 style="color: #FF5722;">Training Details:</h3>
-# #                 <ul>
-# #                     <li><b>📅 Start From:</b> 24th February 2025</li>
-# #                     <<li><b>⏰ Time:</b> 8:30 PM – 9:30 PM IST</li>
-# #                     <li><b>🖥 Mode:</b> Online</li>
-# #                     <li><b>📜 Duration:</b> 3 Months</li>
-# #                     <li><b>💰 Cost:</b> Free</li>
-# #                     <li><b>🎯 Certificate of Completion</b> will be provided upon successful completion of the training and assessments.</li>
-# #                 </ul>
-
-# #                 <p>This program covers Python programming, cloud computing, and DevOps methodologies with hands-on practice to enhance your skills. Placement assistance and boot camps for internships and job placements are available after training.</p>
-
-# #                 <h3 style="color: #388E3C;">Join the WhatsApp Group:</h3>
-# #                 <p>Click the link below to join our official WhatsApp group for further details and to get the session joining link:</p>
-# #                 <p><a href="https://chat.whatsapp.com/EpnKFXIdJdPI2e8w7IO61H" style="color: #0288D1; font-weight: bold;">Join WhatsApp Group</a></p>
-
-# #                 <h3>For any queries, feel free to contact us:</h3>
-# #                 <p><b>📧 Email:</b> connect@projectdevops.in / training@projectdevops.in</p>
-# #                 <p><b>📞 Phone:</b> +91 9135610801</p>
-# #                 <p><b>🌐 Website:</b> <a href="https://www.projectdevops.in" style="color: #0288D1;">www.projectdevops.in</a></p>
-
-# #                 <p style="text-align: center; font-weight: bold;">We are excited to have you on board and look forward to an enriching learning experience together!</p>
-
-# #                 <p style="text-align: center;"><b>Best regards,<br>Project DevOps Team</b></p>
-# #             </div>
-# #         </body>
-# #     </html>
-# #     """
-
-# #     message = MessageSchema(
-# #         subject=subject,
-# #         recipients=[email],
-# #         cc=["projectdevops709@gmail.com"],  # Added CC
-# #         body=body,
-# #         subtype="html"
-# #     )
-
-# #     fm = FastMail(conf)
-# #     await fm.send_message(message)
-
-# # async def send_password_reset_email(email: str, reset_link: str):
-# #     subject = "Password Reset Request for Project DevOps"
-
-# #     body = f"""
-# #     <html>
-# #         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-# #             <div style="max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
-# #                 <h2 style="color: #1A237E; text-align: center;">Password Reset Request</h2>
-# #                 <p>Hello,</p>
-# #                 <p>We received a request to reset your password for your Project DevOps account. Click the button below to set a new password:</p>
-
-# #                 <p style="text-align: center;">
-# #                     <a href="{reset_link}" style="display: inline-block; padding: 10px 20px; color: white; background-color: #FF5722; text-decoration: none; border-radius: 5px;">
-# #                         Reset Password
-# #                     </a>
-# #                 </p>
-
-# #                 <p>If you did not request a password reset, please ignore this email.</p>
-# #                 <p>This link will expire in 15 minutes.</p>
-
-# #                 <p>Best regards,<br><b>Project DevOps Team</b></p>
-# #             </div>
-# #         </body>
-# #     </html>
-# #     """
-
-# #     message = MessageSchema(
-# #         subject=subject,
-# #         recipients=[email],
-# #         cc=["projectdevops709@gmail.com"],  # Added CC
-# #         body=body,
-# #         subtype="html"
-# #     )
-
-# #     fm = FastMail(conf)
-# #     await fm.send_message(message)
-
-
-# # async def send_username_recovery_email(email: str, username: str):
-# #     subject = "Username Recovery for Project DevOps"
-
-# #     # Wrap username in double quotes
-# #     formatted_username = f'"{username}"'
-
-# #     body = f"""
-# #     <html>
-# #         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-# #             <div style="max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
-# #                 <h2 style="color: #1A237E; text-align: center;">Username Recovery Request</h2>
-# #                 <p>Hello,</p>
-# #                 <p>We received a request to recover your username for your Project DevOps account.</p>
-
-# #                 <p><b>Your Username:</b> <span style="color: #FF5722; font-size: 18px;">{formatted_username}</span></p>
-
-# #                 <p>If you did not request this, please ignore this email.</p>
-
-# #                 <p>Best regards,<br><b>Project DevOps Team</b></p>
-# #             </div>
-# #         </body>
-# #     </html>
-# #     """
-
-# #     message = MessageSchema(
-# #         subject=subject,
-# #         recipients=[email],
-# #         cc=["projectdevops709@gmail.com"],  # Keep CC
-# #         body=body,
-# #         subtype="html"
-# #     )
-
-# #     fm = FastMail(conf)
-# #     await fm.send_message(message)
-
-# from fastapi_mail import FastMail, MessageSchema
-# from models.email_config import conf
-
-# # -------------------------
-# # Registration (VoloBlink)
-# # -------------------------
-# async def send_registration_email(email: str, first_name: str, last_name: str):
-#     subject = "Welcome to VoloBlink – Your Account is Ready!"
-
-#     body = f"""
-#     <html>
-#       <body style="margin:0;padding:0;background:#FFF8E1;font-family:Arial,sans-serif;color:#2f2f2f;">
-#         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#FFF8E1;padding:24px 0;">
-#           <tr>
-#             <td align="center">
-#               <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="background:#ffffff;border:1px solid #e9e9e9;border-radius:12px;overflow:hidden;box-shadow:0 6px 18px rgba(0,0,0,0.06);">
-                
-#                 <!-- Header -->
-#                 <tr>
-#                   <td style="background:#00695C;padding:20px 24px;text-align:center;">
-#                     <div style="font-size:22px;line-height:1.2;color:#ffffff;font-weight:bold;">
-#                       VoloBlink
-#                     </div>
-#                     <div style="font-size:12px;color:#D0F2EB;opacity:.9;margin-top:4px;">
-#                       Vocal for Local
-#                     </div>
-#                   </td>
-#                 </tr>
-
-#                 <!-- Greeting -->
-#                 <tr>
-#                   <td style="padding:24px 24px 8px 24px;">
-#                     <h2 style="margin:0 0 8px 0;color:#1A237E;font-size:20px;">
-#                       Dear {first_name} {last_name},
-#                     </h2>
-#                     <p style="margin:0;color:#424242;font-size:14px;line-height:1.7;">
-#                       Congratulations! 🎉 Your account has been successfully registered in the 
-#                       <b>VoloBlink (Vocal for Local)</b> app.
-#                     </p>
-#                   </td>
-#                 </tr>
-
-#                 <!-- Info -->
-#                 <tr>
-#                   <td style="padding:16px 24px 0 24px;">
-#                     <p style="margin:0;color:#424242;font-size:14px;line-height:1.7;">
-#                       You can now log in to the application using your 
-#                       <b>username</b> and <b>password</b>.
-#                     </p>
-#                     <p style="margin:12px 0 0 0;color:#424242;font-size:14px;line-height:1.7;">
-#                       Explore authentic local products, connect with vendors, and enjoy the 
-#                       <b>Vocal for Local</b> experience with VoloBlink.
-#                     </p>
-#                   </td>
-#                 </tr>
-
-#                 <!-- Next Steps -->
-#                 <tr>
-#                   <td style="padding:20px 24px;text-align:center;">
-#                     <a href="https://www.projectdevops.in" 
-#                        style="display:inline-block;background:#FF6F61;color:#ffffff;text-decoration:none;
-#                               padding:12px 20px;border-radius:8px;font-weight:bold;">
-#                       Login to VoloBlink
-#                     </a>
-#                   </td>
-#                 </tr>
-
-#                 <!-- Contacts -->
-#                 <tr>
-#                   <td style="padding:24px;">
-#                     <div style="border-top:1px solid #eeeeee;margin:0 0 16px 0;"></div>
-#                     <h3 style="margin:0 0 8px 0;color:#1A237E;font-size:16px;">Need help?</h3>
-#                     <p style="margin:0;color:#424242;font-size:14px;line-height:1.8;">
-#                       <b>📧 Email:</b> connect@projectdevops.in<br/>
-#                       <b>📞 Phone:</b> +91 9135610801<br/>
-#                       <b>🌐 Website:</b> <a href="https://www.projectdevops.in" style="color:#00695C;text-decoration:none;">www.projectdevops.in</a>
-#                     </p>
-#                   </td>
-#                 </tr>
-
-#                 <!-- Footer -->
-#                 <tr>
-#                   <td style="background:#F8FFFC;padding:16px 24px;text-align:center;border-top:1px solid #e9f3f0;">
-#                     <p style="margin:0;color:#2e7d73;font-weight:bold;">
-#                       Welcome to the VoloBlink family!
-#                     </p>
-#                     <p style="margin:4px 0 0 0;color:#00695C;font-weight:bold;">— The VoloBlink Team</p>
-#                   </td>
-#                 </tr>
-#               </table>
-
-#               <div style="max-width:600px;color:#888888;font-size:11px;margin:12px auto 0 auto;text-align:center;">
-#                 You received this email because you registered for a VoloBlink account. 
-#                 If this wasn’t you, please ignore this email.
-#               </div>
-#             </td>
-#           </tr>
-#         </table>
-#       </body>
-#     </html>
-#     """
-
-#     message = MessageSchema(
-#         subject=subject,
-#         recipients=[email],
-#         cc=["projectdevops709@gmail.com"],
-#         body=body,
-#         subtype="html",
-#     )
-
-#     fm = FastMail(conf)
-#     await fm.send_message(message)
-
-# # -------------------------
-# # Password Reset (unchanged)
-# # -------------------------
-# async def send_password_reset_email(email: str, reset_link: str):
-#     subject = "Password Reset Request for Project DevOps"
-
-#     body = f"""
-#     <html>
-#         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-#             <div style="max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
-#                 <h2 style="color: #1A237E; text-align: center;">Password Reset Request</h2>
-#                 <p>Hello,</p>
-#                 <p>We received a request to reset your password for your Project DevOps account. Click the button below to set a new password:</p>
-
-#                 <p style="text-align: center;">
-#                     <a href="{reset_link}" style="display: inline-block; padding: 10px 20px; color: white; background-color: #FF5722; text-decoration: none; border-radius: 5px;">
-#                         Reset Password
-#                     </a>
-#                 </p>
-
-#                 <p>If you did not request a password reset, please ignore this email.</p>
-#                 <p>This link will expire in 15 minutes.</p>
-
-#                 <p>Best regards,<br><b>Project DevOps Team</b></p>
-#             </div>
-#         </body>
-#     </html>
-#     """
-
-#     message = MessageSchema(
-#         subject=subject,
-#         recipients=[email],
-#         cc=["projectdevops709@gmail.com"],
-#         body=body,
-#         subtype="html"
-#     )
-
-#     fm = FastMail(conf)
-#     await fm.send_message(message)
-
-# # --------------------------------
-# # Username Recovery (unchanged)
-# # --------------------------------
-# async def send_username_recovery_email(email: str, username: str):
-#     subject = "Username Recovery for Project DevOps"
-
-#     formatted_username = f'"{username}"'
-
-#     body = f"""
-#     <html>
-#         <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-#             <div style="max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px;">
-#                 <h2 style="color: #1A237E; text-align: center;">Username Recovery Request</h2>
-#                 <p>Hello,</p>
-#                 <p>We received a request to recover your username for your Project DevOps account.</p>
-
-#                 <p><b>Your Username:</b> <span style="color: #FF5722; font-size: 18px;">{formatted_username}</span></p>
-
-#                 <p>If you did not request this, please ignore this email.</p>
-
-#                 <p>Best regards,<br><b>Project DevOps Team</b></p>
-#             </div>
-#         </body>
-#     </html>
-#     """
-
-#     message = MessageSchema(
-#         subject=subject,
-#         recipients=[email],
-#         cc=["projectdevops709@gmail.com"],
-#         body=body,
-#         subtype="html"
-#     )
-
-#     fm = FastMail(conf)
-#     await fm.send_message(message)
-
 # services/email.py
 from typing import Dict, Any
 from fastapi_mail import FastMail, MessageSchema
@@ -780,6 +462,202 @@ async def send_order_confirmation_email(order: Dict[str, Any]) -> None:
         subject=subject,
         recipients=recipients,
         cc=cc,
+        body=body,
+        subtype="html",
+    )
+    fm = FastMail(conf)
+    await fm.send_message(message)
+
+
+# ==================== GRIEVANCE REDRESSAL EMAILS ====================
+
+async def send_grievance_acknowledgment(email: str, name: str, complaint_id: str):
+    """Send acknowledgment email when grievance is submitted"""
+    subject = f"Grievance Complaint Acknowledged - {complaint_id}"
+
+    body = f"""
+    <html>
+      <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;background:#f4f4f4;padding:20px;">
+        <table width="100%" cellspacing="0" cellpadding="0" style="max-width:650px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+          <tr>
+            <td>
+              <!-- Header -->
+              <table width="100%" cellspacing="0" cellpadding="0" style="background:linear-gradient(135deg,#1A237E 0%,#283593 100%);">
+                <tr>
+                  <td style="padding:32px 24px;text-align:center;">
+                    <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:700;">Grievance Acknowledged</h1>
+                    <p style="margin:8px 0 0 0;color:#E3F2FD;font-size:14px;">Gobar Sahi Times</p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Content -->
+              <table width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="padding:32px 24px;">
+                    <p style="margin:0 0 16px 0;font-size:16px;color:#2f2f2f;">Dear <strong>{name}</strong>,</p>
+                    
+                    <p style="margin:0 0 16px 0;font-size:15px;color:#555;line-height:1.7;">
+                      Thank you for bringing this matter to our attention. We have successfully received your grievance complaint and assigned it a unique tracking number.
+                    </p>
+
+                    <!-- Complaint ID Box -->
+                    <div style="background:#E8EAF6;border-left:4px solid #1A237E;padding:16px 20px;margin:24px 0;border-radius:6px;">
+                      <p style="margin:0 0 6px 0;font-size:13px;color:#666;text-transform:uppercase;letter-spacing:0.5px;">Your Complaint ID</p>
+                      <p style="margin:0;font-size:20px;color:#1A237E;font-weight:700;font-family:monospace;">{complaint_id}</p>
+                    </div>
+
+                    <div style="background:#FFF3E0;border-left:4px solid #FF6F00;padding:14px 18px;margin:20px 0;border-radius:6px;">
+                      <p style="margin:0;font-size:14px;color:#E65100;"><strong>⏱️ Resolution Timeline:</strong> We aim to resolve grievances within <strong>15 working days</strong> from the date of submission.</p>
+                    </div>
+
+                    <h3 style="color:#1A237E;font-size:17px;margin:28px 0 14px 0;">What Happens Next?</h3>
+                    <ol style="margin:0;padding-left:20px;color:#555;font-size:14px;line-height:1.8;">
+                      <li>Our Grievance Redressal Officer will review your complaint</li>
+                      <li>You will receive updates on the status via email</li>
+                      <li>Once resolved, you will be notified with the resolution details</li>
+                    </ol>
+
+                    <h3 style="color:#1A237E;font-size:17px;margin:28px 0 14px 0;">Track Your Complaint</h3>
+                    <p style="margin:0 0 16px 0;font-size:14px;color:#555;">
+                      You can track the status of your complaint anytime using your Complaint ID at:
+                    </p>
+                    <p style="text-align:center;margin:20px 0;">
+                      <a href="https://gobarsahitimes.com/grievance/track/{complaint_id}" 
+                         style="display:inline-block;padding:12px 28px;color:#ffffff;background:#1A237E;text-decoration:none;border-radius:6px;font-weight:600;font-size:14px;">
+                        Track Complaint Status
+                      </a>
+                    </p>
+
+                    <div style="background:#E8F5E9;border-left:4px solid #2E7D32;padding:14px 18px;margin:24px 0;border-radius:6px;">
+                      <p style="margin:0 0 8px 0;font-size:14px;color:#1B5E20;"><strong>📧 Need Help?</strong></p>
+                      <p style="margin:0;font-size:13px;color:#2E7D32;">
+                        Contact our Grievance Officer at: <strong>grievance@gobarsahitimes.com</strong>
+                      </p>
+                    </div>
+
+                    <p style="margin:24px 0 0 0;font-size:14px;color:#666;line-height:1.7;">
+                      We take your concerns seriously and are committed to addressing them promptly and fairly.
+                    </p>
+                  </td>
+                </tr>
+
+                <!-- Footer -->
+                <tr>
+                  <td style="background:#F5F5F5;padding:20px 24px;text-align:center;border-top:1px solid #E0E0E0;">
+                    <p style="margin:0 0 8px 0;color:#1A237E;font-weight:bold;font-size:14px;">Gobar Sahi Times</p>
+                    <p style="margin:0;color:#757575;font-size:12px;">Committed to Fair & Ethical Journalism</p>
+                  </td>
+                </tr>
+              </table>
+
+              <div style="max-width:650px;color:#999999;font-size:11px;margin:12px auto 0 auto;text-align:center;padding:0 24px;">
+                This is an automated acknowledgment email. Please do not reply to this email. For queries, contact grievance@gobarsahitimes.com
+              </div>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """
+
+    message = MessageSchema(
+        subject=subject,
+        recipients=[email],
+        cc=["grievance@gobarsahitimes.com"],
+        body=body,
+        subtype="html",
+    )
+    fm = FastMail(conf)
+    await fm.send_message(message)
+
+
+async def send_grievance_resolution(email: str, name: str, complaint_id: str, resolution_notes: str):
+    """Send email when grievance is resolved"""
+    subject = f"Grievance Resolved - {complaint_id}"
+
+    body = f"""
+    <html>
+      <body style="font-family:Arial,sans-serif;line-height:1.6;color:#333;background:#f4f4f4;padding:20px;">
+        <table width="100%" cellspacing="0" cellpadding="0" style="max-width:650px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+          <tr>
+            <td>
+              <!-- Header -->
+              <table width="100%" cellspacing="0" cellpadding="0" style="background:linear-gradient(135deg,#2E7D32 0%,#388E3C 100%);">
+                <tr>
+                  <td style="padding:32px 24px;text-align:center;">
+                    <div style="font-size:48px;margin-bottom:8px;">✅</div>
+                    <h1 style="margin:0;color:#ffffff;font-size:26px;font-weight:700;">Grievance Resolved</h1>
+                    <p style="margin:8px 0 0 0;color:#C8E6C9;font-size:14px;">Complaint ID: {complaint_id}</p>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Content -->
+              <table width="100%" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td style="padding:32px 24px;">
+                    <p style="margin:0 0 16px 0;font-size:16px;color:#2f2f2f;">Dear <strong>{name}</strong>,</p>
+                    
+                    <p style="margin:0 0 16px 0;font-size:15px;color:#555;line-height:1.7;">
+                      We are pleased to inform you that your grievance complaint has been reviewed and resolved by our team.
+                    </p>
+
+                    <!-- Resolution Details -->
+                    <div style="background:#E8F5E9;border-left:4px solid#2E7D32;padding:18px 20px;margin:24px 0;border-radius:6px;">
+                      <h3 style="margin:0 0 12px 0;color:#1B5E20;font-size:16px;">📋 Resolution Details</h3>
+                      <p style="margin:0;font-size:14px;color:#2E7D32;line-height:1.7;white-space:pre-wrap;">{resolution_notes}</p>
+                    </div>
+
+                    <h3 style="color:#2E7D32;font-size:17px;margin:28px 0 14px 0;">Feedback & Further Action</h3>
+                    <p style="margin:0 0 16px 0;font-size:14px;color:#555;line-height:1.7;">
+                      If you are satisfied with the resolution, no further action is required. However, if you have any concerns or require additional clarification, please contact our Grievance Redressal Officer.
+                    </p>
+
+                    <div style="background:#FFF3E0;border-left:4px solid #FF6F00;padding:14px 18px;margin:20px 0;border-radius:6px;">
+                      <p style="margin:0;font-size:13px;color:#E65100;">
+                        <strong>Not Satisfied?</strong> You may escalate this matter to our Self Regulatory Body or seek further recourse as per applicable laws.
+                      </p>
+                    </div>
+
+                    <div style="background:#E3F2FD;border:1px solid #90CAF9;padding:18px;margin:24px 0;border-radius:6px;">
+                      <h4 style="margin:0 0 10px 0;color:#1565C0;font-size:14px;">📞 Contact Information</h4>
+                      <p style="margin:0;font-size:13px;color:#1976D2;line-height:1.6;">
+                        <strong>Grievance Officer:</strong><br/>
+                        Email: grievance@gobarsahitimes.com<br/>
+                        Working Hours: Monday to Friday, 10:00 AM - 6:00 PM IST
+                      </p>
+                    </div>
+
+                    <p style="margin:24px 0 0 0;font-size:14px;color:#666;line-height:1.7;">
+                      Thank you for bringing this matter to our attention. Your feedback helps us maintain the highest standards of journalism and accountability.
+                    </p>
+                  </td>
+                </tr>
+
+                <!-- Footer -->
+                <tr>
+                  <td style="background:#F5F5F5;padding:20px 24px;text-align:center;border-top:1px solid #E0E0E0;">
+                    <p style="margin:0 0 8px 0;color:#2E7D32;font-weight:bold;font-size:14px;">Gobar Sahi Times</p>
+                    <p style="margin:0;color:#757575;font-size:12px;">Committed to Accountability & Transparency</p>
+                  </td>
+                </tr>
+              </table>
+
+              <div style="max-width:650px;color:#999999;font-size:11px;margin:12px auto 0 auto;text-align:center;padding:0 24px;">
+                This is an automated notification. For queries, contact grievance@gobarsahitimes.com
+              </div>
+            </td>
+          </tr>
+        </table>
+      </body>
+    </html>
+    """
+
+    message = MessageSchema(
+        subject=subject,
+        recipients=[email],
+        cc=["grievance@gobarsahitimes.com"],
         body=body,
         subtype="html",
     )
