@@ -11,6 +11,7 @@ import logging
 import json
 import qrcode
 from io import BytesIO
+import boto3
 
 from database import db
 from routes.user import get_current_user
@@ -24,12 +25,21 @@ from models.employee_mgmt import (
     EmploymentArea,
     QRCodeResponse
 )
-from routes.config import s3_client, AWS_BUCKET_NAME, AWS_REGION
+from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 EMPLOYEE_COLL = "employees"
+
+# AWS S3 Configuration (same as news system)
+AWS_BUCKET_NAME = "projectdevops-blogs-new"
+s3_client = boto3.client(
+    "s3",
+    aws_access_key_id=AWS_ACCESS_KEY_ID,
+    aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+    region_name=AWS_REGION,
+)
 
 
 # ==================== HELPER FUNCTIONS ====================

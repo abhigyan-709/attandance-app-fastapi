@@ -33,6 +33,7 @@ Complete employee management system for Gobarsahi Times News with file uploads, 
   "phone_number": "9876543210",               // Unique
   "district": "Muzaffarpur",
   "village": "Gobarsahi",
+  "pincode": "845429",                         // 6 digits
   "address": "Ward No. 5, Near School, Gobarsahi, Muzaffarpur",
   "aadhar_number": "123456789012",            // Unique, 12 digits
   "position": "Field Reporter",
@@ -94,6 +95,7 @@ email: raj.kumar@example.com
 phone_number: 9876543210
 district: Muzaffarpur
 village: Gobarsahi
+pincode: 845429
 address: Ward No. 5, Near School, Gobarsahi
 aadhar_number: 123456789012
 position: Field Reporter
@@ -122,6 +124,7 @@ curl -X POST "https://api.projectdevops.in/api/employees" \
   -F "phone_number=9876543210" \
   -F "district=Muzaffarpur" \
   -F "village=Gobarsahi" \
+  -F "pincode=845429" \
   -F "address=Ward No. 5, Near School, Gobarsahi, Muzaffarpur" \
   -F "aadhar_number=123456789012" \
   -F "position=Field Reporter" \
@@ -524,6 +527,7 @@ Office-based roles
 ### Format Validations
 - **Phone Number**: 10-15 digits (with optional +)
 - **Aadhar Number**: Exactly 12 digits
+- **Pincode**: Exactly 6 digits
 - **Email**: Valid email format
 
 ### File Validations
@@ -584,6 +588,7 @@ const handleSubmit = async (formData) => {
   data.append('phone_number', formData.phone);
   data.append('district', formData.district);
   data.append('village', formData.village);
+  data.append('pincode', formData.pincode);
   data.append('address', formData.address);
   data.append('aadhar_number', formData.aadhar);
   data.append('position', formData.position);
