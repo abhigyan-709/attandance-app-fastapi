@@ -50,6 +50,9 @@ firebase-admin==6.5.0
 # Payment Processing
 razorpay==1.4.2
 
+# QR Code Generation
+qrcode==8.0
+
 # Data Validation & Models
 pydantic==2.10.6
 pydantic-settings==2.7.1
