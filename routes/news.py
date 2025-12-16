@@ -2604,3 +2604,407 @@ async def delete_horoscope(
     except Exception as e:
         logger.error(f"Failed to delete horoscope: {str(e)}")
         raise HTTPException(status_code=500, detail="राशिफल डिलीट करने में त्रुटि")
+
+
+# ==================== ADDITIONAL ADMIN/AUTHOR HOROSCOPE OPERATIONS ====================
+
+@news_router.post("/admin/horoscope/{horoscope_id}/publish", response_model=DailyHoroscope, tags=["Horoscope Admin"])
+async def publish_horoscope(
+    horoscope_id: str,
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Publish horoscope (Admin/Author only)"""
+    if not ObjectId.is_valid(horoscope_id):
+        raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+    
+    try:
+        existing = db_client[db.db_name][HOROSCOPE_COLL].find_one({"_id": ObjectId(horoscope_id)})
+        if not existing:
+            raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+        
+        # Update to published
+        db_client[db.db_name][HOROSCOPE_COLL].update_one(
+            {"_id": ObjectId(horoscope_id)},
+            {
+                "$set": {
+                    "published": True,
+                    "published_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+        
+        updated = db_client[db.db_name][HOROSCOPE_COLL].find_one({"_id": ObjectId(horoscope_id)})
+        return _normalize_horoscope(updated)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to publish horoscope: {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल प्रकाशित करने में त्रुटि")
+
+
+@news_router.post("/admin/horoscope/{horoscope_id}/unpublish", response_model=DailyHoroscope, tags=["Horoscope Admin"])
+async def unpublish_horoscope(
+    horoscope_id: str,
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Unpublish horoscope (Admin/Author only)"""
+    if not ObjectId.is_valid(horoscope_id):
+        raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+    
+    try:
+        existing = db_client[db.db_name][HOROSCOPE_COLL].find_one({"_id": ObjectId(horoscope_id)})
+        if not existing:
+            raise HTTPException(status_code=404, detail="राशिफल नहीं मिला")
+        
+        # Update to unpublished
+        db_client[db.db_name][HOROSCOPE_COLL].update_one(
+            {"_id": ObjectId(horoscope_id)},
+            {
+                "$set": {
+                    "published": False,
+                    "updated_at": datetime.utcnow()
+                }
+            }
+        )
+        
+        updated = db_client[db.db_name][HOROSCOPE_COLL].find_one({"_id": ObjectId(horoscope_id)})
+        return _normalize_horoscope(updated)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to unpublish horoscope: {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल अप्रकाशित करने में त्रुटि")
+
+
+@news_router.get("/admin/horoscope/date/{target_date}", response_model=DailyHoroscope, tags=["Horoscope Admin"])
+async def get_horoscope_by_date_admin(
+    target_date: date,
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get horoscope by date (Admin - includes unpublished)"""
+    try:
+        horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one({
+            "date": target_date.isoformat()
+        })
+        
+        if not horoscope:
+            raise HTTPException(
+                status_code=404, 
+                detail=f"{target_date} के लिए राशिफल नहीं मिला"
+            )
+        
+        return _normalize_horoscope(horoscope)
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to fetch horoscope by date (admin): {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल लाने में त्रुटि")
+
+
+@news_router.get("/author/horoscopes", response_model=List[DailyHoroscope], tags=["Horoscope Author"])
+async def get_author_horoscopes(
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    published: Optional[bool] = None,
+):
+    """Get horoscopes created by current author"""
+    try:
+        filter_query = {"author_username": current_user.username}
+        
+        if published is not None:
+            filter_query["published"] = published
+        
+        skip = (page - 1) * limit
+        horoscopes = list(
+            db_client[db.db_name][HOROSCOPE_COLL]
+            .find(filter_query)
+            .sort("date", DESCENDING)
+            .skip(skip)
+            .limit(limit)
+        )
+        
+        return [_normalize_horoscope(h) for h in horoscopes]
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch author horoscopes: {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल लाने में त्रुटि")
+
+
+@news_router.get("/admin/horoscope/stats", tags=["Horoscope Admin"])
+async def get_horoscope_stats(
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get horoscope statistics (Admin/Author)"""
+    try:
+        total_horoscopes = db_client[db.db_name][HOROSCOPE_COLL].count_documents({})
+        published_horoscopes = db_client[db.db_name][HOROSCOPE_COLL].count_documents({"published": True})
+        draft_horoscopes = db_client[db.db_name][HOROSCOPE_COLL].count_documents({"published": False})
+        
+        # Total views and likes
+        pipeline = [
+            {"$group": {
+                "_id": None,
+                "total_views": {"$sum": "$views"},
+                "total_likes": {"$sum": "$likes"}
+            }}
+        ]
+        stats = list(db_client[db.db_name][HOROSCOPE_COLL].aggregate(pipeline))
+        
+        total_views = stats[0]["total_views"] if stats else 0
+        total_likes = stats[0]["total_likes"] if stats else 0
+        
+        # Most viewed horoscope
+        most_viewed = db_client[db.db_name][HOROSCOPE_COLL].find_one(
+            {"published": True},
+            sort=[("views", DESCENDING)]
+        )
+        
+        # Most liked horoscope
+        most_liked = db_client[db.db_name][HOROSCOPE_COLL].find_one(
+            {"published": True},
+            sort=[("likes", DESCENDING)]
+        )
+        
+        return {
+            "total_horoscopes": total_horoscopes,
+            "published_horoscopes": published_horoscopes,
+            "draft_horoscopes": draft_horoscopes,
+            "total_views": total_views,
+            "total_likes": total_likes,
+            "most_viewed": _normalize_horoscope(most_viewed) if most_viewed else None,
+            "most_liked": _normalize_horoscope(most_liked) if most_liked else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch horoscope stats: {str(e)}")
+        raise HTTPException(status_code=500, detail="आँकड़े लाने में त्रुटि")
+
+
+@news_router.get("/author/horoscope/stats", tags=["Horoscope Author"])
+async def get_author_horoscope_stats(
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get horoscope statistics for current author"""
+    try:
+        filter_query = {"author_username": current_user.username}
+        
+        total_horoscopes = db_client[db.db_name][HOROSCOPE_COLL].count_documents(filter_query)
+        published_horoscopes = db_client[db.db_name][HOROSCOPE_COLL].count_documents({
+            **filter_query,
+            "published": True
+        })
+        draft_horoscopes = db_client[db.db_name][HOROSCOPE_COLL].count_documents({
+            **filter_query,
+            "published": False
+        })
+        
+        # Total views and likes for author's horoscopes
+        pipeline = [
+            {"$match": filter_query},
+            {"$group": {
+                "_id": None,
+                "total_views": {"$sum": "$views"},
+                "total_likes": {"$sum": "$likes"}
+            }}
+        ]
+        stats = list(db_client[db.db_name][HOROSCOPE_COLL].aggregate(pipeline))
+        
+        total_views = stats[0]["total_views"] if stats else 0
+        total_likes = stats[0]["total_likes"] if stats else 0
+        
+        return {
+            "author": current_user.username,
+            "total_horoscopes": total_horoscopes,
+            "published_horoscopes": published_horoscopes,
+            "draft_horoscopes": draft_horoscopes,
+            "total_views": total_views,
+            "total_likes": total_likes
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch author horoscope stats: {str(e)}")
+        raise HTTPException(status_code=500, detail="आँकड़े लाने में त्रुटि")
+
+
+@news_router.post("/admin/horoscope/bulk-delete", tags=["Horoscope Admin"])
+async def bulk_delete_horoscopes(
+    horoscope_ids: List[str] = Body(...),
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Bulk delete horoscopes (Admin only)"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    try:
+        # Validate all IDs
+        object_ids = []
+        for hid in horoscope_ids:
+            if not ObjectId.is_valid(hid):
+                raise HTTPException(status_code=400, detail=f"Invalid ID: {hid}")
+            object_ids.append(ObjectId(hid))
+        
+        # Delete horoscopes
+        result = db_client[db.db_name][HOROSCOPE_COLL].delete_many({
+            "_id": {"$in": object_ids}
+        })
+        
+        return {
+            "message": f"{result.deleted_count} राशिफल सफलतापूर्वक डिलीट किए गए",
+            "deleted_count": result.deleted_count
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to bulk delete horoscopes: {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल डिलीट करने में त्रुटि")
+
+
+@news_router.get("/admin/horoscope/drafts", response_model=List[DailyHoroscope], tags=["Horoscope Admin"])
+async def get_draft_horoscopes(
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+):
+    """Get all draft horoscopes (Admin/Author)"""
+    try:
+        filter_query = {"published": False}
+        
+        # If author (not admin), only show their drafts
+        if current_user.role != "admin":
+            filter_query["author_username"] = current_user.username
+        
+        skip = (page - 1) * limit
+        horoscopes = list(
+            db_client[db.db_name][HOROSCOPE_COLL]
+            .find(filter_query)
+            .sort("created_at", DESCENDING)
+            .skip(skip)
+            .limit(limit)
+        )
+        
+        return [_normalize_horoscope(h) for h in horoscopes]
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch draft horoscopes: {str(e)}")
+        raise HTTPException(status_code=500, detail="ड्राफ्ट राशिफल लाने में त्रुटि")
+
+
+@news_router.get("/admin/horoscope/published", response_model=List[DailyHoroscope], tags=["Horoscope Admin"])
+async def get_published_horoscopes_admin(
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+    author: Optional[str] = None,
+):
+    """Get all published horoscopes (Admin view)"""
+    try:
+        filter_query = {"published": True}
+        
+        if author:
+            filter_query["author_username"] = author
+        
+        skip = (page - 1) * limit
+        horoscopes = list(
+            db_client[db.db_name][HOROSCOPE_COLL]
+            .find(filter_query)
+            .sort("date", DESCENDING)
+            .skip(skip)
+            .limit(limit)
+        )
+        
+        return [_normalize_horoscope(h) for h in horoscopes]
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch published horoscopes: {str(e)}")
+        raise HTTPException(status_code=500, detail="प्रकाशित राशिफल लाने में त्रुटि")
+
+
+@news_router.get("/admin/horoscope/search", response_model=List[DailyHoroscope], tags=["Horoscope Admin"])
+async def search_horoscopes_admin(
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+    query: str = Query(..., min_length=1),
+    page: int = Query(1, ge=1),
+    limit: int = Query(10, ge=1, le=100),
+):
+    """Search horoscopes by title or content (Admin/Author)"""
+    try:
+        # Build search filter
+        filter_query = {
+            "$or": [
+                {"title": {"$regex": query, "$options": "i"}},
+                {"zodiac_predictions.prediction": {"$regex": query, "$options": "i"}},
+                {"closing_message": {"$regex": query, "$options": "i"}}
+            ]
+        }
+        
+        # If author (not admin), only search their horoscopes
+        if current_user.role != "admin":
+            filter_query["author_username"] = current_user.username
+        
+        skip = (page - 1) * limit
+        horoscopes = list(
+            db_client[db.db_name][HOROSCOPE_COLL]
+            .find(filter_query)
+            .sort("date", DESCENDING)
+            .skip(skip)
+            .limit(limit)
+        )
+        
+        return [_normalize_horoscope(h) for h in horoscopes]
+        
+    except Exception as e:
+        logger.error(f"Failed to search horoscopes: {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल खोजने में त्रुटि")
+
+
+@news_router.get("/admin/horoscope/date-range", response_model=List[DailyHoroscope], tags=["Horoscope Admin"])
+async def get_horoscopes_by_date_range(
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    published: Optional[bool] = None,
+):
+    """Get horoscopes within a date range (Admin/Author)"""
+    try:
+        filter_query = {
+            "date": {
+                "$gte": start_date.isoformat(),
+                "$lte": end_date.isoformat()
+            }
+        }
+        
+        if published is not None:
+            filter_query["published"] = published
+        
+        # If author (not admin), only show their horoscopes
+        if current_user.role != "admin":
+            filter_query["author_username"] = current_user.username
+        
+        horoscopes = list(
+            db_client[db.db_name][HOROSCOPE_COLL]
+            .find(filter_query)
+            .sort("date", DESCENDING)
+        )
+        
+        return [_normalize_horoscope(h) for h in horoscopes]
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch horoscopes by date range: {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल लाने में त्रुटि")
