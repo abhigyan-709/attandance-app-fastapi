@@ -2174,6 +2174,85 @@ async def get_news_paginated(
 
 HOROSCOPE_COLL = "daily_horoscopes"
 
+# ---------- IST Timezone & Scheduling Helpers for Horoscope ----------
+
+def _parse_ist_datetime_horoscope(datetime_str: str) -> datetime:
+    """Parse datetime string in IST and return UTC datetime for storage
+    
+    Expected format: YYYY-MM-DDTHH:MM (24-hour format)
+    Example: 2025-12-05T14:30
+    """
+    try:
+        # Parse the datetime string (assumes IST input)
+        naive_dt = datetime.strptime(datetime_str, "%Y-%m-%dT%H:%M")
+        
+        # Localize to IST
+        ist_dt = IST.localize(naive_dt)
+        
+        # Convert to UTC for storage
+        utc_dt = ist_dt.astimezone(pytz.UTC).replace(tzinfo=None)
+        
+        return utc_dt
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid datetime format. Expected: YYYY-MM-DDTHH:MM (24-hour IST). Error: {str(e)}"
+        )
+
+
+def _utc_to_ist_horoscope(utc_dt: datetime) -> datetime:
+    """Convert UTC datetime to IST for display"""
+    if utc_dt is None:
+        return None
+    utc_dt = pytz.UTC.localize(utc_dt) if utc_dt.tzinfo is None else utc_dt
+    return utc_dt.astimezone(IST).replace(tzinfo=None)
+
+
+def _is_scheduled_horoscope_ready(scheduled_at: datetime) -> bool:
+    """Check if a scheduled horoscope should be published now (UTC comparison)"""
+    if scheduled_at is None:
+        return False
+    current_utc = datetime.utcnow()
+    return current_utc >= scheduled_at
+
+
+def _process_scheduled_horoscopes(db_client: MongoClient):
+    """Background task to auto-publish scheduled horoscopes that are due"""
+    try:
+        coll = db_client[db.db_name][HOROSCOPE_COLL]
+        current_utc = datetime.utcnow()
+        
+        # Find scheduled horoscopes that are ready to publish
+        scheduled_horoscopes = coll.find({
+            "scheduled_publish": True,
+            "published": False,
+            "scheduled_at": {"$lte": current_utc}
+        })
+        
+        updated_count = 0
+        for horoscope in scheduled_horoscopes:
+            # Auto-publish the horoscope
+            scheduled_time = horoscope.get("scheduled_at", datetime.utcnow())
+            coll.update_one(
+                {"_id": horoscope["_id"]},
+                {
+                    "$set": {
+                        "published": True,
+                        "published_at": scheduled_time,
+                        "updated_at": datetime.utcnow()
+                    }
+                }
+            )
+            updated_count += 1
+            logger.info(f"Auto-published scheduled horoscope: {horoscope['_id']} for date {horoscope.get('date')}")
+        
+        if updated_count > 0:
+            logger.info(f"Auto-published {updated_count} scheduled horoscopes")
+            
+    except Exception as e:
+        logger.error(f"Error processing scheduled horoscopes: {str(e)}")
+
+
 def _normalize_horoscope(doc: Dict[str, Any]) -> Dict[str, Any]:
     """Normalize horoscope document for API response"""
     if "_id" in doc:
@@ -2186,9 +2265,12 @@ def _normalize_horoscope(doc: Dict[str, Any]) -> Dict[str, Any]:
         except:
             pass
     
-    # Convert datetime objects to ISO strings
-    for dt_field in ["created_at", "updated_at", "published_at"]:
+    # Convert datetime objects to ISO strings and show IST times
+    for dt_field in ["created_at", "updated_at", "published_at", "scheduled_at"]:
         if dt_field in doc and isinstance(doc[dt_field], datetime):
+            # Convert to IST for display
+            if dt_field == "scheduled_at" and doc[dt_field]:
+                doc[f"{dt_field}_ist"] = _utc_to_ist_horoscope(doc[dt_field]).isoformat()
             doc[dt_field] = doc[dt_field].isoformat()
     
     return doc
@@ -2223,6 +2305,9 @@ async def get_today_horoscope(
 ):
     """Get today's daily horoscope (आज का राशि फल)"""
     try:
+        # Process scheduled horoscopes (auto-publish if time reached)
+        _process_scheduled_horoscopes(db_client)
+        
         today = date.today()
         
         horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one({
@@ -2252,6 +2337,9 @@ async def get_horoscope_by_date(
 ):
     """Get horoscope for specific date"""
     try:
+        # Process scheduled horoscopes (auto-publish if time reached)
+        _process_scheduled_horoscopes(db_client)
+        
         horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one({
             "date": target_date.isoformat(),
             "published": True
@@ -2279,6 +2367,9 @@ async def get_today_zodiac_prediction(
 ):
     """Get today's prediction for specific zodiac sign"""
     try:
+        # Process scheduled horoscopes (auto-publish if time reached)
+        _process_scheduled_horoscopes(db_client)
+        
         today = date.today()
         
         horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one({
@@ -2318,6 +2409,9 @@ async def get_horoscope_archive(
 ):
     """Get horoscope archive (past horoscopes)"""
     try:
+        # Process scheduled horoscopes (auto-publish if time reached)
+        _process_scheduled_horoscopes(db_client)
+        
         skip = (page - 1) * limit
         
         horoscopes = list(
@@ -2456,13 +2550,48 @@ async def create_horoscope(
                 detail="सभी 12 राशियों के भविष्यफल जरूरी हैं"
             )
         
+        # Handle scheduled publishing
+        scheduled_at_utc = None
+        if horoscope_data.scheduled_publish:
+            if not horoscope_data.scheduled_at:
+                raise HTTPException(
+                    status_code=400,
+                    detail="scheduled_at is required when scheduled_publish is true. Provide datetime in format: YYYY-MM-DDTHH:MM (IST)"
+                )
+            
+            # Parse IST datetime and convert to UTC
+            scheduled_at_utc = _parse_ist_datetime_horoscope(horoscope_data.scheduled_at)
+            
+            # Validate: scheduled time must be in the future
+            current_utc = datetime.utcnow()
+            if scheduled_at_utc <= current_utc:
+                # Convert back to IST for user-friendly error message
+                current_ist = _utc_to_ist_horoscope(current_utc)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Scheduled time must be in the future. Current IST time: {current_ist.strftime('%Y-%m-%d %H:%M')}"
+                )
+            
+            # When scheduling, auto-set published=False (will be auto-published at scheduled time)
+            logger.info(f"[create_horoscope] Scheduling horoscope for {horoscope_data.scheduled_at} IST (UTC: {scheduled_at_utc})")
+        
+        # If not scheduling but scheduled_at provided, ignore it
+        if not horoscope_data.scheduled_publish and horoscope_data.scheduled_at:
+            logger.warning("[create_horoscope] scheduled_at provided but scheduled_publish=False, ignoring scheduled_at")
+            scheduled_at_utc = None
+        
         # Create horoscope document
         horoscope_dict = horoscope_data.model_dump()
         horoscope_dict["author_username"] = current_user.username
         horoscope_dict["created_at"] = datetime.utcnow()
         horoscope_dict["updated_at"] = datetime.utcnow()
         
-        if horoscope_dict["published"]:
+        # Set scheduled_at if scheduling
+        if scheduled_at_utc:
+            horoscope_dict["scheduled_at"] = scheduled_at_utc
+            horoscope_dict["published"] = False  # Force unpublished until scheduled time
+        elif horoscope_dict.get("published"):
+            # Immediate publish
             horoscope_dict["published_at"] = datetime.utcnow()
         
         # Serialize for MongoDB
@@ -2555,9 +2684,42 @@ async def update_horoscope(
         update_data = horoscope_data.model_dump(exclude_unset=True)
         update_data["updated_at"] = datetime.utcnow()
         
+        # Handle scheduled publishing updates
+        if horoscope_data.scheduled_publish is not None:
+            if horoscope_data.scheduled_publish:
+                if not horoscope_data.scheduled_at:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="scheduled_at is required when scheduled_publish is true. Provide datetime in format: YYYY-MM-DDTHH:MM (IST)"
+                    )
+                
+                # Parse IST datetime and convert to UTC
+                scheduled_at_utc = _parse_ist_datetime_horoscope(horoscope_data.scheduled_at)
+                
+                # Validate: scheduled time must be in the future
+                current_utc = datetime.utcnow()
+                if scheduled_at_utc <= current_utc:
+                    # Convert back to IST for user-friendly error message
+                    current_ist = _utc_to_ist_horoscope(current_utc)
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Scheduled time must be in the future. Current IST time: {current_ist.strftime('%Y-%m-%d %H:%M')}"
+                    )
+                
+                update_data["scheduled_at"] = scheduled_at_utc
+                update_data["published"] = False  # Force unpublished until scheduled time
+                logger.info(f"[update_horoscope] Updating schedule to {horoscope_data.scheduled_at} IST (UTC: {scheduled_at_utc})")
+            else:
+                # Disable scheduling
+                update_data["scheduled_at"] = None
+                logger.info("[update_horoscope] Disabling scheduled publishing")
+        
         # Set published_at if publishing for the first time
         if horoscope_data.published and not existing.get("published"):
             update_data["published_at"] = datetime.utcnow()
+            # Clear scheduling when manually publishing
+            update_data["scheduled_publish"] = False
+            update_data["scheduled_at"] = None
         
         # Serialize for MongoDB
         update_data = _serialize_horoscope(update_data)

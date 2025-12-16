@@ -134,6 +134,10 @@ class DailyHoroscope(BaseModel):
     author_username: str
     published: bool = False
     
+    # Scheduling (IST timezone)
+    scheduled_publish: bool = False                        # ✅ is this a scheduled post
+    scheduled_at: Optional[datetime] = None                # ✅ IST scheduled publish time (stored in UTC)
+    
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
@@ -162,6 +166,8 @@ class CreateHoroscopeRequest(BaseModel):
     closing_message: str = "☘️आपका दिन मंगलमय हो।☘️"
     contact_info: Optional[str] = None
     published: bool = False
+    scheduled_publish: bool = False                        # ✅ Enable scheduled publishing
+    scheduled_at: Optional[str] = None                     # ✅ IST datetime string: "YYYY-MM-DDTHH:MM"
 
 
 class UpdateHoroscopeRequest(BaseModel):
@@ -172,3 +178,5 @@ class UpdateHoroscopeRequest(BaseModel):
     closing_message: Optional[str] = None
     contact_info: Optional[str] = None
     published: Optional[bool] = None
+    scheduled_publish: Optional[bool] = None               # ✅ Toggle scheduled publishing
+    scheduled_at: Optional[str] = None                     # ✅ Update scheduled time
