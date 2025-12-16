@@ -9,77 +9,65 @@ from datetime import date, datetime
 from pymongo import MongoClient
 from database.db import db
 
-# Zodiac data with emojis, Hindi names, syllables based on your pattern
+# Zodiac data with Hindi names and syllables
 ZODIAC_DATA = [
     {
         "sign": "mesh",
-        "emoji": "🐏",
         "hindi_name": "मेष राशि",
         "syllables": "चू, चे, चो, ला, ली, लू, ले, लो, अ"
     },
     {
         "sign": "vrishabh",
-        "emoji": "🐂",
         "hindi_name": "वृष राशि",
         "syllables": "ई, उ, ए, ओ, वा, वी, वू, वे, वो"
     },
     {
         "sign": "mithun",
-        "emoji": "👭",
         "hindi_name": "मिथुन राशि",
         "syllables": "का, की, कु, घ, ड, छ, के, को, हा"
     },
     {
         "sign": "kark",
-        "emoji": "🦀",
         "hindi_name": "कर्क राशि",
         "syllables": "ही, हू, हे, हो, डा, डी, डू, डे, डो"
     },
     {
         "sign": "simha",
-        "emoji": "🐅",
         "hindi_name": "सिंह राशि",
         "syllables": "मा, मी, मू, मे, मो, टा, टी, टू, टे"
     },
     {
         "sign": "kanya",
-        "emoji": "🙎‍♀️",
         "hindi_name": "कन्या राशि",
         "syllables": "टो, पा, पी, पू, ष, ण, ठ, पे, पो"
     },
     {
         "sign": "tula",
-        "emoji": "⚖️",
         "hindi_name": "तुला राशि",
         "syllables": "रा, री, रु, रे, रो, ता, ती, तू, ते"
     },
     {
         "sign": "vrishchik",
-        "emoji": "🦂",
         "hindi_name": "वृश्चिक राशि",
         "syllables": "तो, ना, नी, नू, ने, नो, या, यी, यू"
     },
     {
         "sign": "dhanu",
-        "emoji": "🏹",
         "hindi_name": "धनु राशि",
         "syllables": "ये, यो, भा, भी, भू, ध, फ, ढ, भे"
     },
     {
         "sign": "makar",
-        "emoji": "🐊",
         "hindi_name": "मकर राशि",
         "syllables": "भो, जा, जी, खी, खू, खे, खो, गा, गी"
     },
     {
         "sign": "kumbh",
-        "emoji": "⚱️",
         "hindi_name": "कुम्भ राशि",
         "syllables": "गू, गे, गो, सा, सी, सू, से, सो, दा"
     },
     {
         "sign": "meen",
-        "emoji": "🐟",
         "hindi_name": "मीन राशि",
         "syllables": "दी, दू, थ, झ, ञ, दे, दो, चा, ची"
     }
@@ -121,7 +109,6 @@ def create_daily_horoscope(target_date: date, author_username: str = "admin"):
         for z in ZODIAC_DATA:
             prediction = {
                 "sign": z["sign"],
-                "emoji": z["emoji"],
                 "hindi_name": z["hindi_name"],
                 "syllables": z["syllables"],
                 "prediction": SAMPLE_PREDICTIONS.get(z["sign"], "आज का दिन शुभ रहेगा।")

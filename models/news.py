@@ -106,7 +106,6 @@ class ZodiacSign(str, Enum):
 class ZodiacPrediction(BaseModel):
     """Individual zodiac sign prediction"""
     sign: ZodiacSign
-    emoji: str              # e.g., "🐏", "🐂", etc.
     hindi_name: str         # e.g., "मेष राशि"
     syllables: str          # e.g., "चू, चे, चो, ला, ली, लू, ले, लो, अ"
     prediction: str         # Full Hindi prediction text
@@ -115,7 +114,6 @@ class ZodiacPrediction(BaseModel):
         json_schema_extra = {
             "example": {
                 "sign": "mesh",
-                "emoji": "🐏",
                 "hindi_name": "मेष राशि",
                 "syllables": "चू, चे, चो, ला, ली, लू, ले, लो, अ",
                 "prediction": "आज अपने काम के लिए दूसरों पर दबाव न डालें..."
