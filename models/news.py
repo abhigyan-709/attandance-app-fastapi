@@ -82,6 +82,7 @@ class Category(BaseModel):
     id: Optional[str] = Field(default=None, alias="_id")
     name: str
     description: Optional[str] = None
+    hindi_keywords: Optional[List[str]] = None
 
 
 # ==================== HOROSCOPE MODELS ====================
@@ -89,7 +90,7 @@ class Category(BaseModel):
 class ZodiacSign(str, Enum):
     """Hindi zodiac signs (राशि)"""
     mesh = "mesh"          # मेष (Aries)
-    vrishabh = "vrishabh"  # वृषभ (Taurus)  
+    vrishabh = "vrishabh"  # वृषभ (Taurus)
     mithun = "mithun"      # मिथुन (Gemini)
     kark = "kark"          # कर्क (Cancer)
     simha = "simha"        # सिंह (Leo)
@@ -102,72 +103,49 @@ class ZodiacSign(str, Enum):
     meen = "meen"          # मीन (Pisces)
 
 
-class HoroscopeType(str, Enum):
-    daily = "daily"        # दैनिक
-    weekly = "weekly"      # साप्ताहिक
-    monthly = "monthly"    # मासिक
-    yearly = "yearly"      # वार्षिक
-
-
-class HindiZodiacDetails(BaseModel):
-    """Hindi horoscope details for each zodiac sign"""
+class ZodiacPrediction(BaseModel):
+    """Individual zodiac sign prediction"""
     sign: ZodiacSign
-    hindi_name: str = ""           # राशि का हिंदी नाम (e.g., "मेष राशि")
-    content: str                   # Hindi horoscope content
-    lucky_number: Optional[int] = None        # भाग्यशाली संख्या
-    lucky_color: Optional[str] = None         # भाग्यशाली रंग
-    lucky_day: Optional[str] = None           # भाग्यशाली दिन
-    lucky_gemstone: Optional[str] = None      # भाग्यशाली रत्न
-    mood: Optional[str] = None                # मूड (खुश, चिंतित, ऊर्जावान)
-    love_score: Optional[int] = Field(default=None, ge=1, le=10)      # प्रेम अंक (1-10)
-    career_score: Optional[int] = Field(default=None, ge=1, le=10)    # करियर अंक (1-10)
-    health_score: Optional[int] = Field(default=None, ge=1, le=10)    # स्वास्थ्य अंक (1-10)
-    finance_score: Optional[int] = Field(default=None, ge=1, le=10)   # धन अंक (1-10)
-    remedy: Optional[str] = None              # उपाय (Remedies)
+    emoji: str              # e.g., "🐏", "🐂", etc.
+    hindi_name: str         # e.g., "मेष राशि"
+    syllables: str          # e.g., "चू, चे, चो, ला, ली, लू, ले, लो, अ"
+    prediction: str         # Full Hindi prediction text
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "sign": "mesh",
+                "emoji": "🐏",
+                "hindi_name": "मेष राशि",
+                "syllables": "चू, चे, चो, ला, ली, लू, ले, लो, अ",
+                "prediction": "आज अपने काम के लिए दूसरों पर दबाव न डालें..."
+            }
+        }
 
 
-class HoroscopePost(BaseModel):
-    """Hindi horoscope post model"""
+class DailyHoroscope(BaseModel):
+    """Daily horoscope post with all 12 zodiac predictions"""
     id: Optional[str] = Field(default=None, alias="_id")
-    title: str                    # e.g., "दैनिक राशिफल - 6 अक्टूबर 2025"
-    horoscope_date: date         # राशिफल की तारीख
-    horoscope_type: HoroscopeType = HoroscopeType.daily
-    
-    # General predictions in Hindi
-    general_prediction: Optional[str] = None    # सामान्य भविष्यवाणी
-    cosmic_overview: Optional[str] = None       # ग्रहों की स्थिति
-    panchang_details: Optional[str] = None      # पंचांग विवरण
-    
-    # Individual zodiac predictions in Hindi
-    zodiac_predictions: List[HindiZodiacDetails] = Field(default_factory=list)
+    title: str = "राशि फल✡️🙏🏻"  # Default title
+    date: date                      # Horoscope date
+    zodiac_predictions: List[ZodiacPrediction]  # All 12 zodiac signs
+    closing_message: str = "☘️आपका दिन मंगलमय हो।☘️"  # Default closing
+    contact_info: Optional[str] = None  # Contact details for consultation
     
     # Metadata
     author_username: str
     published: bool = False
-    featured: bool = False       # विशेष राशिफल के लिए
-    
-    # Scheduling System (IST Timezone)
-    scheduled_publish_at: Optional[datetime] = None  # IST scheduled publish time
-    auto_publish_enabled: bool = False              # Enable/disable auto-publishing
-    publish_status: str = "draft"                   # draft, scheduled, published, expired
     
     # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: Optional[datetime] = None
     published_at: Optional[datetime] = None
-    scheduled_at: Optional[datetime] = None         # When scheduling was set
     
-    # Engagement metrics
+    # Engagement
     views: int = 0
     viewed_ips: List[str] = Field(default_factory=list)
     likes: int = 0
     liked_ips: List[str] = Field(default_factory=list)
-    shares: int = 0
-    
-    # Hindi SEO fields
-    meta_title: Optional[str] = None           # Hindi meta title
-    meta_description: Optional[str] = None     # Hindi meta description
-    hindi_keywords: List[str] = Field(default_factory=list)  # Hindi keywords
     
     class Config:
         arbitrary_types_allowed = True
@@ -178,62 +156,21 @@ class HoroscopePost(BaseModel):
         }
 
 
-class HoroscopeComment(BaseModel):
-    """Comments for horoscope posts"""
-    id: Optional[str] = Field(default=None, alias="_id")
-    horoscope_id: str           # Reference to HoroscopePost
-    zodiac_sign: Optional[ZodiacSign] = None  # User's zodiac sign
-    name: str                   # Commenter name
-    email: str                  # Commenter email
-    content: str                # Comment in Hindi/English
-    rating: Optional[int] = Field(default=None, ge=1, le=5)  # 1-5 star rating
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    is_approved: bool = False   # Admin moderation
-    
-    class Config:
-        arbitrary_types_allowed = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat(),
-            "ObjectId": str,
-        }
-
-
-# Request/Response models for horoscope API
 class CreateHoroscopeRequest(BaseModel):
-    title: str
-    horoscope_date: date
-    horoscope_type: HoroscopeType = HoroscopeType.daily
-    general_prediction: Optional[str] = None
-    cosmic_overview: Optional[str] = None
-    panchang_details: Optional[str] = None
-    zodiac_predictions: List[HindiZodiacDetails] = Field(default_factory=list)
+    """Request model for creating horoscope"""
+    title: str = "राशि फल✡️🙏🏻"
+    date: date
+    zodiac_predictions: List[ZodiacPrediction]
+    closing_message: str = "☘️आपका दिन मंगलमय हो।☘️"
+    contact_info: Optional[str] = None
     published: bool = False
-    featured: bool = False
-    
-    # Scheduling fields (IST Timezone)
-    scheduled_publish_at: Optional[datetime] = None  # IST datetime for scheduling
-    auto_publish_enabled: bool = False              # Enable auto-publishing
-    
-    meta_title: Optional[str] = None
-    meta_description: Optional[str] = None
-    hindi_keywords: List[str] = Field(default_factory=list)
 
 
 class UpdateHoroscopeRequest(BaseModel):
+    """Request model for updating horoscope"""
     title: Optional[str] = None
-    horoscope_date: Optional[date] = None
-    horoscope_type: Optional[HoroscopeType] = None
-    general_prediction: Optional[str] = None
-    cosmic_overview: Optional[str] = None
-    panchang_details: Optional[str] = None
-    zodiac_predictions: Optional[List[HindiZodiacDetails]] = None
+    date: Optional[date] = None
+    zodiac_predictions: Optional[List[ZodiacPrediction]] = None
+    closing_message: Optional[str] = None
+    contact_info: Optional[str] = None
     published: Optional[bool] = None
-    featured: Optional[bool] = None
-    
-    # Scheduling fields (IST Timezone)
-    scheduled_publish_at: Optional[datetime] = None
-    auto_publish_enabled: Optional[bool] = None
-    
-    meta_title: Optional[str] = None
-    meta_description: Optional[str] = None
-    hindi_keywords: Optional[List[str]] = None
