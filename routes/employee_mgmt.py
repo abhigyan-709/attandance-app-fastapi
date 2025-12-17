@@ -13,7 +13,7 @@ import qrcode
 from io import BytesIO
 import boto3
 
-from database import db
+from database.db import db
 from routes.user import get_current_user
 from models.user import User
 from models.employee_mgmt import (
