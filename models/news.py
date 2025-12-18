@@ -132,6 +132,7 @@ class DailyHoroscope(BaseModel):
     
     # Metadata
     author_username: str
+    author_details: Optional[AuthorDetails] = None  # Embedded author information
     published: bool = False
     
     # Scheduling (IST timezone)

@@ -2273,6 +2273,17 @@ def _normalize_horoscope(doc: Dict[str, Any]) -> Dict[str, Any]:
                 doc[f"{dt_field}_ist"] = _utc_to_ist_horoscope(doc[dt_field]).isoformat()
             doc[dt_field] = doc[dt_field].isoformat()
     
+    # Ensure author_details exists (fallback if missing)
+    if not doc.get("author_details") and doc.get("author_username"):
+        # Try to fetch from current session or set basic fallback
+        doc["author_details"] = {
+            "username": doc["author_username"],
+            "full_name": doc["author_username"],  # Fallback to username
+            "author_profile_image": None,
+            "author_designation": None,
+            "author_bio": None
+        }
+    
     return doc
 
 
@@ -2586,12 +2597,25 @@ async def create_horoscope(
         horoscope_dict["created_at"] = datetime.utcnow()
         horoscope_dict["updated_at"] = datetime.utcnow()
         
+        # Embed author details for quick access
+        horoscope_dict["author_details"] = {
+            "username": current_user.username,
+            "full_name": getattr(current_user, 'full_name', current_user.username),
+            "author_profile_image": getattr(current_user, 'author_profile_image', None),
+            "author_designation": getattr(current_user, 'author_designation', None),
+            "author_bio": getattr(current_user, 'author_bio', None)
+        }
+        
+        # Initialize engagement metrics
+        horoscope_dict["views"] = 0
+        horoscope_dict["likes"] = 0
+        
         # Set scheduled_at if scheduling
         if scheduled_at_utc:
             horoscope_dict["scheduled_at"] = scheduled_at_utc
             horoscope_dict["published"] = False  # Force unpublished until scheduled time
         elif horoscope_dict.get("published"):
-            # Immediate publish
+            # Immediate publish - set published_at to current time
             horoscope_dict["published_at"] = datetime.utcnow()
         
         # Serialize for MongoDB
