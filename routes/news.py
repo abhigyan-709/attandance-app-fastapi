@@ -2269,9 +2269,9 @@ def _normalize_horoscope(doc: Dict[str, Any]) -> Dict[str, Any]:
     for dt_field in ["created_at", "updated_at", "published_at", "scheduled_at"]:
         if dt_field in doc and isinstance(doc[dt_field], datetime):
             # Convert to IST for display
-            if dt_field == "scheduled_at" and doc[dt_field]:
-                doc[f"{dt_field}_ist"] = _utc_to_ist_horoscope(doc[dt_field]).isoformat()
-            doc[dt_field] = doc[dt_field].isoformat()
+            ist_time = _utc_to_ist_horoscope(doc[dt_field])
+            doc[f"{dt_field}_ist"] = ist_time.isoformat()
+            doc[dt_field] = doc[dt_field].isoformat()  # Keep UTC for reference
     
     # Ensure author_details exists (fallback if missing)
     if not doc.get("author_details") and doc.get("author_username"):
