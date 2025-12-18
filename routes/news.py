@@ -2510,12 +2510,21 @@ async def increment_horoscope_likes(
         current_likes = horoscope.get("likes", 0)
 
         if client_ip not in liked_ips:
-            liked_ips.append(client_ip)
-            current_likes += 1
-            db_client[db.db_name][HOROSCOPE_COLL].update_one(
+            # Use atomic MongoDB operations
+            result = db_client[db.db_name][HOROSCOPE_COLL].update_one(
                 {"_id": ObjectId(horoscope_id)},
-                {"$set": {"liked_ips": liked_ips, "likes": current_likes}},
+                {
+                    "$addToSet": {"liked_ips": client_ip},
+                    "$inc": {"likes": 1}
+                }
             )
+            
+            # Fetch updated count
+            updated_horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one(
+                {"_id": ObjectId(horoscope_id)},
+                {"likes": 1}
+            )
+            current_likes = updated_horoscope.get("likes", current_likes + 1)
 
         return {"likes": current_likes}
         
