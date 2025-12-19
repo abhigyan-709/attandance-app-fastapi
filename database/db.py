@@ -47,3 +47,8 @@ class Database:
 # Example usage added in aws secrets maanger as well
 db = Database()
 client = db.get_client()
+
+# Helper function for background scheduler
+def get_mongo_uri():
+    """Get MongoDB URI for background tasks"""
+    return db.get_mongo_uri()

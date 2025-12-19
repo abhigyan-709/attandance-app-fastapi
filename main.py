@@ -1,4 +1,8 @@
 from fastapi import FastAPI, Depends
+import threading
+import time
+import logging
+from contextlib import asynccontextmanager
 from database.db import db
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.middleware.cors import CORSMiddleware
@@ -38,11 +42,59 @@ from routes.grievance import grievance_router
 from routes.designation import designation_router
 from routes.employee_mgmt import router as employee_router
 
+logger = logging.getLogger(__name__)
 
-app = FastAPI(title="OpenSource Enterprise API",
-              description="All in ONE API for basic authentication, user registration, attendance mapping and message sending",
-              version="1.1.0",
+# Background scheduler for horoscopes
+def scheduled_horoscope_publisher():
+    """Background thread to continuously check and publish scheduled horoscopes"""
+    from pymongo import MongoClient
+    from routes.news import _process_scheduled_horoscopes
+    import os
+    
+    # Get MongoDB URI from secrets manager (same as db.py)
+    try:
+        from database.db import get_mongo_uri
+        MONGODB_URI = get_mongo_uri()
+    except:
+        # Fallback - should not happen in production
+        logger.error("Failed to get MongoDB URI for scheduler")
+        return
+    
+    logger.info("🚀 [Horoscope Scheduler] Background thread started")
+    
+    while True:
+        try:
+            client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
+            _process_scheduled_horoscopes(client)
+            client.close()
+        except Exception as e:
+            logger.error(f"❌ [Horoscope Scheduler Error]: {str(e)}")
+        
+        # Check every 1 minute
+        time.sleep(60)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    scheduler_thread = threading.Thread(
+        target=scheduled_horoscope_publisher,
+        daemon=True,
+        name="HoroscopeScheduler"
+    )
+    scheduler_thread.start()
+    logger.info("✅ [Horoscope Scheduler] Background scheduler initialized")
+    
+    yield
+    
+    # Shutdown (optional cleanup)
+    logger.info("🛑 [Horoscope Scheduler] Shutting down")
+
+app = FastAPI(
+    title="OpenSource Enterprise API",
+    description="All in ONE API for basic authentication, user registration, attendance mapping and message sending",
+    version="1.1.0",
     docs_url="/docs",
+    lifespan=lifespan,
     contact={
         "name": "Project DevOps",
         "url": "https://api.projectdevops.in/docs",

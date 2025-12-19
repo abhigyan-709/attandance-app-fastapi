@@ -2224,42 +2224,62 @@ def _process_scheduled_horoscopes(db_client: MongoClient):
         coll = db_client[db.db_name][HOROSCOPE_COLL]
         current_utc = datetime.utcnow()
         current_ist = _utc_to_ist_horoscope(current_utc)
+        today_date = current_utc.date().isoformat()  # e.g., "2025-12-20"
         
-        logger.info(f"[Horoscope Scheduler] Current UTC: {current_utc}, IST: {current_ist}")
+        logger.info(f"🔍 [Horoscope Scheduler] Checking at UTC: {current_utc}, IST: {current_ist}, Today: {today_date}")
         
-        # Find scheduled horoscopes that are ready to publish
-        scheduled_horoscopes = coll.find({
-            "scheduled_publish": True,
+        # Find horoscopes to publish:
+        # 1. Explicitly scheduled horoscopes that are due
+        # 2. Horoscopes with today's date that should auto-publish
+        scheduled_horoscopes = list(coll.find({
             "published": False,
-            "scheduled_at": {"$lte": current_utc}
-        })
+            "$or": [
+                # Explicitly scheduled
+                {
+                    "scheduled_publish": True,
+                    "scheduled_at": {"$lte": current_utc}
+                },
+                # Today's horoscope (auto-publish if date matches and not explicitly scheduled for future)
+                {
+                    "date": today_date,
+                    "$or": [
+                        {"scheduled_publish": {"$ne": True}},
+                        {"scheduled_publish": True, "scheduled_at": {"$lte": current_utc}}
+                    ]
+                }
+            ]
+        }))
+        
+        logger.info(f"📋 [Horoscope Scheduler] Found {len(scheduled_horoscopes)} horoscopes to process")
         
         updated_count = 0
         for horoscope in scheduled_horoscopes:
-            # Auto-publish the horoscope
-            scheduled_time = horoscope.get("scheduled_at", datetime.utcnow())
-            scheduled_ist = _utc_to_ist_horoscope(scheduled_time)
-            logger.info(f"[Horoscope Scheduler] Auto-publishing horoscope {horoscope['_id']} scheduled for UTC: {scheduled_time}, IST: {scheduled_ist}")
+            horoscope_id = horoscope["_id"]
+            horoscope_date = horoscope.get("date")
+            scheduled_time = horoscope.get("scheduled_at", current_utc)
+            
+            logger.info(f"📤 [Horoscope Scheduler] Publishing horoscope {horoscope_id} for date {horoscope_date}")
             
             coll.update_one(
-                {"_id": horoscope["_id"]},
+                {"_id": horoscope_id},
                 {
                     "$set": {
                         "published": True,
                         "published_at": scheduled_time,
-                        "updated_at": datetime.utcnow(),
-                        "scheduled_publish": False  # Clear scheduling flag after publishing
+                        "updated_at": current_utc,
+                        "scheduled_publish": False  # Clear scheduling flag
                     }
                 }
             )
             updated_count += 1
-            logger.info(f"Auto-published scheduled horoscope: {horoscope['_id']} for date {horoscope.get('date')}")
         
         if updated_count > 0:
-            logger.info(f"Auto-published {updated_count} scheduled horoscopes")
+            logger.info(f"✅ [Horoscope Scheduler] Auto-published {updated_count} horoscopes")
             
     except Exception as e:
-        logger.error(f"Error processing scheduled horoscopes: {str(e)}")
+        logger.error(f"❌ [Horoscope Scheduler Error]: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 
 def _normalize_horoscope(doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -2325,28 +2345,44 @@ async def get_today_horoscope(
 ):
     """Get today's daily horoscope (आज का राशि फल)"""
     try:
-        # Process scheduled horoscopes (auto-publish if time reached)
+        # Process scheduled horoscopes first
         _process_scheduled_horoscopes(db_client)
         
         today = date.today()
+        today_str = today.isoformat()
         
+        logger.info(f"🔍 [get_today_horoscope] Looking for date: {today_str}")
+        
+        # Query with explicit date string
         horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one({
-            "date": today.isoformat(),
+            "date": today_str,
             "published": True
         })
         
         if not horoscope:
+            logger.warning(f"⚠️ [get_today_horoscope] No published horoscope found for {today_str}")
+            
+            # Check if unpublished exists
+            unpublished = db_client[db.db_name][HOROSCOPE_COLL].find_one({
+                "date": today_str,
+                "published": False
+            })
+            
+            if unpublished:
+                logger.error(f"❌ [get_today_horoscope] Found unpublished horoscope for {today_str}. Scheduled: {unpublished.get('scheduled_publish')}, Time: {unpublished.get('scheduled_at')}")
+            
             raise HTTPException(
                 status_code=404, 
                 detail=f"आज ({today}) के लिए राशिफल उपलब्ध नहीं है"
             )
         
+        logger.info(f"✅ [get_today_horoscope] Found horoscope: {horoscope['_id']}")
         return _normalize_horoscope(horoscope)
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to fetch today's horoscope: {str(e)}")
+        logger.error(f"❌ Failed to fetch today's horoscope: {str(e)}")
         raise HTTPException(status_code=500, detail="राशिफल लाने में त्रुटि")
 
 
@@ -3175,6 +3211,193 @@ async def search_horoscopes_admin(
     except Exception as e:
         logger.error(f"Failed to search horoscopes: {str(e)}")
         raise HTTPException(status_code=500, detail="राशिफल खोजने में त्रुटि")
+
+
+@news_router.get("/admin/horoscope/date-range", response_model=List[DailyHoroscope], tags=["Horoscope Admin"])
+async def get_horoscopes_by_date_range(
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+    start_date: date = Query(...),
+    end_date: date = Query(...),
+    published: Optional[bool] = None,
+):
+    """Get horoscopes within a date range (Admin/Author)"""
+    try:
+        filter_query = {
+            "date": {
+                "$gte": start_date.isoformat(),
+                "$lte": end_date.isoformat()
+            }
+        }
+        
+        if published is not None:
+            filter_query["published"] = published
+        
+        # If author (not admin), only show their horoscopes
+        if current_user.role != "admin":
+            filter_query["author_username"] = current_user.username
+        
+        horoscopes = list(
+            db_client[db.db_name][HOROSCOPE_COLL]
+            .find(filter_query)
+            .sort("date", DESCENDING)
+        )
+        
+        return [_normalize_horoscope(h) for h in horoscopes]
+        
+    except Exception as e:
+        logger.error(f"Failed to fetch horoscopes by date range: {str(e)}")
+        raise HTTPException(status_code=500, detail="राशिफल लाने में त्रुटि")
+
+
+# ==================== DEBUG & TROUBLESHOOTING ENDPOINTS ====================
+
+@news_router.get("/admin/horoscope/debug/today", tags=["Horoscope Debug"])
+async def debug_today_horoscope(
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Debug endpoint to see what's stored for today"""
+    today = date.today()
+    today_str = today.isoformat()
+    
+    # Check all horoscopes for today (published and unpublished)
+    all_today = list(db_client[db.db_name][HOROSCOPE_COLL].find({
+        "date": today_str
+    }))
+    
+    # Check system time
+    current_utc = datetime.utcnow()
+    current_ist = _utc_to_ist_horoscope(current_utc)
+    
+    return {
+        "debug_info": {
+            "today_date": today_str,
+            "current_utc": current_utc.isoformat(),
+            "current_ist": current_ist.isoformat(),
+            "found_count": len(all_today),
+        },
+        "horoscopes": [_normalize_horoscope(h) for h in all_today]
+    }
+
+
+@news_router.post("/admin/horoscope/force-process-scheduled", tags=["Horoscope Debug"])
+async def force_process_scheduled(
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Manually trigger scheduled horoscope processing"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    _process_scheduled_horoscopes(db_client)
+    
+    return {"message": "Scheduled horoscopes processed"}
+
+
+@news_router.get("/admin/horoscope/debug/all-dates", tags=["Horoscope Debug"])
+async def debug_all_dates(
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """See all horoscope dates in database"""
+    all_horoscopes = list(db_client[db.db_name][HOROSCOPE_COLL].find(
+        {},
+        {"date": 1, "published": 1, "title": 1, "scheduled_publish": 1, "scheduled_at": 1}
+    ).sort("date", -1).limit(50))
+    
+    return {
+        "total_count": len(all_horoscopes),
+        "horoscopes": [_normalize_horoscope(h) for h in all_horoscopes]
+    }
+
+
+@news_router.post("/admin/horoscope/publish-today", tags=["Horoscope Debug"])
+async def publish_today_horoscope(
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Quick fix: Manually publish today's horoscope if it exists"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    today = date.today()
+    today_str = today.isoformat()
+    
+    # Find today's unpublished horoscope
+    horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one({
+        "date": today_str,
+        "published": False
+    })
+    
+    if not horoscope:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No unpublished horoscope found for {today_str}"
+        )
+    
+    # Publish it
+    db_client[db.db_name][HOROSCOPE_COLL].update_one(
+        {"_id": horoscope["_id"]},
+        {
+            "$set": {
+                "published": True,
+                "published_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+                "scheduled_publish": False
+            }
+        }
+    )
+    
+    updated = db_client[db.db_name][HOROSCOPE_COLL].find_one({"_id": horoscope["_id"]})
+    logger.info(f"✅ [publish_today_horoscope] Manually published horoscope for {today_str}")
+    
+    return {
+        "message": f"Successfully published today's horoscope ({today_str})",
+        "horoscope": _normalize_horoscope(updated)
+    }
+
+
+@news_router.get("/admin/horoscope/debug/scheduled", tags=["Horoscope Debug"])
+async def debug_scheduled_horoscopes(
+    current_user: User = Depends(get_admin_user_horoscope),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """See all scheduled horoscopes and their status"""
+    current_utc = datetime.utcnow()
+    current_ist = _utc_to_ist_horoscope(current_utc)
+    
+    # Find all scheduled horoscopes (published and unpublished)
+    scheduled = list(db_client[db.db_name][HOROSCOPE_COLL].find({
+        "scheduled_publish": True
+    }).sort("scheduled_at", 1))
+    
+    result = {
+        "debug_info": {
+            "current_utc": current_utc.isoformat(),
+            "current_ist": current_ist.isoformat(),
+            "total_scheduled": len(scheduled)
+        },
+        "scheduled_horoscopes": []
+    }
+    
+    for h in scheduled:
+        scheduled_at_utc = h.get("scheduled_at")
+        scheduled_at_ist = _utc_to_ist_horoscope(scheduled_at_utc) if scheduled_at_utc else None
+        
+        is_due = scheduled_at_utc and current_utc >= scheduled_at_utc
+        
+        result["scheduled_horoscopes"].append({
+            "_id": str(h["_id"]),
+            "date": h.get("date"),
+            "published": h.get("published", False),
+            "scheduled_at_utc": scheduled_at_utc.isoformat() if scheduled_at_utc else None,
+            "scheduled_at_ist": scheduled_at_ist.isoformat() if scheduled_at_ist else None,
+            "is_due": is_due,
+            "should_be_published": is_due and not h.get("published", False)
+        })
+    
+    return result
 
 
 @news_router.get("/admin/horoscope/date-range", response_model=List[DailyHoroscope], tags=["Horoscope Admin"])
