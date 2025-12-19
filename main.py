@@ -66,7 +66,8 @@ app.add_middleware(
                    "https://blogs.projectdevops.in", "https://www.blogs.projectdevops.in",
                    "https://gtnews18.in", "https://www.gtnews18.in",
                    "https://gobarsahitimes.com", "https://www.gobarsahitimes.com",
-                   "https://staging.gtnews18.in", "https://www.staging.gtnews18.in"],
+                   "https://staging.gtnews18.in", "https://www.staging.gtnews18.in",
+                   "https://admin.gobarsahitimes.com", "https://www.admin.gobarsahitimes.com"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*", "x-admin-token"],
@@ -105,7 +106,7 @@ app.include_router(govt_jobs_router, tags=["Government Jobs"])
 app.include_router(survey_router, prefix="/api", tags=["Survey"])
 app.include_router(grievance_router, tags=["Grievance Redressal"])
 app.include_router(designation_router, tags=["Designations"])
-app.include_router(employee_router, prefix="/api", tags=["Employee Management"])
+app.include_router(employee_router, tags=["Employee Management"])  # Direct /employees route
 
 if __name__ == "__main__":
     import uvicorn
