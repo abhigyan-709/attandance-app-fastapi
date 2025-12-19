@@ -2192,6 +2192,8 @@ def _parse_ist_datetime_horoscope(datetime_str: str) -> datetime:
         # Convert to UTC for storage
         utc_dt = ist_dt.astimezone(pytz.UTC).replace(tzinfo=None)
         
+        logger.info(f"[Timezone Conversion] Input IST: {datetime_str} -> Parsed IST: {ist_dt} -> UTC: {utc_dt}")
+        
         return utc_dt
     except Exception as e:
         raise HTTPException(
@@ -2221,6 +2223,9 @@ def _process_scheduled_horoscopes(db_client: MongoClient):
     try:
         coll = db_client[db.db_name][HOROSCOPE_COLL]
         current_utc = datetime.utcnow()
+        current_ist = _utc_to_ist_horoscope(current_utc)
+        
+        logger.info(f"[Horoscope Scheduler] Current UTC: {current_utc}, IST: {current_ist}")
         
         # Find scheduled horoscopes that are ready to publish
         scheduled_horoscopes = coll.find({
@@ -2233,13 +2238,17 @@ def _process_scheduled_horoscopes(db_client: MongoClient):
         for horoscope in scheduled_horoscopes:
             # Auto-publish the horoscope
             scheduled_time = horoscope.get("scheduled_at", datetime.utcnow())
+            scheduled_ist = _utc_to_ist_horoscope(scheduled_time)
+            logger.info(f"[Horoscope Scheduler] Auto-publishing horoscope {horoscope['_id']} scheduled for UTC: {scheduled_time}, IST: {scheduled_ist}")
+            
             coll.update_one(
                 {"_id": horoscope["_id"]},
                 {
                     "$set": {
                         "published": True,
                         "published_at": scheduled_time,
-                        "updated_at": datetime.utcnow()
+                        "updated_at": datetime.utcnow(),
+                        "scheduled_publish": False  # Clear scheduling flag after publishing
                     }
                 }
             )
