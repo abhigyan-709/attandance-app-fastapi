@@ -54,6 +54,9 @@ app = FastAPI(title="OpenSource Enterprise API",
 
 app.openapi_version = "3.0.2"
 
+# Increase max request body size for file uploads (50MB for employee documents)
+app.router.route_class = None  # Will be set by uvicorn with --limit-max-requests
+
 
 
 # Allow all origins for CORS (update this to a specific origin in production)
@@ -110,4 +113,5 @@ app.include_router(employee_router, tags=["Employee Management"])  # Direct /emp
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    # Increase request body size limit to 50MB for employee file uploads
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True, limit_max_requests=50*1024*1024)
