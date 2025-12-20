@@ -2310,13 +2310,16 @@ def _normalize_horoscope(doc: Dict[str, Any]) -> Dict[str, Any]:
         except:
             pass
     
-    # Convert datetime objects to ISO strings and show IST times
+    # Convert datetime objects to IST times (Indian users expect IST)
     for dt_field in ["created_at", "updated_at", "published_at", "scheduled_at"]:
         if dt_field in doc and isinstance(doc[dt_field], datetime):
-            # Convert to IST for display
-            ist_time = _utc_to_ist_horoscope(doc[dt_field])
-            doc[f"{dt_field}_ist"] = ist_time.isoformat()
-            doc[dt_field] = doc[dt_field].isoformat()  # Keep UTC for reference
+            utc_time = doc[dt_field]
+            ist_time = _utc_to_ist_horoscope(utc_time)
+            
+            # CRITICAL FIX: Make default field show IST time (what users expect)
+            doc[dt_field] = ist_time.isoformat()  # ✅ IST for display
+            doc[f"{dt_field}_utc"] = utc_time.isoformat()  # UTC for reference
+            doc[f"{dt_field}_ist"] = ist_time.isoformat()  # Explicit IST (backward compat)
     
     # Ensure author_details exists (fallback if missing)
     if not doc.get("author_details") and doc.get("author_username"):
