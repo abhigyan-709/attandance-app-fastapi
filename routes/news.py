@@ -2210,6 +2210,22 @@ def _utc_to_ist_horoscope(utc_dt: datetime) -> datetime:
     return utc_dt.astimezone(IST).replace(tzinfo=None)
 
 
+def _get_today_ist() -> date:
+    """Get today's date in IST timezone
+    
+    CRITICAL: Always use this function to get 'today' for horoscope queries.
+    Do NOT use date.today() as it uses server timezone (likely UTC).
+    
+    Example:
+    - Server time (UTC): 2025-12-19 23:00:00
+    - IST time: 2025-12-20 04:30:00
+    - This function returns: 2025-12-20 ✅
+    - date.today() returns: 2025-12-19 ❌
+    """
+    current_ist = _utc_to_ist_horoscope(datetime.utcnow())
+    return current_ist.date()
+
+
 def _is_scheduled_horoscope_ready(scheduled_at: datetime) -> bool:
     """Check if a scheduled horoscope should be published now (UTC comparison)"""
     if scheduled_at is None:
@@ -2224,9 +2240,9 @@ def _process_scheduled_horoscopes(db_client: MongoClient):
         coll = db_client[db.db_name][HOROSCOPE_COLL]
         current_utc = datetime.utcnow()
         current_ist = _utc_to_ist_horoscope(current_utc)
-        today_date = current_utc.date().isoformat()  # e.g., "2025-12-20"
+        today_date = _get_today_ist().isoformat()  # ✅ Use IST date helper
         
-        logger.info(f"🔍 [Horoscope Scheduler] Checking at UTC: {current_utc}, IST: {current_ist}, Today: {today_date}")
+        logger.info(f"🔍 [Horoscope Scheduler] Checking at UTC: {current_utc}, IST: {current_ist}, Today (IST): {today_date}")
         
         # Find horoscopes to publish:
         # 1. Explicitly scheduled horoscopes that are due
@@ -2348,10 +2364,11 @@ async def get_today_horoscope(
         # Process scheduled horoscopes first
         _process_scheduled_horoscopes(db_client)
         
-        today = date.today()
+        # ✅ Use IST date helper
+        today = _get_today_ist()
         today_str = today.isoformat()
         
-        logger.info(f"🔍 [get_today_horoscope] Looking for date: {today_str}")
+        logger.info(f"🔍 [get_today_horoscope] Looking for date (IST): {today_str}")
         
         # Query with explicit date string
         horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one({
@@ -2396,6 +2413,7 @@ async def get_horoscope_by_date(
         # Process scheduled horoscopes (auto-publish if time reached)
         _process_scheduled_horoscopes(db_client)
         
+        # Query by exact date string
         horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one({
             "date": target_date.isoformat(),
             "published": True
@@ -2426,7 +2444,8 @@ async def get_today_zodiac_prediction(
         # Process scheduled horoscopes (auto-publish if time reached)
         _process_scheduled_horoscopes(db_client)
         
-        today = date.today()
+        # ✅ Use IST date helper
+        today = _get_today_ist()
         
         horoscope = db_client[db.db_name][HOROSCOPE_COLL].find_one({
             "date": today.isoformat(),
@@ -3258,7 +3277,8 @@ async def debug_today_horoscope(
     db_client: MongoClient = Depends(db.get_client),
 ):
     """Debug endpoint to see what's stored for today"""
-    today = date.today()
+    # ✅ Use IST date helper
+    today = _get_today_ist()
     today_str = today.isoformat()
     
     # Check all horoscopes for today (published and unpublished)
@@ -3321,7 +3341,8 @@ async def publish_today_horoscope(
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     
-    today = date.today()
+    # ✅ Use IST date helper
+    today = _get_today_ist()
     today_str = today.isoformat()
     
     # Find today's unpublished horoscope
@@ -3398,6 +3419,46 @@ async def debug_scheduled_horoscopes(
         })
     
     return result
+
+
+@news_router.get("/admin/horoscope/debug/time-check", tags=["Horoscope Debug"])
+async def debug_time_check(
+    current_user: User = Depends(get_admin_user_horoscope),
+):
+    """Check current time in different timezones - use this to debug date issues"""
+    import platform
+    from datetime import datetime as dt_check
+    
+    current_utc = datetime.utcnow()
+    current_ist = _utc_to_ist_horoscope(current_utc)
+    today_ist = _get_today_ist()
+    server_date = date.today()
+    
+    return {
+        "server_info": {
+            "platform": platform.system(),
+            "python_version": platform.python_version(),
+            "server_timezone": "Likely UTC" if server_date != today_ist else "Matches IST"
+        },
+        "times": {
+            "utc_datetime": current_utc.isoformat(),
+            "utc_date": current_utc.date().isoformat(),
+            "ist_datetime": current_ist.isoformat(),
+            "ist_date": today_ist.isoformat(),
+            "server_date_today": server_date.isoformat(),
+        },
+        "comparison": {
+            "ist_vs_utc_hours_diff": "+5:30",
+            "dates_match": current_utc.date() == today_ist,
+            "issue_detected": current_utc.date() != today_ist,
+            "explanation": "If issue_detected=true, UTC and IST are on different dates (e.g., UTC=19th, IST=20th)"
+        },
+        "recommendation": {
+            "always_use_function": "_get_today_ist()",
+            "never_use": "date.today() - uses server timezone",
+            "for_queries": f"Use date: '{today_ist.isoformat()}' for today's horoscope"
+        }
+    }
 
 
 @news_router.get("/admin/horoscope/date-range", response_model=List[DailyHoroscope], tags=["Horoscope Admin"])
