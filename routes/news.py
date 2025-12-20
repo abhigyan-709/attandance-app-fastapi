@@ -2240,31 +2240,20 @@ def _process_scheduled_horoscopes(db_client: MongoClient):
         coll = db_client[db.db_name][HOROSCOPE_COLL]
         current_utc = datetime.utcnow()
         current_ist = _utc_to_ist_horoscope(current_utc)
-        today_date = _get_today_ist().isoformat()  # ✅ Use IST date helper
-        
-        logger.info(f"🔍 [Horoscope Scheduler] Checking at UTC: {current_utc}, IST: {current_ist}, Today (IST): {today_date}")
-        
-        # Find horoscopes to publish:
-        # 1. Explicitly scheduled horoscopes that are due
-        # 2. Horoscopes with today's date that should auto-publish
-        scheduled_horoscopes = list(coll.find({
-            "published": False,
-            "$or": [
-                # Explicitly scheduled
+        logger.info(f"🔍 [Horoscope Scheduler] Checking at UTC: {current_utc}, IST: {current_ist}")
+
+        # Match NEWS scheduling semantics:
+        # - Only publish explicitly scheduled items that are due
+        # - Compare using UTC
+        scheduled_horoscopes = list(
+            coll.find(
                 {
                     "scheduled_publish": True,
-                    "scheduled_at": {"$lte": current_utc}
-                },
-                # Today's horoscope (auto-publish if date matches and not explicitly scheduled for future)
-                {
-                    "date": today_date,
-                    "$or": [
-                        {"scheduled_publish": {"$ne": True}},
-                        {"scheduled_publish": True, "scheduled_at": {"$lte": current_utc}}
-                    ]
+                    "published": False,
+                    "scheduled_at": {"$lte": current_utc},
                 }
-            ]
-        }))
+            )
+        )
         
         logger.info(f"📋 [Horoscope Scheduler] Found {len(scheduled_horoscopes)} horoscopes to process")
         
@@ -2282,6 +2271,7 @@ def _process_scheduled_horoscopes(db_client: MongoClient):
                     "$set": {
                         "published": True,
                         "published_at": scheduled_time,
+                        "created_at": scheduled_time,  # Match NEWS: make it appear at scheduled time
                         "updated_at": current_utc,
                         "scheduled_publish": False  # Clear scheduling flag
                     }
@@ -2310,16 +2300,41 @@ def _normalize_horoscope(doc: Dict[str, Any]) -> Dict[str, Any]:
         except:
             pass
     
-    # Convert datetime objects to IST times (Indian users expect IST)
+    # Normalize datetime fields
+    # - Store/compare in UTC (naive) in DB
+    # - Return timezone-aware UTC datetimes for UI safety (+00:00), plus explicit *_utc/*_ist strings
     for dt_field in ["created_at", "updated_at", "published_at", "scheduled_at"]:
-        if dt_field in doc and isinstance(doc[dt_field], datetime):
-            utc_time = doc[dt_field]
-            ist_time = _utc_to_ist_horoscope(utc_time)
-            
-            # CRITICAL FIX: Make default field show IST time (what users expect)
-            doc[dt_field] = ist_time.isoformat()  # ✅ IST for display
-            doc[f"{dt_field}_utc"] = utc_time.isoformat()  # UTC for reference
-            doc[f"{dt_field}_ist"] = ist_time.isoformat()  # Explicit IST (backward compat)
+        if dt_field not in doc or doc[dt_field] is None:
+            continue
+
+        raw_value = doc[dt_field]
+        utc_naive: Optional[datetime] = None
+
+        if isinstance(raw_value, datetime):
+            # DB values should be UTC-naive datetimes
+            utc_naive = raw_value.replace(tzinfo=None)
+        elif isinstance(raw_value, str):
+            # Backward compat: some records might have timestamps stored as strings
+            try:
+                parsed = datetime.fromisoformat(raw_value)
+                if parsed.tzinfo is not None:
+                    utc_naive = parsed.astimezone(pytz.UTC).replace(tzinfo=None)
+                else:
+                    # Assume naive strings are UTC
+                    utc_naive = parsed
+            except Exception:
+                utc_naive = None
+
+        if utc_naive is None:
+            continue
+
+        aware_utc = pytz.UTC.localize(utc_naive)
+        aware_ist = aware_utc.astimezone(IST)
+
+        # Primary field becomes timezone-aware UTC so JS Date parsing converts correctly to local time
+        doc[dt_field] = aware_utc
+        doc[f"{dt_field}_utc"] = aware_utc.isoformat()
+        doc[f"{dt_field}_ist"] = aware_ist.isoformat()
     
     # Ensure author_details exists (fallback if missing)
     if not doc.get("author_details") and doc.get("author_username"):
@@ -3462,40 +3477,3 @@ async def debug_time_check(
             "for_queries": f"Use date: '{today_ist.isoformat()}' for today's horoscope"
         }
     }
-
-
-@news_router.get("/admin/horoscope/date-range", response_model=List[DailyHoroscope], tags=["Horoscope Admin"])
-async def get_horoscopes_by_date_range(
-    current_user: User = Depends(get_admin_user_horoscope),
-    db_client: MongoClient = Depends(db.get_client),
-    start_date: date = Query(...),
-    end_date: date = Query(...),
-    published: Optional[bool] = None,
-):
-    """Get horoscopes within a date range (Admin/Author)"""
-    try:
-        filter_query = {
-            "date": {
-                "$gte": start_date.isoformat(),
-                "$lte": end_date.isoformat()
-            }
-        }
-        
-        if published is not None:
-            filter_query["published"] = published
-        
-        # If author (not admin), only show their horoscopes
-        if current_user.role != "admin":
-            filter_query["author_username"] = current_user.username
-        
-        horoscopes = list(
-            db_client[db.db_name][HOROSCOPE_COLL]
-            .find(filter_query)
-            .sort("date", DESCENDING)
-        )
-        
-        return [_normalize_horoscope(h) for h in horoscopes]
-        
-    except Exception as e:
-        logger.error(f"Failed to fetch horoscopes by date range: {str(e)}")
-        raise HTTPException(status_code=500, detail="राशिफल लाने में त्रुटि")
