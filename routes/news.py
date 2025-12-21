@@ -2709,45 +2709,35 @@ async def create_horoscope(
             logger.warning("[create_horoscope] scheduled_at provided but scheduled_publish=False, ignoring scheduled_at")
             scheduled_at_utc = None
         
-        # Create horoscope document
-        horoscope_dict = horoscope_data.model_dump()
-        horoscope_dict["author_username"] = current_user.username
-        horoscope_dict["created_at"] = datetime.utcnow()
-        horoscope_dict["updated_at"] = datetime.utcnow()
-        
-        # Embed author details for quick access
-        horoscope_dict["author_details"] = {
-            "username": current_user.username,
-            "full_name": getattr(current_user, 'full_name', current_user.username),
-            "author_profile_image": getattr(current_user, 'author_profile_image', None),
-            "author_designation": getattr(current_user, 'author_designation', None),
-            "author_bio": getattr(current_user, 'author_bio', None)
+        # Build horoscope document (like news - don't rely on model_dump for datetime fields)
+        horoscope_dict = {
+            "title": horoscope_data.title,
+            "date": horoscope_data.date.isoformat(),  # Store date as string for query
+            "zodiac_predictions": [p.model_dump() for p in horoscope_data.zodiac_predictions],
+            "closing_message": horoscope_data.closing_message,
+            "contact_info": horoscope_data.contact_info,
+            "author_username": current_user.username,
+            "author_details": {
+                "username": current_user.username,
+                "full_name": getattr(current_user, 'full_name', current_user.username),
+                "author_profile_image": getattr(current_user, 'author_profile_image', None),
+                "author_designation": getattr(current_user, 'author_designation', None),
+                "author_bio": getattr(current_user, 'author_bio', None)
+            },
+            "published": horoscope_data.published if not scheduled_at_utc else False,
+            "scheduled_publish": True if scheduled_at_utc else False,
+            "scheduled_at": scheduled_at_utc,  # datetime object or None
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+            "views": 0,
+            "viewed_ips": [],
+            "likes": 0,
+            "liked_ips": [],
         }
         
-        # Initialize engagement metrics
-        horoscope_dict["views"] = 0
-        horoscope_dict["likes"] = 0
-        
-        # Set scheduled_at if scheduling
-        if scheduled_at_utc:
-            horoscope_dict["scheduled_at"] = scheduled_at_utc  # UTC naive datetime
-            horoscope_dict["scheduled_publish"] = True
-            horoscope_dict["published"] = False  # Force unpublished until scheduled time
-            logger.info(f"[create_horoscope] scheduled_at type before serialize: {type(horoscope_dict['scheduled_at'])}")
-        elif horoscope_dict.get("published"):
-            # Immediate publish - set published_at to current time
+        # Set published_at if immediately publishing
+        if horoscope_dict["published"]:
             horoscope_dict["published_at"] = datetime.utcnow()
-        
-        # Serialize for MongoDB - explicitly preserve datetime for scheduled_at
-        horoscope_dict = _serialize_horoscope(horoscope_dict)
-        
-        # CRITICAL: Ensure scheduled_at is datetime, not string
-        if "scheduled_at" in horoscope_dict and horoscope_dict["scheduled_at"] is not None:
-            if isinstance(horoscope_dict["scheduled_at"], str):
-                # Convert string back to datetime if it was accidentally serialized
-                horoscope_dict["scheduled_at"] = datetime.fromisoformat(horoscope_dict["scheduled_at"].replace("+00:00", "").replace("Z", ""))
-                logger.warning(f"[create_horoscope] Had to convert scheduled_at back to datetime")
-            logger.info(f"[create_horoscope] scheduled_at final type: {type(horoscope_dict['scheduled_at'])}, value: {horoscope_dict['scheduled_at']}")
         
         # Insert into database
         result = db_client[db.db_name][HOROSCOPE_COLL].insert_one(horoscope_dict)
@@ -2875,14 +2865,17 @@ async def update_horoscope(
             update_data["scheduled_publish"] = False
             update_data["scheduled_at"] = None
         
-        # Serialize for MongoDB
-        update_data = _serialize_horoscope(update_data)
+        # Handle zodiac_predictions serialization if present
+        if "zodiac_predictions" in update_data and update_data["zodiac_predictions"]:
+            update_data["zodiac_predictions"] = [
+                p.model_dump() if hasattr(p, 'model_dump') else p 
+                for p in update_data["zodiac_predictions"]
+            ]
         
-        # CRITICAL: Ensure scheduled_at is datetime, not string
-        if "scheduled_at" in update_data and update_data["scheduled_at"] is not None:
-            if isinstance(update_data["scheduled_at"], str):
-                update_data["scheduled_at"] = datetime.fromisoformat(update_data["scheduled_at"].replace("+00:00", "").replace("Z", ""))
-                logger.warning(f"[update_horoscope] Had to convert scheduled_at back to datetime")
+        # Handle date serialization if present
+        if "date" in update_data and update_data["date"] is not None:
+            if isinstance(update_data["date"], date):
+                update_data["date"] = update_data["date"].isoformat()
         
         # Update horoscope
         db_client[db.db_name][HOROSCOPE_COLL].update_one(
