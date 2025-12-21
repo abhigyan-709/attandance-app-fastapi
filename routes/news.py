@@ -2202,6 +2202,46 @@ def _parse_ist_datetime_horoscope(datetime_str: str) -> datetime:
         )
 
 
+def _coerce_horoscope_scheduled_at_to_utc_naive(value: Any) -> Optional[datetime]:
+    """Coerce various scheduled_at representations to a UTC-naive datetime.
+
+    Accepts:
+    - datetime (naive assumed UTC; aware converted to UTC)
+    - str:
+      - ISO-8601 (with or without timezone)
+      - legacy IST local string: YYYY-MM-DDTHH:MM
+    """
+    if value is None:
+        return None
+
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            return value.replace(tzinfo=None)
+        return value.astimezone(pytz.UTC).replace(tzinfo=None)
+
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return None
+
+        # Legacy format sent by UI as IST local time.
+        # This is also the format used by CreateHoroscopeRequest.scheduled_at.
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", raw):
+            return _parse_ist_datetime_horoscope(raw)
+
+        # ISO strings (may include timezone offset). Try to parse and normalize.
+        try:
+            parsed = datetime.fromisoformat(raw)
+            if parsed.tzinfo is not None:
+                return parsed.astimezone(pytz.UTC).replace(tzinfo=None)
+            # If timezone missing, assume it's already UTC.
+            return parsed.replace(tzinfo=None)
+        except Exception:
+            return None
+
+    return None
+
+
 def _utc_to_ist_horoscope(utc_dt: datetime) -> datetime:
     """Convert UTC datetime to IST for display"""
     if utc_dt is None:
@@ -2242,15 +2282,16 @@ def _process_scheduled_horoscopes(db_client: MongoClient):
         current_ist = _utc_to_ist_horoscope(current_utc)
         logger.info(f"🔍 [Horoscope Scheduler] Checking at UTC: {current_utc}, IST: {current_ist}")
 
-        # Match NEWS scheduling semantics:
+        # Robust scheduling semantics (handles legacy/mixed stored types):
         # - Only publish explicitly scheduled items that are due
-        # - Compare using UTC
+        # - Compare using UTC (naive)
+        # - Some older documents may have scheduled_at as a string; Mongo can't compare that to datetime.
         scheduled_horoscopes = list(
             coll.find(
                 {
                     "scheduled_publish": True,
                     "published": False,
-                    "scheduled_at": {"$lte": current_utc},
+                    "scheduled_at": {"$ne": None},
                 }
             )
         )
@@ -2261,7 +2302,16 @@ def _process_scheduled_horoscopes(db_client: MongoClient):
         for horoscope in scheduled_horoscopes:
             horoscope_id = horoscope["_id"]
             horoscope_date = horoscope.get("date")
-            scheduled_time = horoscope.get("scheduled_at", current_utc)
+
+            scheduled_time = _coerce_horoscope_scheduled_at_to_utc_naive(horoscope.get("scheduled_at"))
+            if scheduled_time is None:
+                logger.warning(
+                    f"⚠️ [Horoscope Scheduler] Skipping {horoscope_id}: invalid scheduled_at={horoscope.get('scheduled_at')!r}"
+                )
+                continue
+
+            if current_utc < scheduled_time:
+                continue
             
             logger.info(f"📤 [Horoscope Scheduler] Publishing horoscope {horoscope_id} for date {horoscope_date}")
             
@@ -2273,7 +2323,8 @@ def _process_scheduled_horoscopes(db_client: MongoClient):
                         "published_at": scheduled_time,
                         "created_at": scheduled_time,  # Match NEWS: make it appear at scheduled time
                         "updated_at": current_utc,
-                        "scheduled_publish": False  # Clear scheduling flag
+                        "scheduled_publish": False,  # Clear scheduling flag
+                        "scheduled_at": scheduled_time,  # Normalize stored type to UTC datetime
                     }
                 }
             )
@@ -3421,10 +3472,10 @@ async def debug_scheduled_horoscopes(
     }
     
     for h in scheduled:
-        scheduled_at_utc = h.get("scheduled_at")
+        scheduled_at_utc = _coerce_horoscope_scheduled_at_to_utc_naive(h.get("scheduled_at"))
         scheduled_at_ist = _utc_to_ist_horoscope(scheduled_at_utc) if scheduled_at_utc else None
-        
-        is_due = scheduled_at_utc and current_utc >= scheduled_at_utc
+
+        is_due = bool(scheduled_at_utc and current_utc >= scheduled_at_utc)
         
         result["scheduled_horoscopes"].append({
             "_id": str(h["_id"]),
