@@ -2275,68 +2275,44 @@ def _is_scheduled_horoscope_ready(scheduled_at: datetime) -> bool:
 
 
 def _process_scheduled_horoscopes(db_client: MongoClient):
-    """Background task to auto-publish scheduled horoscopes that are due"""
+    """Background task to auto-publish scheduled horoscopes that are due.
+    
+    Uses Mongo $lte comparison for reliable datetime checks (same as news scheduler).
+    Requires scheduled_at to be stored as UTC datetime (not string).
+    """
     try:
         coll = db_client[db.db_name][HOROSCOPE_COLL]
         current_utc = datetime.utcnow()
-        current_ist = _utc_to_ist_horoscope(current_utc)
-        logger.info(f"🔍 [Horoscope Scheduler] Checking at UTC: {current_utc}, IST: {current_ist}")
 
-        # Robust scheduling semantics (handles legacy/mixed stored types):
-        # - Only publish explicitly scheduled items that are due
-        # - Compare using UTC (naive)
-        # - Some older documents may have scheduled_at as a string; Mongo can't compare that to datetime.
-        scheduled_horoscopes = list(
-            coll.find(
-                {
-                    "scheduled_publish": True,
-                    "published": False,
-                    "scheduled_at": {"$ne": None},
-                }
-            )
-        )
-        
-        logger.info(f"📋 [Horoscope Scheduler] Found {len(scheduled_horoscopes)} horoscopes to process")
-        
-        updated_count = 0
-        for horoscope in scheduled_horoscopes:
-            horoscope_id = horoscope["_id"]
-            horoscope_date = horoscope.get("date")
+        # Use Mongo $lte for reliable datetime comparison
+        # This requires scheduled_at to be stored as datetime, not string
+        scheduled_horoscopes = coll.find({
+            "scheduled_publish": True,
+            "published": False,
+            "scheduled_at": {"$lte": current_utc}
+        })
 
-            scheduled_time = _coerce_horoscope_scheduled_at_to_utc_naive(horoscope.get("scheduled_at"))
-            if scheduled_time is None:
-                logger.warning(
-                    f"⚠️ [Horoscope Scheduler] Skipping {horoscope_id}: invalid scheduled_at={horoscope.get('scheduled_at')!r}"
-                )
-                continue
+        count = 0
+        for h in scheduled_horoscopes:
+            scheduled_time = h.get("scheduled_at") or current_utc
 
-            if current_utc < scheduled_time:
-                continue
-            
-            logger.info(f"📤 [Horoscope Scheduler] Publishing horoscope {horoscope_id} for date {horoscope_date}")
-            
             coll.update_one(
-                {"_id": horoscope_id},
-                {
-                    "$set": {
-                        "published": True,
-                        "published_at": scheduled_time,
-                        "created_at": scheduled_time,  # Match NEWS: make it appear at scheduled time
-                        "updated_at": current_utc,
-                        "scheduled_publish": False,  # Clear scheduling flag
-                        "scheduled_at": scheduled_time,  # Normalize stored type to UTC datetime
-                    }
-                }
+                {"_id": h["_id"]},
+                {"$set": {
+                    "published": True,
+                    "published_at": scheduled_time,
+                    "created_at": scheduled_time,  # Match NEWS: appear at scheduled time
+                    "updated_at": current_utc,
+                    "scheduled_publish": False
+                }}
             )
-            updated_count += 1
-        
-        if updated_count > 0:
-            logger.info(f"✅ [Horoscope Scheduler] Auto-published {updated_count} horoscopes")
-            
+            count += 1
+
+        if count:
+            logger.info(f"✅ [Horoscope Scheduler] Auto-published {count} horoscopes")
+
     except Exception as e:
-        logger.error(f"❌ [Horoscope Scheduler Error]: {str(e)}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"❌ [Horoscope Scheduler Error]: {e}")
 
 
 def _normalize_horoscope(doc: Dict[str, Any]) -> Dict[str, Any]:
@@ -2754,7 +2730,8 @@ async def create_horoscope(
         
         # Set scheduled_at if scheduling
         if scheduled_at_utc:
-            horoscope_dict["scheduled_at"] = scheduled_at_utc
+            horoscope_dict["scheduled_at"] = scheduled_at_utc  # UTC naive datetime
+            horoscope_dict["scheduled_publish"] = True
             horoscope_dict["published"] = False  # Force unpublished until scheduled time
         elif horoscope_dict.get("published"):
             # Immediate publish - set published_at to current time
@@ -2872,12 +2849,14 @@ async def update_horoscope(
                         detail=f"Scheduled time must be in the future. Current IST time: {current_ist.strftime('%Y-%m-%d %H:%M')}"
                     )
                 
-                update_data["scheduled_at"] = scheduled_at_utc
+                update_data["scheduled_at"] = scheduled_at_utc  # UTC naive datetime
+                update_data["scheduled_publish"] = True
                 update_data["published"] = False  # Force unpublished until scheduled time
                 logger.info(f"[update_horoscope] Updating schedule to {horoscope_data.scheduled_at} IST (UTC: {scheduled_at_utc})")
             else:
                 # Disable scheduling
                 update_data["scheduled_at"] = None
+                update_data["scheduled_publish"] = False
                 logger.info("[update_horoscope] Disabling scheduled publishing")
         
         # Set published_at if publishing for the first time
@@ -3372,13 +3351,13 @@ async def debug_today_horoscope(
 
 @news_router.post("/admin/horoscope/force-process-scheduled", tags=["Horoscope Debug"])
 async def force_process_scheduled(
-    current_user: User = Depends(get_admin_user_horoscope),
     db_client: MongoClient = Depends(db.get_client),
 ):
-    """Manually trigger scheduled horoscope processing"""
-    if current_user.role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
+    """Trigger scheduled horoscope processing.
     
+    Can be called by cron job:
+    * * * * * curl -s -X POST https://api.projectdevops.in/admin/horoscope/force-process-scheduled > /dev/null
+    """
     _process_scheduled_horoscopes(db_client)
     
     return {"message": "Scheduled horoscopes processed"}
