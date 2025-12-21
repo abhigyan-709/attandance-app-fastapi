@@ -2733,12 +2733,21 @@ async def create_horoscope(
             horoscope_dict["scheduled_at"] = scheduled_at_utc  # UTC naive datetime
             horoscope_dict["scheduled_publish"] = True
             horoscope_dict["published"] = False  # Force unpublished until scheduled time
+            logger.info(f"[create_horoscope] scheduled_at type before serialize: {type(horoscope_dict['scheduled_at'])}")
         elif horoscope_dict.get("published"):
             # Immediate publish - set published_at to current time
             horoscope_dict["published_at"] = datetime.utcnow()
         
-        # Serialize for MongoDB
+        # Serialize for MongoDB - explicitly preserve datetime for scheduled_at
         horoscope_dict = _serialize_horoscope(horoscope_dict)
+        
+        # CRITICAL: Ensure scheduled_at is datetime, not string
+        if "scheduled_at" in horoscope_dict and horoscope_dict["scheduled_at"] is not None:
+            if isinstance(horoscope_dict["scheduled_at"], str):
+                # Convert string back to datetime if it was accidentally serialized
+                horoscope_dict["scheduled_at"] = datetime.fromisoformat(horoscope_dict["scheduled_at"].replace("+00:00", "").replace("Z", ""))
+                logger.warning(f"[create_horoscope] Had to convert scheduled_at back to datetime")
+            logger.info(f"[create_horoscope] scheduled_at final type: {type(horoscope_dict['scheduled_at'])}, value: {horoscope_dict['scheduled_at']}")
         
         # Insert into database
         result = db_client[db.db_name][HOROSCOPE_COLL].insert_one(horoscope_dict)
@@ -2868,6 +2877,12 @@ async def update_horoscope(
         
         # Serialize for MongoDB
         update_data = _serialize_horoscope(update_data)
+        
+        # CRITICAL: Ensure scheduled_at is datetime, not string
+        if "scheduled_at" in update_data and update_data["scheduled_at"] is not None:
+            if isinstance(update_data["scheduled_at"], str):
+                update_data["scheduled_at"] = datetime.fromisoformat(update_data["scheduled_at"].replace("+00:00", "").replace("Z", ""))
+                logger.warning(f"[update_horoscope] Had to convert scheduled_at back to datetime")
         
         # Update horoscope
         db_client[db.db_name][HOROSCOPE_COLL].update_one(
