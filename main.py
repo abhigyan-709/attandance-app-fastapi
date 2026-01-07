@@ -112,20 +112,33 @@ app.router.route_class = None  # Will be set by uvicorn with --limit-max-request
 
 
 # Allow all origins for CORS (update this to a specific origin in production)
-app.add_middleware(TrustedHostMiddleware, allowed_hosts=["*"])
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://familiesfuel.com", "http://localhost:5173", "http://localhost:3000", 
-                   "https://projectdevops.in", "https://www.projectdevops.in", 
-                   "https://tools.projectdevops.in", "https://www.tools.projectdevops.in",
-                   "https://blogs.projectdevops.in", "https://www.blogs.projectdevops.in",
-                   "https://gtnews18.in", "https://www.gtnews18.in",
-                   "https://gobarsahitimes.com", "https://www.gobarsahitimes.com",
-                   "https://staging.gtnews18.in", "https://www.staging.gtnews18.in",
-                   "https://admin.gobarsahitimes.com", "https://www.admin.gobarsahitimes.com"],
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:3000",
+
+        "https://gobarsahitimes.com",
+        "https://www.gobarsahitimes.com",
+
+        "https://gtnews18.in",
+        "https://www.gtnews18.in",
+
+        "https://projectdevops.in",
+        "https://www.projectdevops.in"
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*", "x-admin-token"],
+
+    # Only what you actually need
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
+
+    # Explicit headers only (prevents abuse)
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "x-admin-token"
+    ],
 )
 
 
