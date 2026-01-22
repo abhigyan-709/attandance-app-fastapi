@@ -76,6 +76,15 @@ class NewsPost(BaseModel):
     meta_title: Optional[str] = None                        # Defaults to title
     meta_description: Optional[str] = None                  # Auto-extracted from content
     keywords: Optional[List[str]] = Field(default_factory=list)  # SEO keywords
+    
+    # NEW SEO Fields for better Google ranking
+    focus_keyword: Optional[str] = None                     # Primary SEO keyword (e.g., "Bihar Election 2026")
+    image_alt: Optional[str] = None                         # Alt text for featured image (for accessibility & SEO)
+    reading_time_minutes: Optional[int] = None              # Estimated reading time (auto-calculated)
+    is_breaking_news: Optional[bool] = False                # Breaking news flag (for schema.org)
+    is_opinion: Optional[bool] = False                      # Opinion/Editorial piece (for schema.org)
+    word_count: Optional[int] = None                        # Word count (auto-calculated)
+    canonical_url_override: Optional[str] = None            # Custom canonical URL if different from default
 
 
 class Category(BaseModel):

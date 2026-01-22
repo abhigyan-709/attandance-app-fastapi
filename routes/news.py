@@ -140,6 +140,20 @@ def _extract_meta_description(content: str, max_length: int = 160) -> str:
     # Return first 160 characters for meta description
     return text[:max_length] + "..." if len(text) > max_length else text
 
+def _calculate_word_count(content: str) -> int:
+    """Calculate word count from HTML content"""
+    if not content:
+        return 0
+    soup = BeautifulSoup(content, "html.parser")
+    text = soup.get_text()
+    # Count Hindi + English words
+    words = re.findall(r'[\u0900-\u097F]+|[a-zA-Z]+', text)
+    return len(words)
+
+def _calculate_reading_time(word_count: int) -> int:
+    """Calculate reading time in minutes (average 200 words/min for Hindi)"""
+    return max(1, round(word_count / 200))
+
 def _extract_keywords(title: str, content: str, categories: str) -> List[str]:
     """Auto-extract keywords from title, content, and categories"""
     keywords = []
@@ -154,6 +168,152 @@ def _extract_keywords(title: str, content: str, categories: str) -> List[str]:
     
     # Remove duplicates and limit to 10 keywords
     return list(dict.fromkeys(keywords))[:10]
+
+
+# ==================== SEO/SCHEMA.ORG HELPERS ====================
+
+# Publisher info for JSON-LD (configure these for your site)
+PUBLISHER_NAME = os.getenv("NEWS_PUBLISHER_NAME", "GT News 18")
+PUBLISHER_LOGO_URL = os.getenv("NEWS_PUBLISHER_LOGO", "https://gobarsahitimes.com/logo.png")
+PUBLISHER_URL = os.getenv("NEWS_BASE_URL", "https://gobarsahitimes.com")
+
+
+def _generate_news_article_jsonld(doc: Dict[str, Any], db_client: MongoClient) -> Dict[str, Any]:
+    """
+    Generate Google News compliant JSON-LD structured data for a news article.
+    
+    This schema is CRITICAL for:
+    - Google News inclusion
+    - Rich snippets in search results
+    - Better SEO ranking
+    
+    Schema: https://schema.org/NewsArticle
+    """
+    news_id = str(doc.get("_id", ""))
+    title = doc.get("title", "")
+    slug = doc.get("slug") or _generate_seo_slug(title, news_id)
+    canonical_url = doc.get("canonical_url_override") or f"{NEWS_BASE_URL}/news/{slug}"
+    
+    # Get clean text content
+    content = doc.get("content", "")
+    plain_text = _extract_meta_description(content, max_length=5000)  # Full article text
+    description = doc.get("meta_description") or _extract_meta_description(content, 160)
+    
+    # Calculate word count and reading time if not stored
+    word_count = doc.get("word_count") or _calculate_word_count(content)
+    reading_time = doc.get("reading_time_minutes") or _calculate_reading_time(word_count)
+    
+    # Dates in ISO 8601 format
+    created_at = doc.get("created_at", datetime.utcnow())
+    updated_at = doc.get("updated_at") or created_at
+    
+    if isinstance(created_at, datetime):
+        date_published = created_at.strftime("%Y-%m-%dT%H:%M:%S+05:30")  # IST
+    else:
+        date_published = str(created_at)
+    
+    if isinstance(updated_at, datetime):
+        date_modified = updated_at.strftime("%Y-%m-%dT%H:%M:%S+05:30")
+    else:
+        date_modified = str(updated_at)
+    
+    # Author information
+    author_details = doc.get("author_details") or {}
+    author_name = author_details.get("full_name") or doc.get("author_username", "Editorial Team")
+    author_url = f"{NEWS_BASE_URL}/author/{doc.get('author_username', 'team')}"
+    
+    # Image
+    image_url = doc.get("image_url", "")
+    image_alt = doc.get("image_alt") or title
+    
+    # Keywords
+    keywords = doc.get("keywords") or _extract_keywords(title, content, doc.get("categories", ""))
+    
+    # Determine article type
+    article_type = "NewsArticle"
+    if doc.get("is_opinion"):
+        article_type = "OpinionNewsArticle"
+    
+    # Build the JSON-LD schema
+    jsonld = {
+        "@context": "https://schema.org",
+        "@type": article_type,
+        "mainEntityOfPage": {
+            "@type": "WebPage",
+            "@id": canonical_url
+        },
+        "headline": title[:110],  # Google recommends max 110 chars
+        "description": description,
+        "image": {
+            "@type": "ImageObject",
+            "url": image_url,
+            "alt": image_alt
+        } if image_url else None,
+        "author": {
+            "@type": "Person",
+            "name": author_name,
+            "url": author_url
+        },
+        "publisher": {
+            "@type": "Organization",
+            "name": PUBLISHER_NAME,
+            "logo": {
+                "@type": "ImageObject",
+                "url": PUBLISHER_LOGO_URL
+            },
+            "url": PUBLISHER_URL
+        },
+        "datePublished": date_published,
+        "dateModified": date_modified,
+        "articleSection": doc.get("categories", "News"),
+        "keywords": ", ".join(keywords) if keywords else None,
+        "wordCount": word_count,
+        "inLanguage": "hi-IN",
+        "isAccessibleForFree": True,
+        "articleBody": plain_text[:5000]  # First 5000 chars
+    }
+    
+    # Add breaking news indicator if applicable
+    if doc.get("is_breaking_news"):
+        jsonld["@type"] = "NewsArticle"
+        jsonld["genre"] = "Breaking News"
+    
+    # Remove None values
+    jsonld = {k: v for k, v in jsonld.items() if v is not None}
+    
+    return jsonld
+
+
+def _generate_breadcrumb_jsonld(doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Generate BreadcrumbList JSON-LD for navigation"""
+    category = doc.get("categories", "समाचार")
+    title = doc.get("title", "")
+    slug = doc.get("slug") or _generate_seo_slug(title, str(doc.get("_id", "")))
+    
+    return {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+            {
+                "@type": "ListItem",
+                "position": 1,
+                "name": "होम",
+                "item": NEWS_BASE_URL
+            },
+            {
+                "@type": "ListItem",
+                "position": 2,
+                "name": category,
+                "item": f"{NEWS_BASE_URL}/category/{category}"
+            },
+            {
+                "@type": "ListItem",
+                "position": 3,
+                "name": title[:50],
+                "item": f"{NEWS_BASE_URL}/news/{slug}"
+            }
+        ]
+    }
 
 
 def _notify_new_blog_async(title: str, url: str, image: Optional[str] = None):
@@ -458,6 +618,13 @@ async def create_news(
     scheduled_publish: bool = Form(False),
     scheduled_at: Optional[str] = Form(None),
     author_username: Optional[str] = Form(None),  # Admin can override author
+    # NEW SEO fields (optional - for UI enhancement)
+    focus_keyword: Optional[str] = Form(None),          # Primary SEO keyword
+    meta_title_override: Optional[str] = Form(None),    # Custom meta title (max 60 chars)
+    meta_description_override: Optional[str] = Form(None),  # Custom description (max 160 chars)
+    image_alt: Optional[str] = Form(None),              # Alt text for featured image
+    is_breaking_news: bool = Form(False),               # Breaking news flag
+    is_opinion: bool = Form(False),                     # Opinion/Editorial flag
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = None,
     current_user: User = Depends(get_current_author_or_admin_user),
@@ -640,12 +807,24 @@ async def create_news(
     news_id = str(inserted.inserted_id)
     news_data["_id"] = news_id
 
+    # Calculate word count and reading time
+    word_count = _calculate_word_count(content)
+    reading_time = _calculate_reading_time(word_count)
+
     # Add SEO data after insertion (custom slug is required)
     seo_updates = {
         "slug": custom_slug,
-        "meta_title": title[:60] if len(title) > 60 else title,  # SEO optimal length
-        "meta_description": _extract_meta_description(content),
-        "keywords": _extract_keywords(title, content, categories)
+        # Use override if provided, else auto-generate
+        "meta_title": (meta_title_override.strip()[:60] if meta_title_override else title[:60]) if len(title) > 60 else (meta_title_override.strip() if meta_title_override else title),
+        "meta_description": meta_description_override.strip()[:160] if meta_description_override else _extract_meta_description(content),
+        "keywords": _extract_keywords(title, content, categories),
+        # NEW SEO fields
+        "focus_keyword": focus_keyword.strip() if focus_keyword else None,
+        "image_alt": image_alt.strip() if image_alt else title,  # Default to title for accessibility
+        "word_count": word_count,
+        "reading_time_minutes": reading_time,
+        "is_breaking_news": is_breaking_news,
+        "is_opinion": is_opinion,
     }
     
     # Update the document with SEO data
@@ -2043,6 +2222,163 @@ async def generate_sitemap(db_client: MongoClient = Depends(db.get_client)):
     """
     
     return HTMLResponse(content=sitemap_content, media_type="application/xml")
+
+
+# ==================== JSON-LD STRUCTURED DATA ENDPOINTS ====================
+
+@news_router.get("/news/{news_id}/jsonld", tags=["News SEO"])
+async def get_news_jsonld(news_id: str, db_client: MongoClient = Depends(db.get_client)):
+    """
+    Get JSON-LD structured data for a news article.
+    
+    This endpoint returns Google News compliant structured data that should be
+    embedded in the <head> of your news article page.
+    
+    Usage in UI:
+    ```html
+    <script type="application/ld+json">
+        {response data here}
+    </script>
+    ```
+    
+    Why this matters for SEO:
+    - Required for Google News inclusion
+    - Enables rich snippets in Google Search
+    - Improves click-through rate by 20-30%
+    - Better article visibility in Google Discover
+    """
+    if not ObjectId.is_valid(news_id):
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    doc = db_client[db.db_name][NEWS_COLL].find_one({"_id": ObjectId(news_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    return _generate_news_article_jsonld(doc, db_client)
+
+
+@news_router.get("/news/slug/{slug}/jsonld", tags=["News SEO"])
+async def get_news_jsonld_by_slug(slug: str, db_client: MongoClient = Depends(db.get_client)):
+    """
+    Get JSON-LD structured data by slug (SEO-friendly URL).
+    
+    Same as /news/{news_id}/jsonld but uses slug for lookup.
+    """
+    doc = db_client[db.db_name][NEWS_COLL].find_one({"slug": slug, "published": True})
+    
+    if not doc:
+        # Try to find by short ID suffix
+        parts = slug.split('-')
+        if parts:
+            potential_id = parts[-1]
+            if len(potential_id) == 8:
+                cursor = db_client[db.db_name][NEWS_COLL].find({"published": True}, {"_id": 1})
+                for candidate in cursor:
+                    if str(candidate["_id"]).endswith(potential_id):
+                        doc = db_client[db.db_name][NEWS_COLL].find_one({"_id": candidate["_id"]})
+                        break
+    
+    if not doc:
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    return _generate_news_article_jsonld(doc, db_client)
+
+
+@news_router.get("/news/{news_id}/breadcrumb-jsonld", tags=["News SEO"])
+async def get_news_breadcrumb_jsonld(news_id: str, db_client: MongoClient = Depends(db.get_client)):
+    """
+    Get BreadcrumbList JSON-LD for a news article.
+    
+    Helps Google understand site structure and may show breadcrumbs in search results.
+    
+    Usage in UI:
+    ```html
+    <script type="application/ld+json">
+        {response data here}
+    </script>
+    ```
+    """
+    if not ObjectId.is_valid(news_id):
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    doc = db_client[db.db_name][NEWS_COLL].find_one({"_id": ObjectId(news_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    return _generate_breadcrumb_jsonld(doc)
+
+
+@news_router.get("/news/{news_id}/full-seo", tags=["News SEO"])
+async def get_news_full_seo(news_id: str, db_client: MongoClient = Depends(db.get_client)):
+    """
+    Get complete SEO package for a news article.
+    
+    Returns all SEO data needed by the frontend:
+    - Meta tags (title, description, keywords)
+    - Open Graph tags
+    - Twitter Card tags
+    - JSON-LD structured data (NewsArticle + BreadcrumbList)
+    - Canonical URL
+    
+    This is the recommended endpoint for UI integration.
+    """
+    if not ObjectId.is_valid(news_id):
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    doc = db_client[db.db_name][NEWS_COLL].find_one({"_id": ObjectId(news_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    title = doc.get("title", "")
+    slug = doc.get("slug") or _generate_seo_slug(title, news_id)
+    canonical_url = doc.get("canonical_url_override") or f"{NEWS_BASE_URL}/news/{slug}"
+    description = doc.get("meta_description") or _extract_meta_description(doc.get("content", ""))
+    image_url = doc.get("image_url", "")
+    keywords = doc.get("keywords") or _extract_keywords(title, doc.get("content", ""), doc.get("categories", ""))
+    
+    return {
+        "meta": {
+            "title": doc.get("meta_title") or title,
+            "description": description,
+            "keywords": keywords,
+            "canonical_url": canonical_url,
+            "robots": "index, follow",
+            "language": "hi"
+        },
+        "open_graph": {
+            "og:type": "article",
+            "og:title": title,
+            "og:description": description,
+            "og:image": image_url,
+            "og:url": canonical_url,
+            "og:locale": "hi_IN",
+            "og:site_name": PUBLISHER_NAME,
+            "article:published_time": doc.get("created_at", datetime.utcnow()).isoformat() if isinstance(doc.get("created_at"), datetime) else str(doc.get("created_at", "")),
+            "article:modified_time": doc.get("updated_at", datetime.utcnow()).isoformat() if isinstance(doc.get("updated_at"), datetime) else str(doc.get("updated_at", "")),
+            "article:section": doc.get("categories", "News"),
+            "article:tag": keywords
+        },
+        "twitter": {
+            "twitter:card": "summary_large_image",
+            "twitter:title": title,
+            "twitter:description": description,
+            "twitter:image": image_url,
+            "twitter:image:alt": doc.get("image_alt") or title
+        },
+        "jsonld": [
+            _generate_news_article_jsonld(doc, db_client),
+            _generate_breadcrumb_jsonld(doc)
+        ],
+        "additional_seo": {
+            "word_count": doc.get("word_count") or _calculate_word_count(doc.get("content", "")),
+            "reading_time_minutes": doc.get("reading_time_minutes") or _calculate_reading_time(_calculate_word_count(doc.get("content", ""))),
+            "focus_keyword": doc.get("focus_keyword"),
+            "is_breaking_news": doc.get("is_breaking_news", False),
+            "is_opinion": doc.get("is_opinion", False)
+        }
+    }
+
+
 @news_router.get("/news/{news_id}/meta", response_class=HTMLResponse, tags=["News"])
 async def get_news_meta(news_id: str, db_client: MongoClient = Depends(db.get_client)):
     if not ObjectId.is_valid(news_id):
