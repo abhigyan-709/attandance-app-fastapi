@@ -948,6 +948,550 @@ async def news_stats(db_client: MongoClient = Depends(db.get_client)):
     }
 
 
+# ==================== SEO STATISTICS ENDPOINTS ====================
+
+@news_router.get("/news/seo-stats", tags=["News SEO Analytics"])
+async def get_seo_stats(
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """
+    Get comprehensive SEO statistics for the news portal.
+    
+    Returns:
+    - Overall SEO health score
+    - Field completion rates
+    - Content quality metrics
+    - Top performing articles by SEO
+    """
+    coll = db_client[db.db_name][NEWS_COLL]
+    
+    # Total counts
+    total_articles = coll.count_documents({})
+    published_articles = coll.count_documents({"published": True})
+    
+    if total_articles == 0:
+        return {
+            "overall_health_score": 0,
+            "total_articles": 0,
+            "published_articles": 0,
+            "seo_field_coverage": {},
+            "content_quality": {},
+            "article_types": {},
+            "recommendations": ["No articles found. Start creating content!"]
+        }
+    
+    # SEO field coverage
+    has_slug = coll.count_documents({"slug": {"$exists": True, "$ne": None, "$ne": ""}})
+    has_meta_title = coll.count_documents({"meta_title": {"$exists": True, "$ne": None, "$ne": ""}})
+    has_meta_description = coll.count_documents({"meta_description": {"$exists": True, "$ne": None, "$ne": ""}})
+    has_focus_keyword = coll.count_documents({"focus_keyword": {"$exists": True, "$ne": None, "$ne": ""}})
+    has_image_alt = coll.count_documents({"image_alt": {"$exists": True, "$ne": None, "$ne": ""}})
+    has_keywords = coll.count_documents({"keywords": {"$exists": True, "$ne": [], "$type": "array"}})
+    
+    # Article types
+    breaking_news_count = coll.count_documents({"is_breaking_news": True})
+    opinion_count = coll.count_documents({"is_opinion": True})
+    
+    # Content quality aggregation
+    content_agg = list(coll.aggregate([
+        {"$match": {"published": True}},
+        {"$group": {
+            "_id": None,
+            "avg_word_count": {"$avg": {"$ifNull": ["$word_count", 0]}},
+            "avg_reading_time": {"$avg": {"$ifNull": ["$reading_time_minutes", 0]}},
+            "total_views": {"$sum": {"$ifNull": ["$views", 0]}},
+            "total_likes": {"$sum": {"$ifNull": ["$likes", 0]}},
+            "articles_with_word_count": {"$sum": {"$cond": [{"$gt": [{"$ifNull": ["$word_count", 0]}, 0]}, 1, 0]}}
+        }}
+    ]))
+    
+    content_stats = content_agg[0] if content_agg else {
+        "avg_word_count": 0, 
+        "avg_reading_time": 0, 
+        "total_views": 0, 
+        "total_likes": 0,
+        "articles_with_word_count": 0
+    }
+    
+    # Calculate SEO health score (0-100)
+    slug_score = (has_slug / total_articles) * 20 if total_articles > 0 else 0
+    meta_title_score = (has_meta_title / total_articles) * 20 if total_articles > 0 else 0
+    meta_desc_score = (has_meta_description / total_articles) * 20 if total_articles > 0 else 0
+    focus_kw_score = (has_focus_keyword / total_articles) * 20 if total_articles > 0 else 0
+    image_alt_score = (has_image_alt / total_articles) * 20 if total_articles > 0 else 0
+    
+    overall_health_score = round(slug_score + meta_title_score + meta_desc_score + focus_kw_score + image_alt_score)
+    
+    # Generate recommendations
+    recommendations = []
+    if has_slug < total_articles:
+        recommendations.append(f"{total_articles - has_slug} articles missing SEO-friendly slugs")
+    if has_meta_title < total_articles:
+        recommendations.append(f"{total_articles - has_meta_title} articles missing custom meta titles")
+    if has_meta_description < total_articles:
+        recommendations.append(f"{total_articles - has_meta_description} articles missing meta descriptions")
+    if has_focus_keyword < total_articles:
+        recommendations.append(f"{total_articles - has_focus_keyword} articles missing focus keywords")
+    if has_image_alt < total_articles:
+        recommendations.append(f"{total_articles - has_image_alt} articles missing image alt text")
+    
+    return {
+        "overall_health_score": overall_health_score,
+        "total_articles": total_articles,
+        "published_articles": published_articles,
+        "draft_articles": total_articles - published_articles,
+        "seo_field_coverage": {
+            "slug": {"count": has_slug, "percentage": round((has_slug / total_articles) * 100, 1)},
+            "meta_title": {"count": has_meta_title, "percentage": round((has_meta_title / total_articles) * 100, 1)},
+            "meta_description": {"count": has_meta_description, "percentage": round((has_meta_description / total_articles) * 100, 1)},
+            "focus_keyword": {"count": has_focus_keyword, "percentage": round((has_focus_keyword / total_articles) * 100, 1)},
+            "image_alt": {"count": has_image_alt, "percentage": round((has_image_alt / total_articles) * 100, 1)},
+            "keywords_array": {"count": has_keywords, "percentage": round((has_keywords / total_articles) * 100, 1)},
+        },
+        "content_quality": {
+            "avg_word_count": round(content_stats.get("avg_word_count", 0)),
+            "avg_reading_time_minutes": round(content_stats.get("avg_reading_time", 0), 1),
+            "articles_with_word_count": content_stats.get("articles_with_word_count", 0),
+            "total_views": content_stats.get("total_views", 0),
+            "total_likes": content_stats.get("total_likes", 0),
+        },
+        "article_types": {
+            "breaking_news": breaking_news_count,
+            "opinion_editorial": opinion_count,
+            "regular": total_articles - breaking_news_count - opinion_count
+        },
+        "recommendations": recommendations if recommendations else ["All SEO fields are complete! Great job!"]
+    }
+
+
+@news_router.get("/news/seo-stats/articles-missing-seo", tags=["News SEO Analytics"])
+async def get_articles_missing_seo(
+    field: str = Query(..., description="SEO field to check: slug, meta_title, meta_description, focus_keyword, image_alt"),
+    limit: int = Query(50, ge=1, le=200),
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """
+    Get list of articles missing a specific SEO field.
+    
+    Useful for bulk SEO optimization tasks.
+    """
+    field_mapping = {
+        "slug": "slug",
+        "meta_title": "meta_title",
+        "meta_description": "meta_description",
+        "focus_keyword": "focus_keyword",
+        "image_alt": "image_alt"
+    }
+    
+    if field not in field_mapping:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid field. Must be one of: {', '.join(field_mapping.keys())}"
+        )
+    
+    db_field = field_mapping[field]
+    coll = db_client[db.db_name][NEWS_COLL]
+    
+    # Find articles where field is missing, null, or empty
+    query = {
+        "$or": [
+            {db_field: {"$exists": False}},
+            {db_field: None},
+            {db_field: ""}
+        ]
+    }
+    
+    articles = list(coll.find(
+        query,
+        {"title": 1, "slug": 1, "author_username": 1, "published": 1, "created_at": 1, "views": 1}
+    ).sort("created_at", DESCENDING).limit(limit))
+    
+    for a in articles:
+        a["_id"] = str(a["_id"])
+    
+    return {
+        "field": field,
+        "total_missing": coll.count_documents(query),
+        "articles": articles
+    }
+
+
+@news_router.get("/news/seo-stats/keyword-analysis", tags=["News SEO Analytics"])
+async def get_keyword_analysis(
+    limit: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """
+    Analyze keyword usage across all articles.
+    
+    Returns:
+    - Most used keywords
+    - Focus keyword frequency
+    - Keyword distribution
+    """
+    coll = db_client[db.db_name][NEWS_COLL]
+    
+    # Most used auto-extracted keywords
+    keyword_pipeline = [
+        {"$match": {"keywords": {"$exists": True, "$type": "array"}}},
+        {"$unwind": "$keywords"},
+        {"$group": {"_id": "$keywords", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": limit}
+    ]
+    top_keywords = list(coll.aggregate(keyword_pipeline))
+    
+    # Focus keyword analysis
+    focus_keyword_pipeline = [
+        {"$match": {"focus_keyword": {"$exists": True, "$ne": None, "$ne": ""}}},
+        {"$group": {"_id": "$focus_keyword", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": limit}
+    ]
+    top_focus_keywords = list(coll.aggregate(focus_keyword_pipeline))
+    
+    # Category distribution
+    category_pipeline = [
+        {"$match": {"categories": {"$exists": True, "$ne": None, "$ne": ""}}},
+        {"$group": {"_id": "$categories", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]
+    category_distribution = list(coll.aggregate(category_pipeline))
+    
+    return {
+        "top_keywords": [{"keyword": k["_id"], "count": k["count"]} for k in top_keywords],
+        "top_focus_keywords": [{"keyword": k["_id"], "count": k["count"]} for k in top_focus_keywords],
+        "category_distribution": [{"category": c["_id"], "count": c["count"]} for c in category_distribution],
+        "total_unique_keywords": len(list(coll.aggregate([
+            {"$match": {"keywords": {"$exists": True, "$type": "array"}}},
+            {"$unwind": "$keywords"},
+            {"$group": {"_id": "$keywords"}}
+        ]))),
+        "articles_with_focus_keyword": coll.count_documents({"focus_keyword": {"$exists": True, "$ne": None, "$ne": ""}})
+    }
+
+
+@news_router.get("/news/seo-stats/content-length-distribution", tags=["News SEO Analytics"])
+async def get_content_length_distribution(
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """
+    Analyze content length distribution for SEO optimization.
+    
+    Google typically favors articles with 1000+ words for comprehensive topics.
+    """
+    coll = db_client[db.db_name][NEWS_COLL]
+    
+    # Word count buckets
+    very_short = coll.count_documents({"word_count": {"$lt": 300}})  # < 300 words
+    short = coll.count_documents({"word_count": {"$gte": 300, "$lt": 600}})  # 300-599
+    medium = coll.count_documents({"word_count": {"$gte": 600, "$lt": 1000}})  # 600-999
+    long_form = coll.count_documents({"word_count": {"$gte": 1000, "$lt": 2000}})  # 1000-1999
+    very_long = coll.count_documents({"word_count": {"$gte": 2000}})  # 2000+
+    no_word_count = coll.count_documents({"$or": [{"word_count": {"$exists": False}}, {"word_count": None}, {"word_count": 0}]})
+    
+    # Reading time distribution
+    quick_read = coll.count_documents({"reading_time_minutes": {"$lte": 2}})
+    medium_read = coll.count_documents({"reading_time_minutes": {"$gt": 2, "$lte": 5}})
+    long_read = coll.count_documents({"reading_time_minutes": {"$gt": 5, "$lte": 10}})
+    very_long_read = coll.count_documents({"reading_time_minutes": {"$gt": 10}})
+    
+    # Top longest articles
+    longest_articles = list(coll.find(
+        {"word_count": {"$exists": True, "$gt": 0}},
+        {"title": 1, "slug": 1, "word_count": 1, "reading_time_minutes": 1, "views": 1}
+    ).sort("word_count", DESCENDING).limit(10))
+    
+    for a in longest_articles:
+        a["_id"] = str(a["_id"])
+    
+    # Shortest published articles (need optimization)
+    shortest_published = list(coll.find(
+        {"published": True, "word_count": {"$exists": True, "$gt": 0, "$lt": 300}},
+        {"title": 1, "slug": 1, "word_count": 1, "views": 1}
+    ).sort("word_count", ASCENDING).limit(10))
+    
+    for a in shortest_published:
+        a["_id"] = str(a["_id"])
+    
+    return {
+        "word_count_distribution": {
+            "very_short_under_300": {"count": very_short, "label": "< 300 words (needs improvement)"},
+            "short_300_599": {"count": short, "label": "300-599 words (brief)"},
+            "medium_600_999": {"count": medium, "label": "600-999 words (good)"},
+            "long_1000_1999": {"count": long_form, "label": "1000-1999 words (excellent)"},
+            "very_long_2000_plus": {"count": very_long, "label": "2000+ words (comprehensive)"},
+            "no_word_count": {"count": no_word_count, "label": "Word count not calculated"}
+        },
+        "reading_time_distribution": {
+            "quick_read_under_2min": quick_read,
+            "medium_read_2_5min": medium_read,
+            "long_read_5_10min": long_read,
+            "very_long_read_over_10min": very_long_read
+        },
+        "longest_articles": longest_articles,
+        "shortest_published_articles": shortest_published,
+        "recommendation": "For SEO, aim for 600+ words per article. Long-form content (1000+) typically ranks better."
+    }
+
+
+@news_router.get("/news/seo-stats/performance-by-seo", tags=["News SEO Analytics"])
+async def get_performance_by_seo(
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """
+    Compare performance (views, likes) between articles with complete SEO vs incomplete SEO.
+    
+    Helps demonstrate the value of SEO optimization.
+    """
+    coll = db_client[db.db_name][NEWS_COLL]
+    
+    # Define "complete SEO" as having all key fields
+    complete_seo_query = {
+        "published": True,
+        "slug": {"$exists": True, "$ne": None, "$ne": ""},
+        "meta_title": {"$exists": True, "$ne": None, "$ne": ""},
+        "meta_description": {"$exists": True, "$ne": None, "$ne": ""},
+        "focus_keyword": {"$exists": True, "$ne": None, "$ne": ""},
+        "image_alt": {"$exists": True, "$ne": None, "$ne": ""}
+    }
+    
+    incomplete_seo_query = {
+        "published": True,
+        "$or": [
+            {"slug": {"$exists": False}},
+            {"slug": None},
+            {"slug": ""},
+            {"meta_title": {"$exists": False}},
+            {"meta_title": None},
+            {"meta_description": {"$exists": False}},
+            {"meta_description": None},
+            {"focus_keyword": {"$exists": False}},
+            {"focus_keyword": None},
+            {"image_alt": {"$exists": False}},
+            {"image_alt": None}
+        ]
+    }
+    
+    # Aggregate stats for complete SEO articles
+    complete_stats = list(coll.aggregate([
+        {"$match": complete_seo_query},
+        {"$group": {
+            "_id": None,
+            "count": {"$sum": 1},
+            "total_views": {"$sum": {"$ifNull": ["$views", 0]}},
+            "total_likes": {"$sum": {"$ifNull": ["$likes", 0]}},
+            "avg_views": {"$avg": {"$ifNull": ["$views", 0]}},
+            "avg_likes": {"$avg": {"$ifNull": ["$likes", 0]}}
+        }}
+    ]))
+    
+    # Aggregate stats for incomplete SEO articles
+    incomplete_stats = list(coll.aggregate([
+        {"$match": incomplete_seo_query},
+        {"$group": {
+            "_id": None,
+            "count": {"$sum": 1},
+            "total_views": {"$sum": {"$ifNull": ["$views", 0]}},
+            "total_likes": {"$sum": {"$ifNull": ["$likes", 0]}},
+            "avg_views": {"$avg": {"$ifNull": ["$views", 0]}},
+            "avg_likes": {"$avg": {"$ifNull": ["$likes", 0]}}
+        }}
+    ]))
+    
+    complete = complete_stats[0] if complete_stats else {"count": 0, "total_views": 0, "total_likes": 0, "avg_views": 0, "avg_likes": 0}
+    incomplete = incomplete_stats[0] if incomplete_stats else {"count": 0, "total_views": 0, "total_likes": 0, "avg_views": 0, "avg_likes": 0}
+    
+    # Top performing articles with complete SEO
+    top_seo_articles = list(coll.find(
+        complete_seo_query,
+        {"title": 1, "slug": 1, "views": 1, "likes": 1, "focus_keyword": 1}
+    ).sort("views", DESCENDING).limit(10))
+    
+    for a in top_seo_articles:
+        a["_id"] = str(a["_id"])
+    
+    return {
+        "complete_seo_articles": {
+            "count": complete.get("count", 0),
+            "total_views": complete.get("total_views", 0),
+            "total_likes": complete.get("total_likes", 0),
+            "avg_views_per_article": round(complete.get("avg_views", 0), 1),
+            "avg_likes_per_article": round(complete.get("avg_likes", 0), 1)
+        },
+        "incomplete_seo_articles": {
+            "count": incomplete.get("count", 0),
+            "total_views": incomplete.get("total_views", 0),
+            "total_likes": incomplete.get("total_likes", 0),
+            "avg_views_per_article": round(incomplete.get("avg_views", 0), 1),
+            "avg_likes_per_article": round(incomplete.get("avg_likes", 0), 1)
+        },
+        "performance_difference": {
+            "views_difference_percent": round(
+                ((complete.get("avg_views", 0) - incomplete.get("avg_views", 0)) / max(incomplete.get("avg_views", 1), 1)) * 100, 1
+            ) if incomplete.get("avg_views", 0) > 0 else 0,
+            "likes_difference_percent": round(
+                ((complete.get("avg_likes", 0) - incomplete.get("avg_likes", 0)) / max(incomplete.get("avg_likes", 1), 1)) * 100, 1
+            ) if incomplete.get("avg_likes", 0) > 0 else 0
+        },
+        "top_performing_seo_articles": top_seo_articles,
+        "insight": "Articles with complete SEO tend to perform better in search rankings and engagement."
+    }
+
+
+@news_router.get("/news/seo-stats/author-seo-scores", tags=["News SEO Analytics"])
+async def get_author_seo_scores(
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """
+    Get SEO completion scores by author.
+    
+    Useful for identifying which authors need SEO training.
+    """
+    coll = db_client[db.db_name][NEWS_COLL]
+    
+    # Aggregate by author
+    author_pipeline = [
+        {"$group": {
+            "_id": "$author_username",
+            "total_articles": {"$sum": 1},
+            "published": {"$sum": {"$cond": ["$published", 1, 0]}},
+            "has_slug": {"$sum": {"$cond": [{"$and": [{"$ne": ["$slug", None]}, {"$ne": ["$slug", ""]}]}, 1, 0]}},
+            "has_meta_title": {"$sum": {"$cond": [{"$and": [{"$ne": ["$meta_title", None]}, {"$ne": ["$meta_title", ""]}]}, 1, 0]}},
+            "has_meta_desc": {"$sum": {"$cond": [{"$and": [{"$ne": ["$meta_description", None]}, {"$ne": ["$meta_description", ""]}]}, 1, 0]}},
+            "has_focus_kw": {"$sum": {"$cond": [{"$and": [{"$ne": ["$focus_keyword", None]}, {"$ne": ["$focus_keyword", ""]}]}, 1, 0]}},
+            "has_image_alt": {"$sum": {"$cond": [{"$and": [{"$ne": ["$image_alt", None]}, {"$ne": ["$image_alt", ""]}]}, 1, 0]}},
+            "total_views": {"$sum": {"$ifNull": ["$views", 0]}},
+            "total_likes": {"$sum": {"$ifNull": ["$likes", 0]}},
+            "avg_word_count": {"$avg": {"$ifNull": ["$word_count", 0]}}
+        }},
+        {"$sort": {"total_articles": -1}}
+    ]
+    
+    author_stats = list(coll.aggregate(author_pipeline))
+    
+    # Calculate SEO score for each author
+    author_scores = []
+    for author in author_stats:
+        if not author["_id"]:
+            continue
+        
+        total = author["total_articles"]
+        if total == 0:
+            continue
+        
+        # Calculate completion rate for each field (0-20 points each, total 100)
+        slug_rate = (author["has_slug"] / total) * 20
+        title_rate = (author["has_meta_title"] / total) * 20
+        desc_rate = (author["has_meta_desc"] / total) * 20
+        focus_rate = (author["has_focus_kw"] / total) * 20
+        alt_rate = (author["has_image_alt"] / total) * 20
+        
+        seo_score = round(slug_rate + title_rate + desc_rate + focus_rate + alt_rate)
+        
+        author_scores.append({
+            "author_username": author["_id"],
+            "total_articles": total,
+            "published_articles": author["published"],
+            "seo_score": seo_score,
+            "field_completion": {
+                "slug": {"count": author["has_slug"], "percentage": round((author["has_slug"] / total) * 100, 1)},
+                "meta_title": {"count": author["has_meta_title"], "percentage": round((author["has_meta_title"] / total) * 100, 1)},
+                "meta_description": {"count": author["has_meta_desc"], "percentage": round((author["has_meta_desc"] / total) * 100, 1)},
+                "focus_keyword": {"count": author["has_focus_kw"], "percentage": round((author["has_focus_kw"] / total) * 100, 1)},
+                "image_alt": {"count": author["has_image_alt"], "percentage": round((author["has_image_alt"] / total) * 100, 1)}
+            },
+            "engagement": {
+                "total_views": author["total_views"],
+                "total_likes": author["total_likes"],
+                "avg_word_count": round(author["avg_word_count"])
+            }
+        })
+    
+    # Sort by SEO score
+    author_scores.sort(key=lambda x: x["seo_score"], reverse=True)
+    
+    return {
+        "total_authors": len(author_scores),
+        "author_seo_scores": author_scores,
+        "top_seo_authors": author_scores[:5] if len(author_scores) >= 5 else author_scores,
+        "needs_improvement": [a for a in author_scores if a["seo_score"] < 60]
+    }
+
+
+@news_router.get("/news/seo-stats/daily-trends", tags=["News SEO Analytics"])
+async def get_seo_daily_trends(
+    days: int = Query(30, ge=7, le=90, description="Number of days to analyze"),
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client)
+):
+    """
+    Get daily SEO trends over time.
+    
+    Tracks improvement in SEO adoption over the specified period.
+    """
+    coll = db_client[db.db_name][NEWS_COLL]
+    
+    from_date = datetime.utcnow() - timedelta(days=days)
+    
+    # Daily article creation with SEO fields
+    daily_pipeline = [
+        {"$match": {"created_at": {"$gte": from_date}}},
+        {"$group": {
+            "_id": {
+                "$dateToString": {"format": "%Y-%m-%d", "date": "$created_at"}
+            },
+            "total": {"$sum": 1},
+            "with_slug": {"$sum": {"$cond": [{"$and": [{"$ne": ["$slug", None]}, {"$ne": ["$slug", ""]}]}, 1, 0]}},
+            "with_focus_keyword": {"$sum": {"$cond": [{"$and": [{"$ne": ["$focus_keyword", None]}, {"$ne": ["$focus_keyword", ""]}]}, 1, 0]}},
+            "with_meta_title": {"$sum": {"$cond": [{"$and": [{"$ne": ["$meta_title", None]}, {"$ne": ["$meta_title", ""]}]}, 1, 0]}},
+            "with_image_alt": {"$sum": {"$cond": [{"$and": [{"$ne": ["$image_alt", None]}, {"$ne": ["$image_alt", ""]}]}, 1, 0]}},
+            "total_views": {"$sum": {"$ifNull": ["$views", 0]}},
+            "avg_word_count": {"$avg": {"$ifNull": ["$word_count", 0]}}
+        }},
+        {"$sort": {"_id": 1}}
+    ]
+    
+    daily_data = list(coll.aggregate(daily_pipeline))
+    
+    # Calculate trends
+    trends = []
+    for day in daily_data:
+        total = day["total"]
+        seo_completion = 0
+        if total > 0:
+            seo_completion = round(
+                ((day["with_slug"] + day["with_focus_keyword"] + day["with_meta_title"] + day["with_image_alt"]) / (total * 4)) * 100, 1
+            )
+        
+        trends.append({
+            "date": day["_id"],
+            "articles_created": total,
+            "seo_completion_rate": seo_completion,
+            "with_slug": day["with_slug"],
+            "with_focus_keyword": day["with_focus_keyword"],
+            "with_meta_title": day["with_meta_title"],
+            "with_image_alt": day["with_image_alt"],
+            "total_views": day["total_views"],
+            "avg_word_count": round(day["avg_word_count"])
+        })
+    
+    return {
+        "period_days": days,
+        "from_date": from_date.strftime("%Y-%m-%d"),
+        "to_date": datetime.utcnow().strftime("%Y-%m-%d"),
+        "total_articles_in_period": sum(d["articles_created"] for d in trends),
+        "daily_trends": trends,
+        "overall_trend": "improving" if len(trends) >= 2 and trends[-1]["seo_completion_rate"] > trends[0]["seo_completion_rate"] else "needs attention"
+    }
+
+
 # ------------------------- Filters (PUBLIC) -------------------------
 @news_router.get("/news/filter", response_model=List[NewsPost], tags=["News"])
 async def get_news_by_category_and_tags(
