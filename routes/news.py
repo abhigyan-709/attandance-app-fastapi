@@ -1365,6 +1365,13 @@ async def update_news(
     author_username: Optional[str] = Form(None),  # Admin can change author
     # existing gallery items coming back from UI as JSON string
     existing_content_images: Optional[str] = Form(None),
+    # SEO fields (NEW - for editing existing posts)
+    focus_keyword: Optional[str] = Form(None),          # Primary SEO keyword
+    meta_title_override: Optional[str] = Form(None),    # Custom meta title (max 60 chars)
+    meta_description_override: Optional[str] = Form(None),  # Custom description (max 160 chars)
+    image_alt: Optional[str] = Form(None),              # Alt text for featured image
+    is_breaking_news: Optional[bool] = Form(None),      # Breaking news flag
+    is_opinion: Optional[bool] = Form(None),            # Opinion/Editorial flag
     current_user: User = Depends(get_current_author_or_admin_user),
     db_client: MongoClient = Depends(db.get_client),
 ):
@@ -1622,6 +1629,47 @@ async def update_news(
             merged_gallery.append({"url": gallery_url, "caption": caption})
 
     update_doc["content_images"] = merged_gallery
+
+    # --- SEO fields handling ---
+    # Update SEO fields if provided
+    if focus_keyword is not None:
+        update_doc["focus_keyword"] = focus_keyword.strip() if focus_keyword else None
+    
+    if meta_title_override is not None:
+        # Use custom meta title or regenerate from title
+        if meta_title_override.strip():
+            update_doc["meta_title"] = meta_title_override.strip()[:60]
+        elif title:
+            update_doc["meta_title"] = title[:60] if len(title) > 60 else title
+    
+    if meta_description_override is not None:
+        # Use custom meta description or regenerate from content
+        if meta_description_override.strip():
+            update_doc["meta_description"] = meta_description_override.strip()[:160]
+        elif content:
+            update_doc["meta_description"] = _extract_meta_description(content)
+    
+    if image_alt is not None:
+        update_doc["image_alt"] = image_alt.strip() if image_alt else None
+    
+    if is_breaking_news is not None:
+        update_doc["is_breaking_news"] = is_breaking_news
+    
+    if is_opinion is not None:
+        update_doc["is_opinion"] = is_opinion
+    
+    # Auto-recalculate word count and reading time if content changed
+    if content is not None:
+        word_count = _calculate_word_count(content)
+        update_doc["word_count"] = word_count
+        update_doc["reading_time_minutes"] = _calculate_reading_time(word_count)
+    
+    # Auto-regenerate keywords if title, content, or categories changed
+    if any(k in update_doc for k in ["title", "content", "categories"]):
+        final_title = update_doc.get("title") or existing.get("title", "")
+        final_content = update_doc.get("content") or existing.get("content", "")
+        final_categories = update_doc.get("categories") or existing.get("categories", "")
+        update_doc["keywords"] = _extract_keywords(final_title, final_content, final_categories)
 
     # housekeeping fields
     update_doc["updated_at"] = datetime.utcnow()
