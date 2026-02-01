@@ -190,3 +190,78 @@ class UpdateHoroscopeRequest(BaseModel):
     published: Optional[bool] = None
     scheduled_publish: Optional[bool] = None               # ✅ Toggle scheduled publishing
     scheduled_at: Optional[str] = None                     # ✅ Update scheduled time
+
+
+# ==================== LIVE STREAM MODELS ====================
+
+class StreamPlatform(str, Enum):
+    """Supported live streaming platforms"""
+    youtube = "youtube"
+    facebook = "facebook"
+    twitter = "twitter"          # X/Twitter
+    instagram = "instagram"
+    dailymotion = "dailymotion"
+    vimeo = "vimeo"
+    custom = "custom"            # Any other platform with iframe support
+
+
+class LiveStream(BaseModel):
+    """Live stream configuration for news website"""
+    id: Optional[str] = Field(default=None, alias="_id")
+    title: str                                              # Stream title (e.g., "Live News Coverage")
+    platform: StreamPlatform                                # Platform type
+    stream_url: str                                         # Full embed URL for iframe
+    description: Optional[str] = None                       # Optional description
+    thumbnail_url: Optional[str] = None                     # Thumbnail image URL
+    is_active: bool = True                                  # Show/hide stream on website
+    is_live: bool = False                                   # Currently live indicator
+    display_order: int = 0                                  # For ordering multiple streams
+    
+    # Metadata
+    created_by: str                                         # Admin username who created
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: Optional[datetime] = None
+    
+    class Config:
+        arbitrary_types_allowed = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat(),
+            "ObjectId": str,
+        }
+
+
+class CreateLiveStreamRequest(BaseModel):
+    """Request model for creating a live stream"""
+    title: str
+    platform: StreamPlatform
+    stream_url: str                                         # YouTube/Facebook embed URL
+    description: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    is_active: bool = True
+    is_live: bool = False
+    display_order: int = 0
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "title": "GTNews18 Live",
+                "platform": "youtube",
+                "stream_url": "https://www.youtube.com/embed/LIVE_VIDEO_ID",
+                "description": "24/7 Live News Coverage",
+                "is_active": True,
+                "is_live": True,
+                "display_order": 1
+            }
+        }
+
+
+class UpdateLiveStreamRequest(BaseModel):
+    """Request model for updating a live stream"""
+    title: Optional[str] = None
+    platform: Optional[StreamPlatform] = None
+    stream_url: Optional[str] = None
+    description: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    is_active: Optional[bool] = None
+    is_live: Optional[bool] = None
+    display_order: Optional[int] = None

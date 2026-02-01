@@ -31,7 +31,8 @@ from database.db import db
 from models.news import (
     NewsPost, Comment, Category,
     DailyHoroscope, ZodiacPrediction, ZodiacSign,
-    CreateHoroscopeRequest, UpdateHoroscopeRequest
+    CreateHoroscopeRequest, UpdateHoroscopeRequest,
+    LiveStream, StreamPlatform, CreateLiveStreamRequest, UpdateLiveStreamRequest
 )
 from models.user import User
 from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
@@ -4442,4 +4443,287 @@ async def debug_time_check(
             "never_use": "date.today() - uses server timezone",
             "for_queries": f"Use date: '{today_ist.isoformat()}' for today's horoscope"
         }
+    }
+
+
+# ==================== LIVE STREAM API ENDPOINTS ====================
+
+@news_router.post("/live-streams", tags=["Live Streams"])
+async def create_live_stream(
+    stream_data: CreateLiveStreamRequest,
+    db_client: MongoClient = Depends(db.get_client),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Create a new live stream entry (Admin/Author only).
+    
+    Use this to add YouTube, Facebook, or other platform live stream URLs
+    that will be embedded in iframe on the website.
+    
+    **Embed URL Examples:**
+    - YouTube: `https://www.youtube.com/embed/VIDEO_ID` or `https://www.youtube.com/embed/live_stream?channel=CHANNEL_ID`
+    - Facebook: `https://www.facebook.com/plugins/video.php?href=VIDEO_URL`
+    - Twitter/X: Use the video URL directly
+    """
+    # Only admin/author can create live streams
+    if current_user.role not in ["admin", "author"]:
+        raise HTTPException(status_code=403, detail="Only admin or author can manage live streams")
+    
+    collection = db_client[db.db_name]["live_streams"]
+    
+    stream_doc = {
+        "title": stream_data.title,
+        "platform": stream_data.platform.value,
+        "stream_url": stream_data.stream_url,
+        "description": stream_data.description,
+        "thumbnail_url": stream_data.thumbnail_url,
+        "is_active": stream_data.is_active,
+        "is_live": stream_data.is_live,
+        "display_order": stream_data.display_order,
+        "created_by": current_user.username,
+        "created_at": datetime.utcnow(),
+        "updated_at": None,
+    }
+    
+    result = collection.insert_one(stream_doc)
+    stream_doc["id"] = str(result.inserted_id)
+    if "_id" in stream_doc:
+        del stream_doc["_id"]
+    
+    return {
+        "message": "Live stream created successfully",
+        "stream": stream_doc
+    }
+
+
+@news_router.get("/live-streams", tags=["Live Streams"])
+async def get_live_streams(
+    active_only: bool = Query(True, description="Return only active streams"),
+    platform: Optional[str] = Query(None, description="Filter by platform: youtube, facebook, twitter, etc."),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """
+    Get all live streams for the website (Public endpoint).
+    
+    Returns streams ordered by display_order for frontend to embed in iframes.
+    """
+    collection = db_client[db.db_name]["live_streams"]
+    
+    query = {}
+    if active_only:
+        query["is_active"] = True
+    if platform:
+        query["platform"] = platform.lower()
+    
+    streams = list(collection.find(query).sort("display_order", ASCENDING))
+    
+    # Serialize ObjectId
+    for stream in streams:
+        stream["id"] = str(stream["_id"])
+        del stream["_id"]
+    
+    return {
+        "count": len(streams),
+        "streams": streams
+    }
+
+
+@news_router.get("/live-streams/active", tags=["Live Streams"])
+async def get_active_live_stream(
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """
+    Get the primary active live stream for homepage display.
+    
+    Returns the first active stream marked as 'is_live=True' with lowest display_order.
+    Use this endpoint for the main live TV embed on homepage.
+    """
+    collection = db_client[db.db_name]["live_streams"]
+    
+    # Get the primary live stream (active + is_live + lowest order)
+    stream = collection.find_one(
+        {"is_active": True, "is_live": True},
+        sort=[("display_order", ASCENDING)]
+    )
+    
+    if not stream:
+        # Fallback: Get any active stream
+        stream = collection.find_one(
+            {"is_active": True},
+            sort=[("display_order", ASCENDING)]
+        )
+    
+    if not stream:
+        return {
+            "has_live_stream": False,
+            "stream": None,
+            "message": "No active live stream configured"
+        }
+    
+    stream["id"] = str(stream["_id"])
+    del stream["_id"]
+    
+    return {
+        "has_live_stream": True,
+        "stream": stream
+    }
+
+
+@news_router.get("/live-streams/{stream_id}", tags=["Live Streams"])
+async def get_live_stream(
+    stream_id: str,
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """Get a specific live stream by ID"""
+    collection = db_client[db.db_name]["live_streams"]
+    
+    try:
+        stream = collection.find_one({"_id": ObjectId(stream_id)})
+    except:
+        raise HTTPException(status_code=400, detail="Invalid stream ID format")
+    
+    if not stream:
+        raise HTTPException(status_code=404, detail="Live stream not found")
+    
+    stream["id"] = str(stream["_id"])
+    del stream["_id"]
+    
+    return stream
+
+
+@news_router.put("/live-streams/{stream_id}", tags=["Live Streams"])
+async def update_live_stream(
+    stream_id: str,
+    update_data: UpdateLiveStreamRequest,
+    db_client: MongoClient = Depends(db.get_client),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Update a live stream (Admin/Author only).
+    
+    Use this to change the stream URL, toggle is_live status, or update platform.
+    """
+    if current_user.role not in ["admin", "author"]:
+        raise HTTPException(status_code=403, detail="Only admin or author can manage live streams")
+    
+    collection = db_client[db.db_name]["live_streams"]
+    
+    try:
+        existing = collection.find_one({"_id": ObjectId(stream_id)})
+    except:
+        raise HTTPException(status_code=400, detail="Invalid stream ID format")
+    
+    if not existing:
+        raise HTTPException(status_code=404, detail="Live stream not found")
+    
+    # Build update document
+    update_doc = {"updated_at": datetime.utcnow()}
+    
+    if update_data.title is not None:
+        update_doc["title"] = update_data.title
+    if update_data.platform is not None:
+        update_doc["platform"] = update_data.platform.value
+    if update_data.stream_url is not None:
+        update_doc["stream_url"] = update_data.stream_url
+    if update_data.description is not None:
+        update_doc["description"] = update_data.description
+    if update_data.thumbnail_url is not None:
+        update_doc["thumbnail_url"] = update_data.thumbnail_url
+    if update_data.is_active is not None:
+        update_doc["is_active"] = update_data.is_active
+    if update_data.is_live is not None:
+        update_doc["is_live"] = update_data.is_live
+    if update_data.display_order is not None:
+        update_doc["display_order"] = update_data.display_order
+    
+    collection.update_one(
+        {"_id": ObjectId(stream_id)},
+        {"$set": update_doc}
+    )
+    
+    # Return updated document
+    updated = collection.find_one({"_id": ObjectId(stream_id)})
+    updated["id"] = str(updated["_id"])
+    del updated["_id"]
+    
+    return {
+        "message": "Live stream updated successfully",
+        "stream": updated
+    }
+
+
+@news_router.patch("/live-streams/{stream_id}/toggle-live", tags=["Live Streams"])
+async def toggle_live_status(
+    stream_id: str,
+    is_live: bool = Query(..., description="Set live status"),
+    db_client: MongoClient = Depends(db.get_client),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Quick toggle for is_live status (Admin/Author only).
+    
+    Use this for quickly marking a stream as live or not live from admin panel.
+    """
+    if current_user.role not in ["admin", "author"]:
+        raise HTTPException(status_code=403, detail="Only admin or author can manage live streams")
+    
+    collection = db_client[db.db_name]["live_streams"]
+    
+    try:
+        result = collection.update_one(
+            {"_id": ObjectId(stream_id)},
+            {"$set": {"is_live": is_live, "updated_at": datetime.utcnow()}}
+        )
+    except:
+        raise HTTPException(status_code=400, detail="Invalid stream ID format")
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Live stream not found")
+    
+    return {
+        "message": f"Stream is now {'LIVE' if is_live else 'not live'}",
+        "is_live": is_live
+    }
+
+
+@news_router.delete("/live-streams/{stream_id}", tags=["Live Streams"])
+async def delete_live_stream(
+    stream_id: str,
+    db_client: MongoClient = Depends(db.get_client),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete a live stream (Admin only)"""
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Only admin can delete live streams")
+    
+    collection = db_client[db.db_name]["live_streams"]
+    
+    try:
+        result = collection.delete_one({"_id": ObjectId(stream_id)})
+    except:
+        raise HTTPException(status_code=400, detail="Invalid stream ID format")
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Live stream not found")
+    
+    return {"message": "Live stream deleted successfully"}
+
+
+@news_router.get("/live-streams/platforms/list", tags=["Live Streams"])
+async def get_supported_platforms():
+    """
+    Get list of supported streaming platforms.
+    
+    Use this to populate dropdown in admin panel.
+    """
+    return {
+        "platforms": [
+            {"value": "youtube", "label": "YouTube", "embed_hint": "https://www.youtube.com/embed/VIDEO_ID"},
+            {"value": "facebook", "label": "Facebook", "embed_hint": "https://www.facebook.com/plugins/video.php?href=VIDEO_URL"},
+            {"value": "twitter", "label": "Twitter/X", "embed_hint": "Direct video URL"},
+            {"value": "instagram", "label": "Instagram", "embed_hint": "Instagram embed URL"},
+            {"value": "dailymotion", "label": "Dailymotion", "embed_hint": "https://www.dailymotion.com/embed/video/VIDEO_ID"},
+            {"value": "vimeo", "label": "Vimeo", "embed_hint": "https://player.vimeo.com/video/VIDEO_ID"},
+            {"value": "custom", "label": "Custom/Other", "embed_hint": "Any iframe-compatible URL"},
+        ]
     }
