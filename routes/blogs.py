@@ -29,7 +29,13 @@ from pymongo import MongoClient, DESCENDING
 from database.db import db
 from models.blogs import BlogPost, Comment, Category
 from models.user import User
-from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+from routes.config import (
+    AWS_ACCESS_KEY_ID, 
+    AWS_SECRET_ACCESS_KEY, 
+    AWS_REGION,
+    AWS_BUCKET_NAME,
+    get_cdn_url
+)
 from routes.user import get_current_user
 
 from pydantic import BaseModel
@@ -39,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 blog_router = APIRouter()
 
-AWS_BUCKET_NAME = "projectdevops-blogs-new"
+# S3 client for uploads (bucket remains private, served via CloudFront CDN)
 s3_client = boto3.client(
     "s3",
     aws_access_key_id=AWS_ACCESS_KEY_ID,
@@ -147,7 +153,8 @@ async def create_blog(
             unique_filename,
             ExtraArgs={"ContentType": file.content_type},
         )
-        image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"
+        # Use CDN URL instead of direct S3 URL
+        image_url = get_cdn_url(unique_filename)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
 
@@ -874,8 +881,12 @@ async def get_blog_meta(blog_id: str, db_client: MongoClient = Depends(db.get_cl
     title = blog["title"]
     description = BeautifulSoup(blog["content"], "html.parser").get_text()[:150] + "..."
     image_url = blog["image_url"]
+    # Ensure image URL uses CDN
     if not image_url.startswith("http"):
-        image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{image_url}"
+        image_url = get_cdn_url(image_url)
+    elif ".s3." in image_url and ".amazonaws.com" in image_url:
+        # Convert existing S3 URL to CDN URL
+        image_url = get_cdn_url(image_url)
     blog_url = f"https://www.projectdevops.in/blog/{blog_id}/{title.replace(' ', '-').lower()}"
 
     html_content = f"""

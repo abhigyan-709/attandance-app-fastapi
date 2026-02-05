@@ -35,7 +35,14 @@ from models.news import (
     LiveStream, StreamPlatform, CreateLiveStreamRequest, UpdateLiveStreamRequest
 )
 from models.user import User
-from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+from routes.config import (
+    AWS_ACCESS_KEY_ID, 
+    AWS_SECRET_ACCESS_KEY, 
+    AWS_REGION, 
+    AWS_BUCKET_NAME,
+    get_cdn_url,
+    extract_s3_key_from_url
+)
 from routes.user import get_current_user
 
 from pydantic import BaseModel, Field
@@ -51,7 +58,7 @@ logger = logging.getLogger(__name__)
 
 news_router = APIRouter()
 
-AWS_BUCKET_NAME = "projectdevops-blogs-new"
+# S3 client for uploads (bucket remains private, served via CloudFront CDN)
 s3_client = boto3.client(
     "s3",
     aws_access_key_id=AWS_ACCESS_KEY_ID,
@@ -720,7 +727,8 @@ async def create_news(
             unique_filename,
             ExtraArgs={"ContentType": file.content_type},
         )
-        image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"
+        # Use CDN URL instead of direct S3 URL
+        image_url = get_cdn_url(unique_filename)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
 
@@ -744,7 +752,8 @@ async def create_news(
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=f"Content image upload failed: {str(exc)}")
 
-            gallery_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{gallery_key}"
+            # Use CDN URL instead of direct S3 URL
+            gallery_url = get_cdn_url(gallery_key)
             caption = None
             if idx < len(captions_list):
                 candidate_caption = captions_list[idx]
@@ -2164,7 +2173,8 @@ async def update_news(
             except Exception as exc:
                 raise HTTPException(status_code=500, detail=f"Content image upload failed: {str(exc)}")
 
-            gallery_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{gallery_key}"
+            # Use CDN URL instead of direct S3 URL
+            gallery_url = get_cdn_url(gallery_key)
             caption = None
             if idx < len(content_image_captions_list):
                 candidate_caption = content_image_captions_list[idx]
@@ -2983,8 +2993,12 @@ async def get_news_meta(news_id: str, db_client: MongoClient = Depends(db.get_cl
     title = doc["title"]
     description = BeautifulSoup(doc["content"], "html.parser").get_text()[:150] + "..."
     image_url = doc.get("image_url") or ""
+    # Ensure image URL uses CDN
     if image_url and not image_url.startswith("http"):
-        image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{image_url}"
+        image_url = get_cdn_url(image_url)
+    elif image_url and ".s3." in image_url and ".amazonaws.com" in image_url:
+        # Convert existing S3 URL to CDN URL
+        image_url = get_cdn_url(image_url)
     slug = _slugify(title)
     news_url = f"{NEWS_BASE_URL}/n/{news_id}-{slug}"
 

@@ -37,10 +37,16 @@ from authentication.auth import (
 )
 
 # S3 Configuration (same as biodata routes)
-from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+from routes.config import (
+    AWS_ACCESS_KEY_ID, 
+    AWS_SECRET_ACCESS_KEY, 
+    AWS_REGION,
+    AWS_BUCKET_NAME,
+    get_cdn_url,
+    extract_s3_key_from_url
+)
 
-# AWS S3 Configuration
-AWS_BUCKET_NAME = "projectdevops-blogs-new"
+# S3 client for uploads (bucket remains private, served via CloudFront CDN)
 s3_client = boto3.client(
     "s3",
     aws_access_key_id=AWS_ACCESS_KEY_ID,
@@ -991,18 +997,18 @@ async def upload_profile_picture(
         # Generate unique filename
         unique_filename = f"profile-pictures/{current_user.username}_{uuid.uuid4()}{file_extension}"
         
-        # Upload to S3
+        # Upload to S3 (bucket is private, served via CloudFront CDN)
         s3_client.put_object(
             Bucket=AWS_BUCKET_NAME,
             Key=unique_filename,
             Body=file_content,
             ContentType=f"image/{file_extension[1:]}",
             CacheControl="max-age=31536000",  # Cache for 1 year
-            ACL="public-read"  # Make image publicly accessible
+            # Removed ACL="public-read" - bucket is private, CDN handles access
         )
         
-        # Generate S3 URL
-        profile_picture_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"
+        # Use CDN URL instead of direct S3 URL
+        profile_picture_url = get_cdn_url(unique_filename)
         
         # Get current user's old profile picture URL to delete later
         user_from_db = db_client[db.db_name]["user"].find_one({"username": current_user.username})
@@ -1025,9 +1031,10 @@ async def upload_profile_picture(
         # Delete old profile picture from S3 (if exists and not default)
         if old_profile_picture_url and "profile-pictures/" in old_profile_picture_url:
             try:
-                old_key = old_profile_picture_url.split(f"{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/")[1]
-                s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=old_key)
-                logger.info(f"Deleted old profile picture: {old_key}")
+                old_key = extract_s3_key_from_url(old_profile_picture_url)
+                if old_key:
+                    s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=old_key)
+                    logger.info(f"Deleted old profile picture: {old_key}")
             except Exception as e:
                 logger.warning(f"Failed to delete old profile picture: {e}")
         
@@ -1069,8 +1076,11 @@ async def delete_profile_picture(
         raise HTTPException(status_code=400, detail="Cannot delete external profile picture")
     
     try:
-        # Extract S3 key from URL
-        s3_key = profile_picture_url.split(f"{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/")[1]
+        # Extract S3 key from URL (handles both S3 and CDN URLs)
+        s3_key = extract_s3_key_from_url(profile_picture_url)
+        
+        if not s3_key:
+            raise HTTPException(status_code=400, detail="Could not parse profile picture URL")
         
         # Delete from S3
         s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=s3_key)
@@ -1292,7 +1302,7 @@ async def upload_author_profile_image(
         file_extension = file.filename.split(".")[-1]
         unique_filename = f"authors/{username}_profile_{uuid.uuid4()}.{file_extension}"
         
-        # Upload to S3
+        # Upload to S3 (bucket is private, served via CloudFront CDN)
         s3_client.put_object(
             Bucket=AWS_BUCKET_NAME,
             Key=unique_filename,
@@ -1300,8 +1310,8 @@ async def upload_author_profile_image(
             ContentType=file.content_type
         )
         
-        # Generate public URL
-        image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"
+        # Use CDN URL instead of direct S3 URL
+        image_url = get_cdn_url(unique_filename)
         
         # Update user profile
         users_collection.update_one(

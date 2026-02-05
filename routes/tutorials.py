@@ -22,7 +22,13 @@ from models.tutorials import (
 )
 from models.user import User
 from routes.user import get_current_user
-from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+from routes.config import (
+    AWS_ACCESS_KEY_ID, 
+    AWS_SECRET_ACCESS_KEY, 
+    AWS_REGION,
+    AWS_BUCKET_NAME,
+    get_cdn_url
+)
 
 from pydantic import BaseModel
 
@@ -31,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 tutorial_router = APIRouter()
 
-AWS_BUCKET_NAME = "projectdevops-blogs-new"
+# S3 client for uploads (bucket remains private, served via CloudFront CDN)
 s3_client = boto3.client(
     "s3",
     aws_access_key_id=AWS_ACCESS_KEY_ID,
@@ -143,7 +149,8 @@ async def upload_tutorial_cover(
         s3_client.upload_fileobj(
             file.file, AWS_BUCKET_NAME, key, ExtraArgs={"ContentType": file.content_type}
         )
-        url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{key}"
+        # Use CDN URL instead of direct S3 URL
+        url = get_cdn_url(key)
         return {"url": url}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")

@@ -25,15 +25,20 @@ from models.employee_mgmt import (
     EmploymentArea,
     QRCodeResponse
 )
-from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+from routes.config import (
+    AWS_ACCESS_KEY_ID, 
+    AWS_SECRET_ACCESS_KEY, 
+    AWS_REGION,
+    AWS_BUCKET_NAME,
+    get_cdn_url
+)
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 EMPLOYEE_COLL = "employees"
 
-# AWS S3 Configuration (same as news system)
-AWS_BUCKET_NAME = "projectdevops-blogs-new"
+# S3 client for uploads (bucket remains private, served via CloudFront CDN)
 s3_client = boto3.client(
     "s3",
     aws_access_key_id=AWS_ACCESS_KEY_ID,
@@ -87,7 +92,7 @@ def generate_employee_id(db_client: MongoClient) -> str:
 
 
 def upload_file_to_s3(file: UploadFile, folder: str) -> str:
-    """Upload file to S3 and return URL"""
+    """Upload file to S3 and return CDN URL"""
     file_extension = (file.filename or "file").split(".")[-1]
     unique_filename = f"employees/{folder}/{uuid.uuid4()}.{file_extension}"
     
@@ -98,7 +103,8 @@ def upload_file_to_s3(file: UploadFile, folder: str) -> str:
             unique_filename,
             ExtraArgs={"ContentType": file.content_type or "application/octet-stream"},
         )
-        file_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"
+        # Use CDN URL instead of direct S3 URL
+        file_url = get_cdn_url(unique_filename)
         return file_url
     except Exception as e:
         logger.error(f"S3 upload failed: {str(e)}")
@@ -541,7 +547,8 @@ async def generate_employee_qr_code(
             ExtraArgs={"ContentType": "image/png"},
         )
         
-        qr_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{qr_filename}"
+        # Use CDN URL instead of direct S3 URL
+        qr_url = get_cdn_url(qr_filename)
         
         # Update employee with QR code URL
         db_client[db.db_name][EMPLOYEE_COLL].update_one(

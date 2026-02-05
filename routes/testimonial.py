@@ -9,14 +9,19 @@ from datetime import datetime
 import uuid
 import boto3
 from routes.user import get_current_user
-from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
+from routes.config import (
+    AWS_ACCESS_KEY_ID, 
+    AWS_SECRET_ACCESS_KEY, 
+    AWS_REGION,
+    AWS_BUCKET_NAME,
+    get_cdn_url
+)
 from typing import Optional
 from typing import List
 
 route5 = APIRouter()
 
-AWS_BUCKET_NAME = "projectdevops-blogs-new"
-
+# S3 client for uploads (bucket remains private, served via CloudFront CDN)
 s3_client = boto3.client(
     "s3",
     aws_access_key_id=AWS_ACCESS_KEY_ID,
@@ -46,7 +51,8 @@ async def create_testimonial(
             unique_filename,
             ExtraArgs={"ContentType": file.content_type}
         )
-        image_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"
+        # Use CDN URL instead of direct S3 URL
+        image_url = get_cdn_url(unique_filename)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
 

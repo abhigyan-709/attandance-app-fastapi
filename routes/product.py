@@ -41,6 +41,9 @@ from routes.config import (
     AWS_ACCESS_KEY_ID,
     AWS_SECRET_ACCESS_KEY,
     AWS_REGION,
+    AWS_BUCKET_NAME,
+    get_cdn_url,
+    extract_s3_key_from_url
 )
 import mimetypes
 
@@ -56,7 +59,7 @@ customer_details_collection = database["customer_details"]  # ✅ added
 CANCEL_WINDOW_MINUTES = 3
 
 # ---------- S3 SETUP ----------
-AWS_BUCKET_NAME = "projectdevops-blogs-new"  # same bucket you mentioned
+# S3 client for uploads (bucket remains private, served via CloudFront CDN)
 s3_client = boto3.client(
     "s3",
     aws_access_key_id=AWS_ACCESS_KEY_ID,
@@ -74,20 +77,9 @@ def s3_key_for_product(product_id: str, filename: str) -> str:
     return f"products/{product_id}/{uuid.uuid4().hex}-{clean_name}"
 
 
-def s3_url(bucket: str, region: str, key: str) -> str:
-    # Works for most regions; if you use a special partition (Gov/China), adjust accordingly.
-    return f"https://{bucket}.s3.{region}.amazonaws.com/{key}"
-
-
-def extract_key_from_url(url: str) -> Optional[str]:
-    # Expecting format like: https://bucket.s3.region.amazonaws.com/<key>
-    try:
-        prefix = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/"
-        if url.startswith(prefix):
-            return url[len(prefix):]
-        return None
-    except Exception:
-        return None
+def extract_key_from_url(url: str) -> str:
+    """Extract S3 key from URL (supports both S3 and CDN URLs)"""
+    return extract_s3_key_from_url(url) or ""
 
 
 # -------------------- UTILITIES -------------------- #
@@ -310,7 +302,8 @@ async def create_product(
             Body=data,
             ContentType=content_type,
         )
-        image_urls.append(s3_url(AWS_BUCKET_NAME, AWS_REGION, key))
+        # Use CDN URL instead of direct S3 URL
+        image_urls.append(get_cdn_url(key))
 
     # Build product document
     data = {
@@ -481,15 +474,16 @@ async def upload_product_images(
 
         key = s3_key_for_product(product_id, f.filename)
 
-        # Put to S3
+        # Put to S3 (bucket is private, served via CloudFront CDN)
         s3_client.put_object(
             Bucket=AWS_BUCKET_NAME,
             Key=key,
             Body=data,
             ContentType=content_type,
-            ACL="public-read",  # public; remove if you prefer presigned only
+            # Removed ACL="public-read" - bucket is private, CDN handles access
         )
-        uploaded_urls.append(s3_url(AWS_BUCKET_NAME, AWS_REGION, key))
+        # Use CDN URL instead of direct S3 URL
+        uploaded_urls.append(get_cdn_url(key))
 
     # Ensure images field exists
     if "images" not in product or product["images"] is None:
@@ -1648,7 +1642,8 @@ async def create_my_product(
             Body=data,
             ContentType=content_type,
         )
-        image_urls.append(s3_url(AWS_BUCKET_NAME, AWS_REGION, key))
+        # Use CDN URL instead of direct S3 URL
+        image_urls.append(get_cdn_url(key))
 
     # Build product document
     payload = {

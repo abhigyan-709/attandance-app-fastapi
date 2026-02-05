@@ -3,7 +3,13 @@ import boto3
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from botocore.exceptions import NoCredentialsError
 from database.db import db
-from routes.config import AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_BUCKET_NAME, AWS_REGION
+from routes.config import (
+    AWS_ACCESS_KEY_ID, 
+    AWS_SECRET_ACCESS_KEY, 
+    AWS_BUCKET_NAME, 
+    AWS_REGION,
+    get_cdn_url
+)
 from models.notes import NoteModel
 from routes.user import get_current_user
 from models.user import User
@@ -47,8 +53,8 @@ async def upload_pdf(
             file.file, AWS_BUCKET_NAME, unique_filename, ExtraArgs={"ContentType": "application/pdf"}
         )
 
-        # Generate file URL
-        file_url = f"https://{AWS_BUCKET_NAME}.s3.{AWS_REGION}.amazonaws.com/{unique_filename}"
+        # Use CDN URL instead of direct S3 URL
+        file_url = get_cdn_url(unique_filename)
 
         # Save metadata in MongoDB
         note_data = {"title": file.filename, "file_url": file_url}
