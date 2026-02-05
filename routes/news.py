@@ -506,11 +506,17 @@ def _get_author_details(username: str, db_client: MongoClient) -> Optional[Dict[
         if not author:
             return None
         
+        # Get author profile image and convert S3 URL to CDN URL if needed
+        author_profile_image = author.get("author_profile_image")
+        if author_profile_image and ".s3." in author_profile_image and ".amazonaws.com" in author_profile_image:
+            # Convert legacy S3 URL to CDN URL
+            author_profile_image = get_cdn_url(author_profile_image)
+        
         # Build author details object
         author_details = {
             "username": username,
             "full_name": f"{author.get('first_name', '')} {author.get('last_name', '')}".strip(),
-            "author_profile_image": author.get("author_profile_image"),
+            "author_profile_image": author_profile_image,
             "author_designation": author.get("author_designation"),
             "author_bio": author.get("author_bio")
         }

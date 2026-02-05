@@ -1159,11 +1159,16 @@ async def get_all_authors(db_client: MongoClient = Depends(db.get_client)):
     # Format author information
     author_list = []
     for author in authors:
+        # Convert S3 URL to CDN URL if needed
+        profile_image = author.get("author_profile_image")
+        if profile_image and ".s3." in profile_image and ".amazonaws.com" in profile_image:
+            profile_image = get_cdn_url(profile_image)
+        
         author_info = {
             "username": author["username"],
             "full_name": f"{author.get('first_name', '')} {author.get('last_name', '')}".strip(),
             "author_bio": author.get("author_bio"),
-            "author_profile_image": author.get("author_profile_image"),
+            "author_profile_image": profile_image,
             "author_designation": author.get("author_designation"),
             "author_social_links": author.get("author_social_links"),
             "articles_count": author.get("articles_count", 0)
@@ -1193,13 +1198,18 @@ async def get_author_profile(username: str, db_client: MongoClient = Depends(db.
     news_collection = db_client[db.db_name]["news"]
     article_count = news_collection.count_documents({"author_username": username, "published": True})
     
+    # Convert S3 URL to CDN URL if needed
+    profile_image = author.get("author_profile_image")
+    if profile_image and ".s3." in profile_image and ".amazonaws.com" in profile_image:
+        profile_image = get_cdn_url(profile_image)
+    
     return {
         "username": author["username"],
         "full_name": f"{author.get('first_name', '')} {author.get('last_name', '')}".strip(),
         "email": author.get("email"),
         "city": author.get("city"),
         "author_bio": author.get("author_bio"),
-        "author_profile_image": author.get("author_profile_image"),
+        "author_profile_image": profile_image,
         "author_designation": author.get("author_designation"),
         "author_social_links": author.get("author_social_links"),
         "articles_count": article_count,
