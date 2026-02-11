@@ -42,63 +42,63 @@ jobs:
           scp -o StrictHostKeyChecking=no -i key.pem image.tar.gz $USER@$HOST:/tmp/
 
           ssh -o StrictHostKeyChecking=no -i key.pem $USER@$HOST << 'EOF'
-            set -e
+          set -e
 
-            echo "Loading Docker image..."
-            docker load < /tmp/image.tar.gz
+          echo "Loading Docker image..."
+          docker load < /tmp/image.tar.gz
 
-            docker stop news-api || true
-            docker rm news-api || true
+          docker stop news-api || true
+          docker rm news-api || true
 
-            echo "Creating env file..."
-            cat > /root/backend.env << 'EOT'
-            ADMIN_API_TOKEN=${{ secrets.ADMIN_API_TOKEN }}
-            AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
-            AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            AWS_REGION=${{ secrets.AWS_REGION }}
-            AWS_BUCKET_NAME=${{ secrets.AWS_BUCKET_NAME }}
-            CDN_BASE_URL=${{ secrets.CDN_BASE_URL }}
-            CLOUDFRONT_DOMAIN=${{ secrets.CLOUDFRONT_DOMAIN }}
-            CLOUDFRONT_ENABLED=${{ secrets.CLOUDFRONT_ENABLED }}
-            FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
-            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
-            GEMINI_MODEL=${{ secrets.GEMINI_MODEL }}
-            MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}
-            MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}
-            MAIL_FROM=${{ secrets.MAIL_FROM }}
-            MAIL_PORT=${{ secrets.MAIL_PORT }}
-            MAIL_SERVER=${{ secrets.MAIL_SERVER }}
-            MAIL_STARTTLS=${{ secrets.MAIL_STARTTLS }}
-            MAIL_SSL_TLS=${{ secrets.MAIL_SSL_TLS }}
-            MAIL_FROM_NAME=${{ secrets.MAIL_FROM_NAME }}
-            MONGO_URI=${{ secrets.MONGO_URI }}
-            NEWS_BASE_URL=${{ secrets.NEWS_BASE_URL }}
-            NEWS_UI_BASE_URL=${{ secrets.NEWS_UI_BASE_URL }}
-            NEWS_VAPID_PUBLIC_KEY=${{ secrets.NEWS_VAPID_PUBLIC_KEY }}
-            NEWS_VAPID_PRIVATE_KEY=${{ secrets.NEWS_VAPID_PRIVATE_KEY }}
-            NEWS_VAPID_SUBJECT=${{ secrets.NEWS_VAPID_SUBJECT }}
-            REDIS_HOST=${{ secrets.REDIS_HOST }}
-            REDIS_PORT=${{ secrets.REDIS_PORT }}
-            REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
-            S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }}
-            VAPID_PUBLIC_KEY=${{ secrets.VAPID_PUBLIC_KEY }}
-            VAPID_PRIVATE_KEY=${{ secrets.VAPID_PRIVATE_KEY }}
-            VAPID_SUBJECT=${{ secrets.VAPID_SUBJECT }}
-            ENVIRONMENT=production
-            EOT
+          echo "Creating env file..."
+          cat > /root/backend.env << 'EOT'
+          ADMIN_API_TOKEN=${{ secrets.ADMIN_API_TOKEN }}
+          AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION=${{ secrets.AWS_REGION }}
+          AWS_BUCKET_NAME=${{ secrets.AWS_BUCKET_NAME }}
+          CDN_BASE_URL=${{ secrets.CDN_BASE_URL }}
+          CLOUDFRONT_DOMAIN=${{ secrets.CLOUDFRONT_DOMAIN }}
+          CLOUDFRONT_ENABLED=${{ secrets.CLOUDFRONT_ENABLED }}
+          FIREBASE_PROJECT_ID=${{ secrets.FIREBASE_PROJECT_ID }}
+          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL=${{ secrets.GEMINI_MODEL }}
+          MAIL_USERNAME=${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD=${{ secrets.MAIL_PASSWORD }}
+          MAIL_FROM=${{ secrets.MAIL_FROM }}
+          MAIL_PORT=${{ secrets.MAIL_PORT }}
+          MAIL_SERVER=${{ secrets.MAIL_SERVER }}
+          MAIL_STARTTLS=${{ secrets.MAIL_STARTTLS }}
+          MAIL_SSL_TLS=${{ secrets.MAIL_SSL_TLS }}
+          MAIL_FROM_NAME=${{ secrets.MAIL_FROM_NAME }}
+          MONGO_URI=${{ secrets.MONGO_URI }}
+          NEWS_BASE_URL=${{ secrets.NEWS_BASE_URL }}
+          NEWS_UI_BASE_URL=${{ secrets.NEWS_UI_BASE_URL }}
+          NEWS_VAPID_PUBLIC_KEY=${{ secrets.NEWS_VAPID_PUBLIC_KEY }}
+          NEWS_VAPID_PRIVATE_KEY=${{ secrets.NEWS_VAPID_PRIVATE_KEY }}
+          NEWS_VAPID_SUBJECT=${{ secrets.NEWS_VAPID_SUBJECT }}
+          REDIS_HOST=${{ secrets.REDIS_HOST }}
+          REDIS_PORT=${{ secrets.REDIS_PORT }}
+          REDIS_PASSWORD=${{ secrets.REDIS_PASSWORD }}
+          S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }}
+          VAPID_PUBLIC_KEY=${{ secrets.VAPID_PUBLIC_KEY }}
+          VAPID_PRIVATE_KEY=${{ secrets.VAPID_PRIVATE_KEY }}
+          VAPID_SUBJECT=${{ secrets.VAPID_SUBJECT }}
+          ENVIRONMENT=production
+          EOT
 
-            echo "Running container..."
-            docker run -d \
-              --name news-api \
-              -p 8000:8000 \
-              --restart unless-stopped \
-              --env-file /root/backend.env \
-              --add-host=host.docker.internal:host-gateway \
-              news-api:latest
+          echo "Running container..."
+          docker run -d \
+            --name news-api \
+            -p 8000:8000 \
+            --restart unless-stopped \
+            --env-file /root/backend.env \
+            --add-host=host.docker.internal:host-gateway \
+            news-api:latest
 
-            docker ps
+          docker ps
 
-            docker image prune -f
+          docker image prune -f
           EOF
 
           rm -f key.pem image.tar.gz
