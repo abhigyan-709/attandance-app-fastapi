@@ -41,7 +41,8 @@ from routes.config import (
     AWS_REGION, 
     AWS_BUCKET_NAME,
     get_s3_url,
-    extract_s3_key_from_url
+    extract_s3_key_from_url,
+    normalize_s3_url,
 )
 from routes.user import get_current_user
 
@@ -506,11 +507,8 @@ def _get_author_details(username: str, db_client: MongoClient) -> Optional[Dict[
         if not author:
             return None
         
-        # Get author profile image and convert S3 URL to CDN URL if needed
-        author_profile_image = author.get("author_profile_image")
-        if author_profile_image and ".s3." in author_profile_image and ".amazonaws.com" in author_profile_image:
-            # Convert legacy S3 URL to CDN URL
-            author_profile_image = get_s3_url(author_profile_image)
+        # Normalize legacy S3 URL or key into current bucket URL
+        author_profile_image = normalize_s3_url(author.get("author_profile_image"))
         
         # Build author details object
         author_details = {

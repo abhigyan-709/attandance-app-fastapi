@@ -43,7 +43,8 @@ from routes.config import (
     AWS_REGION,
     AWS_BUCKET_NAME,
     get_s3_url,
-    extract_s3_key_from_url
+    extract_s3_key_from_url,
+    normalize_s3_url,
 )
 
 # S3 client for uploads (bucket remains private, served via CloudFront CDN)
@@ -1159,10 +1160,7 @@ async def get_all_authors(db_client: MongoClient = Depends(db.get_client)):
     # Format author information
     author_list = []
     for author in authors:
-        # Convert S3 URL to CDN URL if needed
-        profile_image = author.get("author_profile_image")
-        if profile_image and ".s3." in profile_image and ".amazonaws.com" in profile_image:
-            profile_image = get_s3_url(profile_image)
+        profile_image = normalize_s3_url(author.get("author_profile_image"))
         
         author_info = {
             "username": author["username"],
@@ -1198,10 +1196,7 @@ async def get_author_profile(username: str, db_client: MongoClient = Depends(db.
     news_collection = db_client[db.db_name]["news"]
     article_count = news_collection.count_documents({"author_username": username, "published": True})
     
-    # Convert S3 URL to CDN URL if needed
-    profile_image = author.get("author_profile_image")
-    if profile_image and ".s3." in profile_image and ".amazonaws.com" in profile_image:
-        profile_image = get_s3_url(profile_image)
+    profile_image = normalize_s3_url(author.get("author_profile_image"))
     
     return {
         "username": author["username"],

@@ -69,6 +69,26 @@ def extract_s3_key_from_url(url: str) -> str:
     return url
 
 
+def normalize_s3_url(url_or_key: str) -> str:
+    """
+    Normalize a stored S3 value to a valid URL.
+
+    - If a full S3/CloudFront URL is provided, extract the key and rebuild
+      using the current bucket/region.
+    - If a plain key is provided, build the URL from it.
+    - If a non-S3 full URL is provided, return it as-is.
+    """
+    if not url_or_key:
+        return url_or_key
+
+    if url_or_key.startswith("http"):
+        if ".amazonaws.com/" in url_or_key or ".cloudfront.net/" in url_or_key:
+            return get_s3_url(extract_s3_key_from_url(url_or_key))
+        return url_or_key
+
+    return get_s3_url(url_or_key)
+
+
 # Backward compatibility aliases
 def get_cdn_url(s3_key: str) -> str:
     """Alias for get_s3_url - kept for backward compatibility during migration"""
