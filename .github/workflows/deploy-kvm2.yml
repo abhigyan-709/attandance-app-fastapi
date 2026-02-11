@@ -23,7 +23,7 @@ jobs:
       # 🐳 Build Docker image
       - name: Build image
         run: |
-          docker builder prune -af --volumes || true
+          docker builder prune -af || true
           docker build --no-cache --pull -t news-api:latest .
 
       # 📦 Save image
@@ -51,7 +51,7 @@ jobs:
             docker rm news-api || true
 
             echo "Creating env file..."
-            cat <<EOT > /root/backend.env
+            cat > /root/backend.env << 'EOT'
             ADMIN_API_TOKEN=${{ secrets.ADMIN_API_TOKEN }}
             AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
             AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -95,6 +95,8 @@ jobs:
               --env-file /root/backend.env \
               --add-host=host.docker.internal:host-gateway \
               news-api:latest
+
+            docker ps
 
             docker image prune -f
           EOF
