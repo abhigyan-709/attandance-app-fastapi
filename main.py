@@ -51,7 +51,7 @@ def scheduled_horoscope_publisher():
     from routes.news import _process_scheduled_horoscopes
     import os
     
-    # Get MongoDB URI from secrets manager (same as db.py)
+    # Get MongoDB URI from environment (same as db.py)
     try:
         from database.db import get_mongo_uri
         MONGODB_URI = get_mongo_uri()
