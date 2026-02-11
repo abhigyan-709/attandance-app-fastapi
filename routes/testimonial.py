@@ -14,7 +14,7 @@ from routes.config import (
     AWS_SECRET_ACCESS_KEY, 
     AWS_REGION,
     AWS_BUCKET_NAME,
-    get_cdn_url
+    get_s3_url
 )
 from typing import Optional
 from typing import List
@@ -52,7 +52,7 @@ async def create_testimonial(
             ExtraArgs={"ContentType": file.content_type}
         )
         # Use CDN URL instead of direct S3 URL
-        image_url = get_cdn_url(unique_filename)
+        image_url = get_s3_url(unique_filename)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
 

@@ -34,7 +34,7 @@ from routes.config import (
     AWS_SECRET_ACCESS_KEY, 
     AWS_REGION,
     AWS_BUCKET_NAME,
-    get_cdn_url
+    get_s3_url
 )
 from routes.user import get_current_user
 
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 blog_router = APIRouter()
 
-# S3 client for uploads (bucket remains private, served via CloudFront CDN)
+# S3 client for uploads
 s3_client = boto3.client(
     "s3",
     aws_access_key_id=AWS_ACCESS_KEY_ID,
@@ -154,7 +154,7 @@ async def create_blog(
             ExtraArgs={"ContentType": file.content_type},
         )
         # Use CDN URL instead of direct S3 URL
-        image_url = get_cdn_url(unique_filename)
+        image_url = get_s3_url(unique_filename)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
 
@@ -883,10 +883,10 @@ async def get_blog_meta(blog_id: str, db_client: MongoClient = Depends(db.get_cl
     image_url = blog["image_url"]
     # Ensure image URL uses CDN
     if not image_url.startswith("http"):
-        image_url = get_cdn_url(image_url)
+        image_url = get_s3_url(image_url)
     elif ".s3." in image_url and ".amazonaws.com" in image_url:
         # Convert existing S3 URL to CDN URL
-        image_url = get_cdn_url(image_url)
+        image_url = get_s3_url(image_url)
     blog_url = f"https://www.projectdevops.in/blog/{blog_id}/{title.replace(' ', '-').lower()}"
 
     html_content = f"""

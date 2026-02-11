@@ -8,7 +8,7 @@ from routes.config import (
     AWS_SECRET_ACCESS_KEY, 
     AWS_BUCKET_NAME, 
     AWS_REGION,
-    get_cdn_url
+    get_s3_url
 )
 from models.notes import NoteModel
 from routes.user import get_current_user
@@ -54,7 +54,7 @@ async def upload_pdf(
         )
 
         # Use CDN URL instead of direct S3 URL
-        file_url = get_cdn_url(unique_filename)
+        file_url = get_s3_url(unique_filename)
 
         # Save metadata in MongoDB
         note_data = {"title": file.filename, "file_url": file_url}

@@ -27,7 +27,7 @@ from routes.config import (
     AWS_SECRET_ACCESS_KEY, 
     AWS_REGION,
     AWS_BUCKET_NAME,
-    get_cdn_url
+    get_s3_url
 )
 
 from pydantic import BaseModel
@@ -150,7 +150,7 @@ async def upload_tutorial_cover(
             file.file, AWS_BUCKET_NAME, key, ExtraArgs={"ContentType": file.content_type}
         )
         # Use CDN URL instead of direct S3 URL
-        url = get_cdn_url(key)
+        url = get_s3_url(key)
         return {"url": url}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")

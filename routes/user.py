@@ -42,7 +42,7 @@ from routes.config import (
     AWS_SECRET_ACCESS_KEY, 
     AWS_REGION,
     AWS_BUCKET_NAME,
-    get_cdn_url,
+    get_s3_url,
     extract_s3_key_from_url
 )
 
@@ -1008,7 +1008,7 @@ async def upload_profile_picture(
         )
         
         # Use CDN URL instead of direct S3 URL
-        profile_picture_url = get_cdn_url(unique_filename)
+        profile_picture_url = get_s3_url(unique_filename)
         
         # Get current user's old profile picture URL to delete later
         user_from_db = db_client[db.db_name]["user"].find_one({"username": current_user.username})
@@ -1162,7 +1162,7 @@ async def get_all_authors(db_client: MongoClient = Depends(db.get_client)):
         # Convert S3 URL to CDN URL if needed
         profile_image = author.get("author_profile_image")
         if profile_image and ".s3." in profile_image and ".amazonaws.com" in profile_image:
-            profile_image = get_cdn_url(profile_image)
+            profile_image = get_s3_url(profile_image)
         
         author_info = {
             "username": author["username"],
@@ -1201,7 +1201,7 @@ async def get_author_profile(username: str, db_client: MongoClient = Depends(db.
     # Convert S3 URL to CDN URL if needed
     profile_image = author.get("author_profile_image")
     if profile_image and ".s3." in profile_image and ".amazonaws.com" in profile_image:
-        profile_image = get_cdn_url(profile_image)
+        profile_image = get_s3_url(profile_image)
     
     return {
         "username": author["username"],
@@ -1321,7 +1321,7 @@ async def upload_author_profile_image(
         )
         
         # Use CDN URL instead of direct S3 URL
-        image_url = get_cdn_url(unique_filename)
+        image_url = get_s3_url(unique_filename)
         
         # Update user profile
         users_collection.update_one(

@@ -40,7 +40,7 @@ from routes.config import (
     AWS_SECRET_ACCESS_KEY, 
     AWS_REGION, 
     AWS_BUCKET_NAME,
-    get_cdn_url,
+    get_s3_url,
     extract_s3_key_from_url
 )
 from routes.user import get_current_user
@@ -510,7 +510,7 @@ def _get_author_details(username: str, db_client: MongoClient) -> Optional[Dict[
         author_profile_image = author.get("author_profile_image")
         if author_profile_image and ".s3." in author_profile_image and ".amazonaws.com" in author_profile_image:
             # Convert legacy S3 URL to CDN URL
-            author_profile_image = get_cdn_url(author_profile_image)
+            author_profile_image = get_s3_url(author_profile_image)
         
         # Build author details object
         author_details = {
@@ -734,7 +734,7 @@ async def create_news(
             ExtraArgs={"ContentType": file.content_type},
         )
         # Use CDN URL instead of direct S3 URL
-        image_url = get_cdn_url(unique_filename)
+        image_url = get_s3_url(unique_filename)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Image upload failed: {str(e)}")
 
@@ -759,7 +759,7 @@ async def create_news(
                 raise HTTPException(status_code=500, detail=f"Content image upload failed: {str(exc)}")
 
             # Use CDN URL instead of direct S3 URL
-            gallery_url = get_cdn_url(gallery_key)
+            gallery_url = get_s3_url(gallery_key)
             caption = None
             if idx < len(captions_list):
                 candidate_caption = captions_list[idx]
@@ -2180,7 +2180,7 @@ async def update_news(
                 raise HTTPException(status_code=500, detail=f"Content image upload failed: {str(exc)}")
 
             # Use CDN URL instead of direct S3 URL
-            gallery_url = get_cdn_url(gallery_key)
+            gallery_url = get_s3_url(gallery_key)
             caption = None
             if idx < len(content_image_captions_list):
                 candidate_caption = content_image_captions_list[idx]
@@ -3001,10 +3001,10 @@ async def get_news_meta(news_id: str, db_client: MongoClient = Depends(db.get_cl
     image_url = doc.get("image_url") or ""
     # Ensure image URL uses CDN
     if image_url and not image_url.startswith("http"):
-        image_url = get_cdn_url(image_url)
+        image_url = get_s3_url(image_url)
     elif image_url and ".s3." in image_url and ".amazonaws.com" in image_url:
         # Convert existing S3 URL to CDN URL
-        image_url = get_cdn_url(image_url)
+        image_url = get_s3_url(image_url)
     slug = _slugify(title)
     news_url = f"{NEWS_BASE_URL}/n/{news_id}-{slug}"
 

@@ -42,7 +42,7 @@ from routes.config import (
     AWS_SECRET_ACCESS_KEY,
     AWS_REGION,
     AWS_BUCKET_NAME,
-    get_cdn_url,
+    get_s3_url,
     extract_s3_key_from_url
 )
 import mimetypes
@@ -303,7 +303,7 @@ async def create_product(
             ContentType=content_type,
         )
         # Use CDN URL instead of direct S3 URL
-        image_urls.append(get_cdn_url(key))
+        image_urls.append(get_s3_url(key))
 
     # Build product document
     data = {
@@ -483,7 +483,7 @@ async def upload_product_images(
             # Removed ACL="public-read" - bucket is private, CDN handles access
         )
         # Use CDN URL instead of direct S3 URL
-        uploaded_urls.append(get_cdn_url(key))
+        uploaded_urls.append(get_s3_url(key))
 
     # Ensure images field exists
     if "images" not in product or product["images"] is None:
@@ -1643,7 +1643,7 @@ async def create_my_product(
             ContentType=content_type,
         )
         # Use CDN URL instead of direct S3 URL
-        image_urls.append(get_cdn_url(key))
+        image_urls.append(get_s3_url(key))
 
     # Build product document
     payload = {

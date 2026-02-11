@@ -30,7 +30,7 @@ from routes.config import (
     AWS_SECRET_ACCESS_KEY, 
     AWS_REGION,
     AWS_BUCKET_NAME,
-    get_cdn_url
+    get_s3_url
 )
 
 router = APIRouter()
@@ -104,7 +104,7 @@ def upload_file_to_s3(file: UploadFile, folder: str) -> str:
             ExtraArgs={"ContentType": file.content_type or "application/octet-stream"},
         )
         # Use CDN URL instead of direct S3 URL
-        file_url = get_cdn_url(unique_filename)
+        file_url = get_s3_url(unique_filename)
         return file_url
     except Exception as e:
         logger.error(f"S3 upload failed: {str(e)}")
@@ -548,7 +548,7 @@ async def generate_employee_qr_code(
         )
         
         # Use CDN URL instead of direct S3 URL
-        qr_url = get_cdn_url(qr_filename)
+        qr_url = get_s3_url(qr_filename)
         
         # Update employee with QR code URL
         db_client[db.db_name][EMPLOYEE_COLL].update_one(
