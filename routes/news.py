@@ -3515,20 +3515,43 @@ class PagedNews(BaseModel):
 
 @news_router.get("/news/paginated", response_model=PagedNews, tags=["News"])
 async def get_news_paginated(
-    published: Optional[bool] = Query(default=None),
-    category: Optional[str] = Query(default=None),
-    tag: Optional[str] = Query(default=None),
+    request: Request,
+    published: Optional[bool] = Query(default=None, description="Filter by publish status (omit for all when authenticated)"),
+    category: Optional[str] = Query(default=None, description="Filter by category name"),
+    tag: Optional[str] = Query(default=None, description="Filter by tag"),
+    author_username: Optional[str] = Query(default=None, description="Filter by author username"),
+    search: Optional[str] = Query(default=None, description="Search in title"),
     page: int = Query(1, ge=1),
-    per_page: int = Query(10, ge=1, le=50),
+    per_page: int = Query(20, ge=1, le=100),
     db_client: MongoClient = Depends(db.get_client),
 ):
+    """
+    Paginated news listing with full metadata.
+    
+    - Admin/author (with auth token): sees all stories (published + drafts) by default
+    - Public (no auth): sees published only
+    - Use **search** to filter by title (case-insensitive substring match)
+    - Returns pagination metadata: total, page, per_page, pages, has_next, has_prev
+    """
+    # Process scheduled posts before listing
+    _process_scheduled_posts(db_client)
+
     q: Dict[str, Any] = {}
-    if published is not None:
+
+    # Auth-aware published filter (same logic as /news)
+    if _should_force_published_only(request, published):
+        q["published"] = True
+    elif published is not None:
         q["published"] = published
+
     if category:
         q["categories"] = category
     if tag:
         q["tags"] = tag
+    if author_username:
+        q["author_username"] = author_username
+    if search:
+        q["title"] = {"$regex": search, "$options": "i"}
 
     coll = db_client[db.db_name][NEWS_COLL]
     total = coll.count_documents(q)
