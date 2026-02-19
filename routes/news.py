@@ -3189,6 +3189,81 @@ async def generate_sitemap(db_client: MongoClient = Depends(db.get_client)):
     return HTMLResponse(content=sitemap_content, media_type="application/xml")
 
 
+@news_router.get("/news-sitemap.xml", response_class=HTMLResponse, tags=["News SEO"])
+async def generate_news_sitemap(db_client: MongoClient = Depends(db.get_client)):
+    """
+    Google News Sitemap (https://developers.google.com/search/docs/crawling-indexing/sitemaps/news-sitemap).
+
+    Only includes articles published in the last 2 days (Google News requirement).
+    Uses <news:news> tags with publication_date, title, language, and keywords.
+    """
+    from datetime import timedelta
+
+    two_days_ago = datetime.utcnow() - timedelta(days=2)
+
+    docs = list(
+        db_client[db.db_name][NEWS_COLL]
+        .find(
+            {"published": True, "created_at": {"$gte": two_days_ago}},
+            {
+                "slug": 1, "title": 1, "created_at": 1,
+                "categories": 1, "focus_keyword": 1, "seo_keywords": 1,
+            },
+        )
+        .sort("created_at", DESCENDING)
+        .limit(1000)
+    )
+
+    url_entries = []
+    for doc in docs:
+        title = doc.get("title", "")
+        slug = doc.get("slug") or _generate_seo_slug(title, str(doc["_id"]))
+        pub_date = (doc.get("created_at") or datetime.utcnow()).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+        # Build keywords from focus_keyword, seo_keywords, and category
+        kw_parts = []
+        if doc.get("focus_keyword"):
+            kw_parts.append(doc["focus_keyword"].strip())
+        if doc.get("seo_keywords"):
+            kw_parts.extend([k.strip() for k in doc["seo_keywords"].split(",") if k.strip()])
+        if doc.get("categories"):
+            cat = doc["categories"].strip()
+            if cat and cat not in kw_parts:
+                kw_parts.append(cat)
+        keywords_str = ", ".join(kw_parts[:10]) if kw_parts else ""
+
+        # Escape XML special chars in title
+        safe_title = (
+            title.replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&apos;")
+        )
+
+        keywords_tag = f"\n          <news:keywords>{keywords_str}</news:keywords>" if keywords_str else ""
+
+        url_entries.append(f"""    <url>
+      <loc>{NEWS_BASE_URL}/news/{slug}</loc>
+      <news:news>
+        <news:publication>
+          <news:name>{PUBLISHER_NAME}</news:name>
+          <news:language>hi</news:language>
+        </news:publication>
+        <news:publication_date>{pub_date}</news:publication_date>
+        <news:title>{safe_title}</news:title>{keywords_tag}
+      </news:news>
+    </url>""")
+
+    sitemap_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:news="http://www.google.com/schemas/sitemap-news/0.9">
+{chr(10).join(url_entries)}
+</urlset>"""
+
+    return HTMLResponse(content=sitemap_xml, media_type="application/xml")
+
+
 # ==================== JSON-LD STRUCTURED DATA ENDPOINTS ====================
 
 @news_router.get("/news/{news_id}/jsonld", tags=["News SEO"])
