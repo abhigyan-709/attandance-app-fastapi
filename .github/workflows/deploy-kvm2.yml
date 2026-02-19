@@ -69,7 +69,7 @@ jobs:
       - name: "🔄 [3/4] Deploy container"
         env:
           HOST: ${{ secrets.HOSTINGER_HOST }}
-          USER: ${{ secrets.HOSTINGER_USER }}
+          USER: root
           PRIVATE_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
