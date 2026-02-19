@@ -930,8 +930,25 @@ async def get_news(
     request: Request,
     published: Optional[bool] = Query(default=None),
     author_username: Optional[str] = Query(default=None),
+    category: Optional[str] = Query(default=None, description="Filter by category name"),
+    tag: Optional[str] = Query(default=None, description="Filter by tag"),
+    limit: int = Query(20, ge=1, le=100, description="Max articles to return (1-100, default 20)"),
+    offset: int = Query(0, ge=0, description="Number of articles to skip (for pagination)"),
     db_client: MongoClient = Depends(db.get_client),
 ):
+    """
+    List news articles with pagination.
+    
+    - **limit**: Number of articles per page (default 20, max 100)
+    - **offset**: Skip N articles (e.g., offset=20 for page 2 with limit=20)
+    - **category**: Filter by category name
+    - **tag**: Filter by tag
+    - **published**: Filter by publish status (public users always see published only)
+    - **author_username**: Filter by author
+    
+    Returns a list of news articles sorted by newest first.
+    For full pagination metadata (total, pages), use /news/paginated instead.
+    """
     # Process scheduled posts before listing
     _process_scheduled_posts(db_client)
     
@@ -944,8 +961,22 @@ async def get_news(
     # Filter by author username
     if author_username:
         query["author_username"] = author_username
+    
+    # Filter by category
+    if category:
+        query["categories"] = category
+    
+    # Filter by tag
+    if tag:
+        query["tags"] = tag
 
-    docs = list(db_client[db.db_name][NEWS_COLL].find(query).sort("created_at", DESCENDING))
+    docs = list(
+        db_client[db.db_name][NEWS_COLL]
+        .find(query)
+        .sort("created_at", DESCENDING)
+        .skip(offset)
+        .limit(limit)
+    )
     return [_normalize_news(d, db_client) for d in docs]
 
 
@@ -1552,6 +1583,8 @@ async def get_news_by_category_and_tags(
     category: Optional[str] = None,
     tag: Optional[str] = None,
     published: Optional[bool] = Query(default=None),
+    limit: int = Query(20, ge=1, le=100, description="Max articles to return (default 20)"),
+    offset: int = Query(0, ge=0, description="Number of articles to skip"),
     db_client: MongoClient = Depends(db.get_client),
 ):
     # Process scheduled posts before filtering
@@ -1568,7 +1601,13 @@ async def get_news_by_category_and_tags(
     elif published is not None:
         query["published"] = published
 
-    docs = list(db_client[db.db_name][NEWS_COLL].find(query).sort("created_at", DESCENDING))
+    docs = list(
+        db_client[db.db_name][NEWS_COLL]
+        .find(query)
+        .sort("created_at", DESCENDING)
+        .skip(offset)
+        .limit(limit)
+    )
     return [_normalize_news(d, db_client) for d in docs]
 
 
@@ -1604,6 +1643,8 @@ async def get_news_by_category(
     request: Request,
     category_name: str,
     published: Optional[bool] = Query(default=None),
+    limit: int = Query(20, ge=1, le=100, description="Max articles to return"),
+    offset: int = Query(0, ge=0, description="Number of articles to skip"),
     db_client: MongoClient = Depends(db.get_client),
 ):
     query: Dict[str, Any] = {"categories": category_name}
@@ -1612,8 +1653,14 @@ async def get_news_by_category(
     elif published is not None:
         query["published"] = published
 
-    docs = list(db_client[db.db_name][NEWS_COLL].find(query).sort("created_at", DESCENDING))
-    if not docs:
+    docs = list(
+        db_client[db.db_name][NEWS_COLL]
+        .find(query)
+        .sort("created_at", DESCENDING)
+        .skip(offset)
+        .limit(limit)
+    )
+    if not docs and offset == 0:
         raise HTTPException(status_code=404, detail="No news found for this category")
     return [_normalize_news(d, db_client) for d in docs]
 
@@ -1623,6 +1670,8 @@ async def get_news_by_tag(
     request: Request,
     tag: str,
     published: Optional[bool] = Query(default=None),
+    limit: int = Query(20, ge=1, le=100, description="Max articles to return"),
+    offset: int = Query(0, ge=0, description="Number of articles to skip"),
     db_client: MongoClient = Depends(db.get_client),
 ):
     query: Dict[str, Any] = {"tags": tag}
@@ -1631,7 +1680,13 @@ async def get_news_by_tag(
     elif published is not None:
         query["published"] = published
 
-    docs = list(db_client[db.db_name][NEWS_COLL].find(query).sort("created_at", DESCENDING))
+    docs = list(
+        db_client[db.db_name][NEWS_COLL]
+        .find(query)
+        .sort("created_at", DESCENDING)
+        .skip(offset)
+        .limit(limit)
+    )
     return [_normalize_news(d, db_client) for d in docs]
 
 
