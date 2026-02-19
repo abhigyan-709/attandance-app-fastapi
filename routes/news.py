@@ -980,6 +980,85 @@ async def get_news(
     return [_normalize_news(d, db_client) for d in docs]
 
 
+@news_router.get("/news/paginated", tags=["News"])
+async def get_paginated_news(
+    request: Request,
+    page: int = Query(1, ge=1, description="Page number (1-based)"),
+    per_page: int = Query(20, ge=1, le=100, description="Items per page (default 20, max 100)"),
+    published: Optional[bool] = Query(default=None, description="Filter by publish status"),
+    author_username: Optional[str] = Query(default=None, description="Filter by author username"),
+    category: Optional[str] = Query(default=None, description="Filter by category name"),
+    tag: Optional[str] = Query(default=None, description="Filter by tag"),
+    search: Optional[str] = Query(default=None, description="Search in title and content"),
+    sort_by: Optional[str] = Query(default="created_at", description="Sort field: created_at, views, likes, title"),
+    sort_order: Optional[str] = Query(default="desc", description="Sort order: asc or desc"),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """
+    Paginated news listing with full metadata, filters and sorting.
+
+    Returns:
+    - **articles**: list of news articles for the current page
+    - **page**: current page number
+    - **per_page**: items per page
+    - **total**: total matching articles
+    - **total_pages**: total number of pages
+    - **has_next**: whether a next page exists
+    - **has_prev**: whether a previous page exists
+    """
+    # Process scheduled posts before listing
+    _process_scheduled_posts(db_client)
+
+    coll = db_client[db.db_name][NEWS_COLL]
+
+    # Build query filter
+    query: Dict[str, Any] = {}
+    if _should_force_published_only(request, published):
+        query["published"] = True
+    elif published is not None:
+        query["published"] = published
+
+    if author_username:
+        query["author_username"] = author_username
+    if category:
+        query["categories"] = category
+    if tag:
+        query["tags"] = tag
+    if search:
+        query["$or"] = [
+            {"title": {"$regex": search, "$options": "i"}},
+            {"content": {"$regex": search, "$options": "i"}},
+        ]
+
+    # Determine sort
+    allowed_sort_fields = {"created_at", "views", "likes", "title", "updated_at"}
+    sort_field = sort_by if sort_by in allowed_sort_fields else "created_at"
+    sort_dir = ASCENDING if sort_order == "asc" else DESCENDING
+
+    # Total count for pagination metadata
+    total = coll.count_documents(query)
+    total_pages = math.ceil(total / per_page) if total > 0 else 1
+    skip = (page - 1) * per_page
+
+    docs = list(
+        coll.find(query)
+        .sort(sort_field, sort_dir)
+        .skip(skip)
+        .limit(per_page)
+    )
+    articles = [_normalize_news(d, db_client) for d in docs]
+
+    return {
+        "articles": articles,
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "total_pages": total_pages,
+        "has_next": page < total_pages,
+        "has_prev": page > 1,
+    }
+
+
 @news_router.get("/news/scheduled", response_model=List[NewsPost], tags=["News"])
 async def get_scheduled_news(
     current_user: User = Depends(get_current_user),
