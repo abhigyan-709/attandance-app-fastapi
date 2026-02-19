@@ -75,10 +75,11 @@ class NewsPost(BaseModel):
     slug: Optional[str] = None                              # Auto-generated if not provided
     meta_title: Optional[str] = None                        # Defaults to title
     meta_description: Optional[str] = None                  # Auto-extracted from content
-    keywords: Optional[List[str]] = Field(default_factory=list)  # SEO keywords
+    keywords: Optional[List[str]] = Field(default_factory=list)  # SEO keywords (comma-separated in UI)
+    keywords_source: Optional[str] = None                       # "manual" or "auto" — tracks how keywords were set
     
     # NEW SEO Fields for better Google ranking
-    focus_keyword: Optional[str] = None                     # Primary SEO keyword (e.g., "Bihar Election 2026")
+    focus_keyword: Optional[str] = None                     # Primary SEO keyword — max 60 chars (e.g., "Bihar Election 2026")
     image_alt: Optional[str] = None                         # Alt text for featured image (for accessibility & SEO)
     reading_time_minutes: Optional[int] = None              # Estimated reading time (auto-calculated)
     is_breaking_news: Optional[bool] = False                # Breaking news flag (for schema.org)

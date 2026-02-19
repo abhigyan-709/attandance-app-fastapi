@@ -163,20 +163,35 @@ def _calculate_reading_time(word_count: int) -> int:
     """Calculate reading time in minutes (average 200 words/min for Hindi)"""
     return max(1, round(word_count / 200))
 
-def _extract_keywords(title: str, content: str, categories: str) -> List[str]:
-    """Auto-extract keywords from title, content, and categories"""
+
+def _build_keywords_from_focus(focus_keyword: str = None, categories: str = None) -> List[str]:
+    """Build keywords list from focus_keyword and category.
+    
+    Simple, predictable approach:
+    1. focus_keyword (the primary SEO target) goes first
+    2. Category name is added as second keyword
+    
+    No auto-extraction magic — the admin controls keywords directly
+    via focus_keyword and/or the comma-separated seo_keywords field.
+    """
     keywords = []
+    seen = set()
     
-    # Add category as keyword
-    if categories:
-        keywords.append(categories.lower())
+    # 1. Add focus_keyword as the primary keyword
+    if focus_keyword and focus_keyword.strip():
+        fk = focus_keyword.strip()
+        keywords.append(fk)
+        seen.add(fk.lower() if fk.isascii() else fk)
     
-    # Extract important words from title (Hindi and English)
-    title_words = re.findall(r'[\u0900-\u097F]+|[a-zA-Z]+', title.lower())
-    keywords.extend([word for word in title_words if len(word) > 3])
+    # 2. Add category as secondary keyword
+    if categories and categories.strip():
+        cat = categories.strip()
+        cat_key = cat.lower() if cat.isascii() else cat
+        if cat_key not in seen:
+            keywords.append(cat)
+            seen.add(cat_key)
     
-    # Remove duplicates and limit to 10 keywords
-    return list(dict.fromkeys(keywords))[:10]
+    return keywords
 
 
 # ==================== SEO/SCHEMA.ORG HELPERS ====================
@@ -236,7 +251,7 @@ def _generate_news_article_jsonld(doc: Dict[str, Any], db_client: MongoClient) -
     image_alt = doc.get("image_alt") or title
     
     # Keywords
-    keywords = doc.get("keywords") or _extract_keywords(title, content, doc.get("categories", ""))
+    keywords = doc.get("keywords") or _build_keywords_from_focus(doc.get("focus_keyword"), doc.get("categories", ""))
     
     # Determine article type
     article_type = "NewsArticle"
@@ -582,9 +597,8 @@ def _normalize_news(doc: Dict[str, Any], db_client: MongoClient) -> Dict[str, An
     if not doc.get("meta_description"):
         doc["meta_description"] = _extract_meta_description(doc.get("content", ""))
     if not doc.get("keywords"):
-        doc["keywords"] = _extract_keywords(
-            doc.get("title", ""), 
-            doc.get("content", ""), 
+        doc["keywords"] = _build_keywords_from_focus(
+            doc.get("focus_keyword"),
             doc.get("categories", "")
         )
     
@@ -631,9 +645,10 @@ async def create_news(
     scheduled_at: Optional[str] = Form(None),
     author_username: Optional[str] = Form(None),  # Admin can override author
     # NEW SEO fields (optional - for UI enhancement)
-    focus_keyword: Optional[str] = Form(None),          # Primary SEO keyword
+    focus_keyword: Optional[str] = Form(None),          # Primary SEO keyword (max 60 chars)
     meta_title_override: Optional[str] = Form(None),    # Custom meta title (max 60 chars)
     meta_description_override: Optional[str] = Form(None),  # Custom description (max 160 chars)
+    seo_keywords: Optional[str] = Form(None),           # Comma-separated SEO keywords (manual override)
     image_alt: Optional[str] = Form(None),              # Alt text for featured image
     is_breaking_news: bool = Form(False),               # Breaking news flag
     is_opinion: bool = Form(False),                     # Opinion/Editorial flag
@@ -825,15 +840,39 @@ async def create_news(
     word_count = _calculate_word_count(content)
     reading_time = _calculate_reading_time(word_count)
 
+    # Validate focus_keyword length (prevent keyword stuffing)
+    if focus_keyword and len(focus_keyword.strip()) > 60:
+        raise HTTPException(
+            status_code=400,
+            detail="focus_keyword must be max 60 characters (a single short phrase, e.g. 'Bihar Election 2026'). Don't stuff multiple keywords."
+        )
+    
+    # Build keywords: manual seo_keywords > focus_keyword + category fallback
+    if seo_keywords and seo_keywords.strip():
+        # Manual keywords via comma-separated input
+        manual_kw_list = [kw.strip() for kw in seo_keywords.split(",") if kw.strip()]
+        seen_kw = set()
+        parsed_keywords = []
+        for kw in manual_kw_list:
+            kw_lower = kw.lower() if kw.isascii() else kw
+            if kw_lower not in seen_kw:
+                seen_kw.add(kw_lower)
+                parsed_keywords.append(kw)
+        parsed_keywords = parsed_keywords[:20]  # Max 20 manual keywords
+    else:
+        # Default: copy focus_keyword + category as keywords
+        parsed_keywords = _build_keywords_from_focus(focus_keyword, categories)
+    
     # Add SEO data after insertion (custom slug is required)
     seo_updates = {
         "slug": custom_slug,
         # Use override if provided, else auto-generate
-        "meta_title": (meta_title_override.strip()[:60] if meta_title_override else title[:60]) if len(title) > 60 else (meta_title_override.strip() if meta_title_override else title),
-        "meta_description": meta_description_override.strip()[:160] if meta_description_override else _extract_meta_description(content),
-        "keywords": _extract_keywords(title, content, categories),
+        "meta_title": meta_title_override.strip()[:60] if meta_title_override and meta_title_override.strip() else title[:60],
+        "meta_description": meta_description_override.strip()[:160] if meta_description_override and meta_description_override.strip() else _extract_meta_description(content),
+        "keywords": parsed_keywords,
+        "keywords_source": "manual" if (seo_keywords and seo_keywords.strip()) else "focus_keyword",
         # NEW SEO fields
-        "focus_keyword": focus_keyword.strip() if focus_keyword else None,
+        "focus_keyword": focus_keyword.strip()[:60] if focus_keyword else None,
         "image_alt": image_alt.strip() if image_alt else title,  # Default to title for accessibility
         "word_count": word_count,
         "reading_time_minutes": reading_time,
@@ -1924,9 +1963,10 @@ async def update_news(
     # existing gallery items coming back from UI as JSON string
     existing_content_images: Optional[str] = Form(None),
     # SEO fields (NEW - for editing existing posts)
-    focus_keyword: Optional[str] = Form(None),          # Primary SEO keyword
+    focus_keyword: Optional[str] = Form(None),          # Primary SEO keyword (max 60 chars)
     meta_title_override: Optional[str] = Form(None),    # Custom meta title (max 60 chars)
     meta_description_override: Optional[str] = Form(None),  # Custom description (max 160 chars)
+    seo_keywords: Optional[str] = Form(None),           # Comma-separated SEO keywords (manual override)
     image_alt: Optional[str] = Form(None),              # Alt text for featured image
     is_breaking_news: Optional[bool] = Form(None),      # Breaking news flag
     is_opinion: Optional[bool] = Form(None),            # Opinion/Editorial flag
@@ -2190,9 +2230,15 @@ async def update_news(
     update_doc["content_images"] = merged_gallery
 
     # --- SEO fields handling ---
-    # Update SEO fields if provided
+    # Validate focus_keyword length
     if focus_keyword is not None:
-        update_doc["focus_keyword"] = focus_keyword.strip() if focus_keyword else None
+        fk_clean = focus_keyword.strip() if focus_keyword else ""
+        if len(fk_clean) > 60:
+            raise HTTPException(
+                status_code=400,
+                detail="focus_keyword must be max 60 characters (a single short phrase, e.g. 'Bihar Election 2026'). Don't stuff multiple keywords."
+            )
+        update_doc["focus_keyword"] = fk_clean if fk_clean else None
     
     if meta_title_override is not None:
         # Use custom meta title or regenerate from title
@@ -2223,12 +2269,30 @@ async def update_news(
         update_doc["word_count"] = word_count
         update_doc["reading_time_minutes"] = _calculate_reading_time(word_count)
     
-    # Auto-regenerate keywords if title, content, or categories changed
-    if any(k in update_doc for k in ["title", "content", "categories"]):
-        final_title = update_doc.get("title") or existing.get("title", "")
-        final_content = update_doc.get("content") or existing.get("content", "")
-        final_categories = update_doc.get("categories") or existing.get("categories", "")
-        update_doc["keywords"] = _extract_keywords(final_title, final_content, final_categories)
+    # --- Keyword handling ---
+    # Priority: seo_keywords (comma-separated) > focus_keyword + category
+    if seo_keywords is not None and seo_keywords.strip():
+        # Manual keywords provided via comma-separated input
+        manual_kw_list = [kw.strip() for kw in seo_keywords.split(",") if kw.strip()]
+        seen_kw = set()
+        parsed_keywords = []
+        for kw in manual_kw_list:
+            kw_lower = kw.lower() if kw.isascii() else kw
+            if kw_lower not in seen_kw:
+                seen_kw.add(kw_lower)
+                parsed_keywords.append(kw)
+        update_doc["keywords"] = parsed_keywords[:20]
+        update_doc["keywords_source"] = "manual"
+    elif "focus_keyword" in update_doc or "categories" in update_doc:
+        # focus_keyword or categories changed — rebuild keywords from them
+        # But only if keywords weren't manually set before
+        existing_source = existing.get("keywords_source", "focus_keyword")
+        if existing_source != "manual":
+            fk = update_doc.get("focus_keyword") or existing.get("focus_keyword")
+            cat = update_doc.get("categories") or existing.get("categories", "")
+            update_doc["keywords"] = _build_keywords_from_focus(fk, cat)
+            update_doc["keywords_source"] = "focus_keyword"
+        # If keywords_source is "manual", don't overwrite
 
     # housekeeping fields
     update_doc["updated_at"] = datetime.utcnow()
@@ -2331,6 +2395,245 @@ async def remove_single_tag_legacy(
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="News not found")
     return {"removed": [tag]}
+
+
+# ======================== SEO KEYWORD MANAGEMENT ========================
+
+
+class SEOKeywordsPayload(BaseModel):
+    """Payload for managing SEO keywords on a news article"""
+    keywords: str = Field(..., description="Comma-separated SEO keywords, e.g. 'Bihar Election, बिहार चुनाव, NDA, BJP'")
+    focus_keyword: Optional[str] = Field(None, description="Primary focus keyword (max 60 chars)")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "keywords": "Bihar Election 2026, बिहार चुनाव, NDA alliance, BJP candidate list, विधानसभा चुनाव",
+                "focus_keyword": "Bihar Election 2026"
+            }
+        }
+
+
+@news_router.get("/news/{news_id}/seo-keywords", tags=["News SEO Keywords"])
+async def get_news_seo_keywords(
+    news_id: str,
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """
+    Get the current SEO keywords for a news article.
+    
+    Returns:
+    - keywords: List of current SEO keywords
+    - keywords_source: "manual" or "focus_keyword" — how keywords were set
+    - focus_keyword: Primary focus keyword
+    - suggested_keywords: Auto-generated keyword suggestions for comparison
+    """
+    if not ObjectId.is_valid(news_id):
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    doc = db_client[db.db_name][NEWS_COLL].find_one({"_id": ObjectId(news_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    # Show what the focus_keyword + category approach would produce
+    auto_keywords = _build_keywords_from_focus(
+        doc.get("focus_keyword"),
+        doc.get("categories", "")
+    )
+    
+    current_keywords = doc.get("keywords", [])
+    
+    return {
+        "news_id": news_id,
+        "title": doc.get("title", ""),
+        "keywords": current_keywords,
+        "keywords_csv": ", ".join(current_keywords) if current_keywords else "",
+        "keywords_source": doc.get("keywords_source", "auto"),
+        "focus_keyword": doc.get("focus_keyword"),
+        "suggested_keywords": auto_keywords,
+        "suggested_keywords_csv": ", ".join(auto_keywords),
+        "total_keywords": len(current_keywords),
+        "max_keywords": 20,
+    }
+
+
+@news_router.put("/news/{news_id}/seo-keywords", tags=["News SEO Keywords"])
+async def update_news_seo_keywords(
+    news_id: str,
+    payload: SEOKeywordsPayload = Body(...),
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """
+    Set/replace SEO keywords for a news article (comma-separated input).
+    
+    This is the recommended way to manage keywords for better Google ranking.
+    
+    Tips for good SEO keywords:
+    - Use 5-15 keywords per article
+    - Mix Hindi and English keywords
+    - Include your focus keyword in the list
+    - Use specific terms (e.g., "Muzaffarpur Road Accident" not just "Accident")
+    - Include location names, person names, event names
+    
+    Example: "Bihar Election 2026, बिहार चुनाव 2026, NDA, BJP candidate, विधानसभा"
+    """
+    if not ObjectId.is_valid(news_id):
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    coll = db_client[db.db_name][NEWS_COLL]
+    existing = coll.find_one({"_id": ObjectId(news_id)})
+    if not existing:
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    # Parse comma-separated keywords
+    raw_keywords = payload.keywords.strip()
+    if not raw_keywords:
+        raise HTTPException(status_code=400, detail="Keywords cannot be empty")
+    
+    kw_list = [kw.strip() for kw in raw_keywords.split(",") if kw.strip()]
+    if not kw_list:
+        raise HTTPException(status_code=400, detail="No valid keywords found after parsing")
+    
+    # Deduplicate preserving order
+    seen = set()
+    unique_kw = []
+    for kw in kw_list:
+        key = kw.lower() if kw.isascii() else kw
+        if key not in seen:
+            seen.add(key)
+            unique_kw.append(kw)
+    
+    if len(unique_kw) > 20:
+        unique_kw = unique_kw[:20]
+    
+    update_data: Dict[str, Any] = {
+        "keywords": unique_kw,
+        "keywords_source": "manual",
+        "updated_at": datetime.utcnow(),
+    }
+    
+    # Validate and set focus_keyword if provided
+    if payload.focus_keyword is not None:
+        fk = payload.focus_keyword.strip()
+        if len(fk) > 60:
+            raise HTTPException(
+                status_code=400,
+                detail="focus_keyword must be max 60 characters"
+            )
+        update_data["focus_keyword"] = fk if fk else None
+    
+    coll.update_one({"_id": ObjectId(news_id)}, {"$set": update_data})
+    
+    return {
+        "message": "SEO keywords updated successfully",
+        "news_id": news_id,
+        "keywords": unique_kw,
+        "keywords_source": "manual",
+        "focus_keyword": update_data.get("focus_keyword", existing.get("focus_keyword")),
+        "total_keywords": len(unique_kw),
+    }
+
+
+@news_router.post("/news/{news_id}/seo-keywords/regenerate", tags=["News SEO Keywords"])
+async def regenerate_news_seo_keywords(
+    news_id: str,
+    current_user: User = Depends(get_current_author_or_admin_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """
+    Reset keywords to focus_keyword + category (removes manual overrides).
+    
+    Use this to reset keywords back to the default focus_keyword-based approach.
+    """
+    if not ObjectId.is_valid(news_id):
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    coll = db_client[db.db_name][NEWS_COLL]
+    doc = coll.find_one({"_id": ObjectId(news_id)})
+    if not doc:
+        raise HTTPException(status_code=404, detail="News not found")
+    
+    new_keywords = _build_keywords_from_focus(
+        doc.get("focus_keyword"),
+        doc.get("categories", "")
+    )
+    
+    coll.update_one(
+        {"_id": ObjectId(news_id)},
+        {"$set": {
+            "keywords": new_keywords,
+            "keywords_source": "focus_keyword",
+            "updated_at": datetime.utcnow(),
+        }}
+    )
+    
+    return {
+        "message": "Keywords reset to focus_keyword + category",
+        "news_id": news_id,
+        "keywords": new_keywords,
+        "keywords_source": "focus_keyword",
+        "total_keywords": len(new_keywords),
+    }
+
+
+@news_router.post("/news/bulk-regenerate-keywords", tags=["News SEO Keywords"])
+async def bulk_regenerate_keywords(
+    only_auto: bool = Query(True, description="Only regenerate auto-generated keywords (skip manually set ones)"),
+    current_user: User = Depends(get_current_user),
+    db_client: MongoClient = Depends(db.get_client),
+):
+    """
+    Bulk regenerate keywords for all articles (admin only).
+    
+    - only_auto=True (default): Only updates articles with auto-generated keywords
+    - only_auto=False: Updates ALL articles (overwrites manual keywords too)
+    
+    Also backfills word_count and reading_time for articles missing them.
+    """
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+    
+    coll = db_client[db.db_name][NEWS_COLL]
+    
+    query = {}
+    if only_auto:
+        query["$or"] = [
+            {"keywords_source": {"$ne": "manual"}},
+            {"keywords_source": {"$exists": False}},
+        ]
+    
+    docs = list(coll.find(query))
+    updated = 0
+    backfilled_wordcount = 0
+    
+    for doc in docs:
+        new_keywords = _build_keywords_from_focus(
+            doc.get("focus_keyword"),
+            doc.get("categories", "")
+        )
+        
+        update_fields: Dict[str, Any] = {
+            "keywords": new_keywords,
+            "keywords_source": "focus_keyword",
+        }
+        
+        # Backfill word_count and reading_time if missing
+        if not doc.get("word_count"):
+            wc = _calculate_word_count(doc.get("content", ""))
+            update_fields["word_count"] = wc
+            update_fields["reading_time_minutes"] = _calculate_reading_time(wc)
+            backfilled_wordcount += 1
+        
+        coll.update_one({"_id": doc["_id"]}, {"$set": update_fields})
+        updated += 1
+    
+    return {
+        "message": f"Regenerated keywords for {updated} articles",
+        "total_updated": updated,
+        "skipped_manual": len(list(coll.find({"keywords_source": "manual"}))) if only_auto else 0,
+        "backfilled_word_count": backfilled_wordcount,
+    }
 
 
 # ------------------------- Global tags admin (PUBLIC counts, admin writes) -------------------------
@@ -2941,7 +3244,7 @@ async def get_news_full_seo(news_id: str, db_client: MongoClient = Depends(db.ge
     canonical_url = doc.get("canonical_url_override") or f"{NEWS_BASE_URL}/news/{slug}"
     description = doc.get("meta_description") or _extract_meta_description(doc.get("content", ""))
     image_url = doc.get("image_url", "")
-    keywords = doc.get("keywords") or _extract_keywords(title, doc.get("content", ""), doc.get("categories", ""))
+    keywords = doc.get("keywords") or _build_keywords_from_focus(doc.get("focus_keyword"), doc.get("categories", ""))
     
     return {
         "meta": {
@@ -2981,7 +3284,10 @@ async def get_news_full_seo(news_id: str, db_client: MongoClient = Depends(db.ge
             "reading_time_minutes": doc.get("reading_time_minutes") or _calculate_reading_time(_calculate_word_count(doc.get("content", ""))),
             "focus_keyword": doc.get("focus_keyword"),
             "is_breaking_news": doc.get("is_breaking_news", False),
-            "is_opinion": doc.get("is_opinion", False)
+            "is_opinion": doc.get("is_opinion", False),
+            "keywords_source": doc.get("keywords_source", "auto"),
+            "keywords_csv": ", ".join(keywords) if keywords else "",
+            "total_keywords": len(keywords) if keywords else 0,
         }
     }
 
