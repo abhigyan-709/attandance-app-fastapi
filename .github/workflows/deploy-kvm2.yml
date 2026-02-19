@@ -12,46 +12,75 @@ concurrency:
 
 env:
   APP_NAME: news-api
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/news-api
+  CONTAINER_PORT: "8000"
+  HOST_PORT: "8000"
 
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
 
     steps:
-      - uses: actions/checkout@v4
+      - name: "📋 Checkout code"
+        uses: actions/checkout@v4
 
-      # 🐳 Build Docker image
-      - name: Build image
+      - name: "🔑 [1/4] Login to GHCR"
         run: |
-          docker builder prune -af || true
-          docker build --no-cache --pull -t news-api:latest .
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          echo "✅ Logged into ghcr.io"
 
-      # 📦 Save image
-      - name: Save image
-        run: docker save news-api:latest | gzip > image.tar.gz
+      - name: "🐳 [2/4] Build & Push Docker image"
+        run: |
+          echo "::group::Docker Build & Push"
+          START=$SECONDS
+          echo "⏱️  Started at: $(date -u '+%H:%M:%S UTC')"
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-      # 🚀 Deploy to KVM2
-      - name: Deploy to Hostinger
+          IMAGE="${{ env.IMAGE_NAME }}"
+          SHA_TAG="${IMAGE}:${{ github.sha }}"
+          LATEST_TAG="${IMAGE}:latest"
+
+          docker build \
+            --progress=plain \
+            -t "${SHA_TAG}" \
+            -t "${LATEST_TAG}" .
+
+          BUILD_ELAPSED=$(( SECONDS - START ))
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "✅ Image built in ${BUILD_ELAPSED}s"
+          docker images "${LATEST_TAG}" --format "   Size: {{.Size}}"
+
+          echo ""
+          echo "📤 Pushing to GHCR..."
+          PUSH_START=$SECONDS
+          docker push "${SHA_TAG}"
+          docker push "${LATEST_TAG}"
+          PUSH_ELAPSED=$(( SECONDS - PUSH_START ))
+          echo "✅ Pushed in ${PUSH_ELAPSED}s"
+
+          TOTAL=$(( SECONDS - START ))
+          echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          echo "🏁 Build + Push total: ${TOTAL}s"
+          echo "::endgroup::"
+
+      - name: "🔄 [3/4] Deploy container"
         env:
           HOST: ${{ secrets.HOSTINGER_HOST }}
-          USER: root
+          USER: ${{ secrets.HOSTINGER_USER }}
           PRIVATE_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "::group::Remote Deploy"
           echo "$PRIVATE_KEY" > key.pem
           chmod 600 key.pem
-          scp -o StrictHostKeyChecking=no -i key.pem image.tar.gz $USER@$HOST:/tmp/
 
-          ssh -o StrictHostKeyChecking=no -i key.pem $USER@$HOST << 'EOF'
-          set -e
+          IMAGE="${{ env.IMAGE_NAME }}:latest"
 
-          echo "Loading Docker image..."
-          docker load < /tmp/image.tar.gz
-
-          docker stop news-api || true
-          docker rm news-api || true
-
-          echo "Creating env file..."
-          cat > /root/backend.env << 'EOT'
+          # Create env file locally and SCP it (avoids heredoc escaping issues with secrets)
+          cat > /tmp/backend.env << 'EOT'
           ADMIN_API_TOKEN=${{ secrets.ADMIN_API_TOKEN }}
           AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -87,18 +116,90 @@ jobs:
           ENVIRONMENT=production
           EOT
 
-          echo "Running container..."
-          docker run -d \
-            --name news-api \
-            -p 8000:8000 \
-            --restart unless-stopped \
-            --env-file /root/backend.env \
-            --add-host=host.docker.internal:host-gateway \
-            news-api:latest
+          scp -o StrictHostKeyChecking=no -i key.pem /tmp/backend.env $USER@$HOST:/root/backend.env
 
-          docker ps
+          ssh -o StrictHostKeyChecking=no -o ConnectTimeout=30 -o ServerAliveInterval=15 -o ServerAliveCountMax=3 -i key.pem $USER@$HOST << DEPLOY
+            set -e
 
-          docker image prune -f
-          EOF
+            step() { echo ""; echo "━━━ \$1 ━━━"; echo "⏱️  \$(date -u '+%H:%M:%S UTC')"; }
 
-          rm -f key.pem image.tar.gz
+            DEPLOY_START=\$SECONDS
+
+            step "DISK SPACE"
+            df -h / | tail -1 | awk '{printf "   Total: %s | Used: %s (%s) | Free: %s\n", \$2, \$3, \$5, \$4}'
+
+            step "LOGIN TO GHCR"
+            echo "${GHCR_TOKEN}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+            echo "   ✅ Logged into ghcr.io"
+
+            step "PULLING IMAGE"
+            PULL_START=\$SECONDS
+            docker pull ${IMAGE}
+            echo "   ✅ Pulled in \$(( SECONDS - PULL_START ))s"
+
+            step "DOCKER IMAGES"
+            docker images --format "   {{.Repository}}:{{.Tag}}  {{.Size}}  ({{.CreatedSince}})" | head -5
+
+            step "STOPPING OLD CONTAINER"
+            if docker ps -q --filter name=news-api | grep -q .; then
+              docker stop news-api && docker rm news-api
+              echo "   ✅ Old container removed"
+            else
+              echo "   ℹ️  No running container found"
+              docker rm news-api 2>/dev/null || true
+            fi
+
+            step "STARTING NEW CONTAINER"
+            CONTAINER_ID=\$(docker run -d \
+              --name news-api \
+              -p ${{ env.HOST_PORT }}:${{ env.CONTAINER_PORT }} \
+              --restart unless-stopped \
+              --env-file /root/backend.env \
+              --add-host=host.docker.internal:host-gateway \
+              ${IMAGE})
+            echo "   Container ID: \${CONTAINER_ID:0:12}"
+
+            step "HEALTH CHECK"
+            HEALTHY=false
+            for i in 1 2 3 4 5 6; do
+              sleep 5
+              STATUS=\$(docker inspect --format='{{.State.Status}}' news-api 2>/dev/null || echo "unknown")
+              if [ "\$STATUS" != "running" ]; then
+                echo "   ❌ Container status: \$STATUS"
+                echo "   --- Last 30 lines of logs ---"
+                docker logs --tail 30 news-api 2>&1 || true
+                exit 1
+              fi
+              if curl -sf -o /dev/null -w "   Attempt \${i}: HTTP %{http_code} in %{time_total}s\n" http://localhost:${{ env.HOST_PORT }}/docs 2>/dev/null; then
+                HEALTHY=true
+                break
+              fi
+              echo "   Attempt \${i}: not ready yet..."
+            done
+
+            if \$HEALTHY; then
+              echo "   ✅ API is healthy and responding!"
+            else
+              echo "   ⚠️  API didn't respond after 30s — check manually"
+              echo "   --- Container logs ---"
+              docker logs --tail 50 news-api 2>&1 || true
+            fi
+
+            step "CONTAINER STATUS"
+            docker ps --filter name=news-api --format "   Status: {{.Status}} | Ports: {{.Ports}}"
+
+            step "CLEANUP"
+            PRUNED=\$(docker image prune -f 2>&1 | tail -1)
+            echo "   \$PRUNED"
+
+            echo ""
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "🚀 DEPLOY COMPLETE in \$(( SECONDS - DEPLOY_START ))s"
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+          DEPLOY
+
+          echo "::endgroup::"
+
+      - name: "🧹 [4/4] Cleanup"
+        if: always()
+        run: rm -f key.pem /tmp/backend.env
