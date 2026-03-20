@@ -1934,6 +1934,7 @@ async def increment_news_views(
 
     return {"views": current_views}
 
+# deploymnet again with new secrets
 
 @news_router.post("/news/{news_id}/likes", response_model=dict, tags=["News"])
 async def increment_news_likes(
