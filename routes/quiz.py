@@ -31,22 +31,26 @@ def get_redis_credentials():
         print(f"Error fetching Redis credentials: {e}")
         return None
 
-# Load Redis credentials
+# Load Redis credentials (optional — app starts without Redis)
 secrets = get_redis_credentials()
+redis_client = None
 if secrets:
     REDIS_HOST = secrets["REDIS_HOST"]
     REDIS_PORT = int(secrets["REDIS_PORT"])
     REDIS_PASSWORD = secrets["REDIS_PASSWORD"]
+    try:
+        redis_client = redis.StrictRedis(
+            host=REDIS_HOST,
+            port=REDIS_PORT,
+            password=REDIS_PASSWORD,
+            decode_responses=True,
+        )
+        redis_client.ping()
+    except Exception as e:
+        print(f"Warning: Redis not available: {e}")
+        redis_client = None
 else:
-    raise Exception("Could not retrieve Redis credentials.")
-
-# Connect to Redis
-redis_client = redis.StrictRedis(
-    host=REDIS_HOST,
-    port=REDIS_PORT,
-    password=REDIS_PASSWORD,
-    decode_responses=True
-)
+    print("Warning: Redis credentials not found. Quiz Redis features disabled.")
 
 # Store active WebSocket connections
 active_connections: List[WebSocket] = []
@@ -123,6 +127,9 @@ async def submit_quiz(
         "submitted_at": submitted_time.isoformat(),
     }
 
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Redis is not configured. Quiz submissions unavailable.")
+
     # Store in Redis (List for batch processing)
     redis_client.rpush("quiz_responses", json.dumps(response_doc))
 
@@ -141,6 +148,8 @@ async def submit_quiz(
 
 # Background task to process Redis responses and insert into MongoDB
 def process_redis_quiz_responses():
+    if not redis_client:
+        return
     db_client = db.get_client()
     while redis_client.llen("quiz_responses") > 0:
         response_json = redis_client.lpop("quiz_responses")
@@ -155,6 +164,8 @@ def process_redis_quiz_responses():
 async def get_quiz_attempt_count(
     current_user: User = Depends(get_current_user)
 ):
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Redis is not configured.")
     attempt_counts = redis_client.hgetall(f"user:{current_user.username}:quiz_attempts")
     total_attempts = sum(map(int, attempt_counts.values())) if attempt_counts else 0
 
@@ -166,6 +177,8 @@ async def get_quiz_attempt_count(
 async def get_correct_quiz_attempt_count(
     current_user: User = Depends(get_current_user)
 ):
+    if not redis_client:
+        raise HTTPException(status_code=503, detail="Redis is not configured.")
     correct_counts = redis_client.hgetall(f"user:{current_user.username}:correct_quiz_attempts")
     total_correct = sum(map(int, correct_counts.values())) if correct_counts else 0
 
