@@ -25,7 +25,6 @@ python-jose==3.3.0
 
 # Database & Storage
 pymongo==4.11.1
-redis==5.2.1
 
 # AWS Services
 boto3==1.37.10

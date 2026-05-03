@@ -12,6 +12,8 @@ from typing import List, Optional, Any, Dict
 from datetime import datetime
 from bson import ObjectId
 from pymongo import ReturnDocument
+from pymongo.errors import PyMongoError
+import logging
 
 from database.db import db
 from routes.user import get_current_user
@@ -48,6 +50,7 @@ from routes.config import (
 import mimetypes
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 client = db.get_client()
 database = client[db.db_name]
@@ -138,8 +141,10 @@ def ensure_indexes() -> None:
     product_collection.create_index("price")
 
 
-# Create indexes at import time (idempotent)
-ensure_indexes()
+try:
+    ensure_indexes()
+except PyMongoError as exc:
+    logger.warning("Skipping product/vendor index creation during startup: %s", exc)
 
 
 def ensure_cart_indexes() -> None:
@@ -148,7 +153,10 @@ def ensure_cart_indexes() -> None:
     cart_collection.create_index("vendor_id")
     cart_collection.create_index("updated_at")
 
-ensure_cart_indexes()
+try:
+    ensure_cart_indexes()
+except PyMongoError as exc:
+    logger.warning("Skipping cart index creation during startup: %s", exc)
 
 
 #-----------------Order Serialization-----------------#
@@ -188,7 +196,10 @@ def ensure_order_indexes() -> None:
     order_collection.create_index("status")
     order_collection.create_index("created_at") #if not worked remove
 
-ensure_order_indexes()
+try:
+    ensure_order_indexes()
+except PyMongoError as exc:
+    logger.warning("Skipping order index creation during startup: %s", exc)
 
 def serialize_cart(doc: Dict[str, Any]) -> Dict[str, Any]:
     if not doc:
