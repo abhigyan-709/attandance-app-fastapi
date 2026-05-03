@@ -1,5 +1,5 @@
 # models/sql_gen.py
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional, Literal
 
 Dialect = Literal[
@@ -13,10 +13,13 @@ Dialect = Literal[
 ]
 
 class SQLGenRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     natural_language: str = Field(..., description="User request in plain English")
     dialect: Dialect = Field("postgresql", description="Target SQL dialect")
-    schema: Optional[str] = Field(
+    schema_text: Optional[str] = Field(
         None,
+        alias="schema",
         description="Optional schema/DDL description (CREATE TABLEs etc.)"
     )
     tables: Optional[List[str]] = None

@@ -336,49 +336,6 @@ scheduler.start()
 """
 
 """
-Example: Using Celery
-
-from celery import Celery
-from database.db import db
-
-app = Celery('govt_jobs_tasks', broker='redis://localhost:6379/0')
-
-@app.task
-def update_job_statuses():
-    db_client = db.get_client()
-    maintenance = JobMaintenanceTasks(db_client)
-    return maintenance.update_job_statuses()
-
-@app.task
-def update_job_flags():
-    db_client = db.get_client()
-    maintenance = JobMaintenanceTasks(db_client)
-    return maintenance.update_job_flags()
-
-@app.task
-def run_scraping():
-    db_client = db.get_client()
-    scraping = ScrapingScheduler(db_client)
-    return scraping.run_scheduled_scraping()
-
-# Configure periodic tasks in celery beat
-app.conf.beat_schedule = {
-    'update-statuses-daily': {
-        'task': 'update_job_statuses',
-        'schedule': crontab(hour=1, minute=0),
-    },
-    'update-flags-6h': {
-        'task': 'update_job_flags',
-        'schedule': 21600.0,  # 6 hours
-    },
-    'scrape-jobs-4h': {
-        'task': 'run_scraping',
-        'schedule': 14400.0,  # 4 hours
-    },
-}
-"""
-
-"""
 Example: Manual execution via FastAPI endpoint
 
 @app.post("/admin/maintenance/run-all")

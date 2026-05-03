@@ -12,7 +12,6 @@ from routes.visitors import router4 as visitor_router
 from routes.meet import router6 as meet_router  # Import the dependency
 from routes.attendance import router7 as attendance_router
 from routes.notes import router10 as notes_router
-from routes.quiz import router17
 from routes.feedback import router18
 from routes.forgot_username import router
 from routes.blogs import blog_router
@@ -151,7 +150,6 @@ app.include_router(visitor_router, prefix="/api", tags=["Visitors"])
 app.include_router(meet_router, prefix="/api", tags=["Google Meet"])
 app.include_router(attendance_router, prefix="/api", tags=["Attendance"])
 app.include_router(notes_router, prefix="/api", tags=["Notes"])
-app.include_router(router17)
 app.include_router(router18)
 app.include_router(router)
 app.include_router(product.router)

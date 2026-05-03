@@ -41,6 +41,5 @@ class Employees(BaseModel):
     esi_account_number: Optional[str] = None
 
     class Config:
-        orm_mode = True
-
+        from_attributes = True
 

@@ -20,7 +20,7 @@ class User(BaseModel):
     articles_count: Optional[int] = 0  # Total articles written
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 
 class UserProfileUpdate(BaseModel):
@@ -41,7 +41,7 @@ class UserProfileUpdate(BaseModel):
     author_social_links: Optional[dict] = None
 
     class Config:
-        orm_mode = True
+        from_attributes = True
         json_schema_extra = {
             "example": {
                 "first_name": "Rahul",

@@ -69,7 +69,7 @@ def generate_sql(req: SQLGenRequest) -> SQLGenResponse:
 
     prompt = PROMPT_TEMPLATE.format(
         dialect=req.dialect,
-        schema=req.schema or "N/A",
+        schema=req.schema_text or "N/A",
         nl=req.natural_language,
         tables=", ".join(req.tables) if req.tables else "N/A",
         max_rows=req.max_rows or "N/A",

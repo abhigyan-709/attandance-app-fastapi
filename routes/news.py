@@ -24,7 +24,7 @@ from fastapi import (
     UploadFile,
     Body,
 )
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pymongo import MongoClient, DESCENDING, ASCENDING
 
 from database.db import db
@@ -925,6 +925,11 @@ async def create_news(
 # ====================================================================================
 
 # ------------------------- Read/list (PUBLIC) -------------------------
+@news_router.head("/news", include_in_schema=False)
+async def head_news():
+    return Response(status_code=200)
+
+
 @news_router.get("/news", response_model=List[NewsPost], tags=["News"])
 async def get_news(
     request: Request,

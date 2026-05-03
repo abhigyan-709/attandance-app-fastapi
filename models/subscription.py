@@ -10,7 +10,7 @@ class Courses(BaseModel):
     payment_link: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
         arbitrary_types_allowed = True
 
 # live editing
@@ -33,7 +33,7 @@ class UserSubscription(BaseModel):
     is_active : bool = False
 
     class Config:
-        orm_mode = True
+        from_attributes = True
         arbitrary_types_allowed = True
 
 
